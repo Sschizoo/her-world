@@ -4,7 +4,9 @@
   const canvas = document.getElementById('world-canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-  let width = 680, height = 660, frame = 0, last = 0, paused = false, progress = 0, rain = 'normal', raf;
+  let width = 680, height = 660, frame = 0, last = 0, paused = false, progress = 0, targetProgress = 0, raf;
+  let density = 0, targetDensity = 0, speed = .5, targetSpeed = .5;
+  const weather = { normal: { density: .7, speed: 1 }, heavy_rain: { density: 1, speed: 1.8 }, soft_rain: { density: .38, speed: .55 }, pause_rain: { density: 0, speed: .4 } };
   const rng = (seed) => { let s = seed; return () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646; };
   const random = rng(4147);
   const drops = Array.from({ length: 330 }, () => ({ x: random() * 800, y: random() * 680, length: 4 + random() * 17, speed: .35 + random() * 1.4, alpha: .08 + random() * .36 }));
@@ -52,12 +54,13 @@
     for(const s of stars){ctx.globalAlpha=s.a;ctx.fillStyle=s.warm?'#c29b65':'#6b929f';ctx.fillRect(s.x,s.y,1,1);}ctx.globalAlpha=1;
     // Monospaced glyphs and pixel rain provide the reference's terminal texture.
     ctx.font='8px monospace';ctx.fillStyle='#678797';
-    if(rain!=='pause_rain') for(const d of drops){const speed=rain==='heavy_rain'?1.8:rain==='soft_rain'?.55:1;const y=(d.y+frame*d.speed*speed)%630;ctx.globalAlpha=d.alpha*(rain==='soft_rain'?.65:1);ctx.fillRect(d.x,y,1,d.length);if(Math.floor(d.x)%4===0)ctx.fillText(':',d.x-1,y-4);}
+    if(density>.005) for(let i=0;i<drops.length;i++){const d=drops[i],visibility=Math.max(0,Math.min(1,(density-i/drops.length)*14));if(!visibility)continue;const y=(d.y+frame*d.speed)%630;ctx.globalAlpha=d.alpha*visibility;ctx.fillRect(d.x,y,1,d.length);if(Math.floor(d.x)%4===0)ctx.fillText(':',d.x-1,y-4);}
     ctx.globalAlpha=1;ctx.restore();
   }
   function resize(){const box=canvas.getBoundingClientRect();width=Math.max(1,box.width);height=Math.max(1,box.height);const dpr=Math.min(window.devicePixelRatio||1,2);canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);scene();}
-  function tick(now){if(!paused&&!document.hidden&&now-last>48){frame+=1;scene();last=now;}raf=requestAnimationFrame(tick);}
+  function tick(now){if(!paused&&!document.hidden&&now-last>48){progress+=(targetProgress-progress)*.08;density+=(targetDensity-density)*.075;speed+=(targetSpeed-speed)*.07;frame+=speed;scene();last=now;}raf=requestAnimationFrame(tick);}
   new ResizeObserver(resize).observe(canvas);resize();raf=requestAnimationFrame(tick);
-  window.HerWorld={setProgress(value){progress=Math.min(1,Math.max(0,value));scene();},setRain(value){rain=value||'normal';scene();},pause(value){paused=Boolean(value);scene();}};
+  window.HerWorld={setProgress(value){targetProgress=Math.min(1,Math.max(0,value));if(paused)progress=targetProgress;scene();},setRain(value){const target=weather[value]||weather.normal;targetDensity=target.density;targetSpeed=target.speed;if(paused){density=targetDensity;speed=targetSpeed;}scene();},pause(value){paused=Boolean(value);if(paused){progress=targetProgress;density=targetDensity;speed=targetSpeed;}scene();}};
   window.addEventListener('pagehide',()=>cancelAnimationFrame(raf));
+  window.addEventListener('pageshow',event=>{if(event.persisted){cancelAnimationFrame(raf);raf=requestAnimationFrame(tick);}});
 })();
