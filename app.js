@@ -5,6 +5,7 @@
   let state = { version: 2, started: false, decisions: [], logVisits: [], opening: [] };
   let mode = 'unconnected', panel = 'dialogue', busy = false, pending = null, operation = 0, saveAvailable = true, storageNotice = '', previousMemoryCount = 0, toastTimer;
   let paused = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let renderedMessages = [];
   const textClean = text => String(text || '').normalize('NFC').replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, '').trim();
   const chars = text => [...text];
   const isLines = value => Array.isArray(value) && value.length <= 3 && value.every(line => typeof line === 'string' && line.length <= 500);
@@ -76,13 +77,19 @@
     $('disconnect-button').hidden = !HerAI.connected();
   }
   function renderTranscript(view) {
-    const transcript = $('transcript'); transcript.replaceChildren();
-    for (const item of view.messages) {
+    const transcript = $('transcript');
+    const signatures = view.messages.map(item => `${item.role}|${item.index}|${item.text}`);
+    const appendOnly = renderedMessages.length <= signatures.length && renderedMessages.every((value, index) => value === signatures[index]);
+    const startAt = appendOnly ? renderedMessages.length : 0;
+    if (!appendOnly) transcript.replaceChildren();
+    for (const child of [...transcript.children]) if (child.className.includes('thinking')) child.remove();
+    for (const item of view.messages.slice(startAt)) {
       if (item.role === 'system') { transcript.append(element('div', 'message system', item.text)); continue; }
       const row = element('div', `message ${item.role === 'user' ? 'you' : 'her'}`);
       row.append(element('span', 'time', stamp(item.index)), element('span', 'speaker', item.role === 'user' ? '你' : item.index < 7 ? '她' : '她'), element('span', 'message-text', item.text));
       transcript.append(row);
     }
+    renderedMessages = signatures;
     if (busy) { const row = element('div', 'message thinking', mode === 'offline' ? '· · ·' : '· · · 等待回应'); row.setAttribute('aria-label', '正在等待回应'); transcript.append(row); }
     requestAnimationFrame(() => { transcript.scrollTop = transcript.scrollHeight; });
   }
@@ -125,7 +132,7 @@
     $('world-status').textContent = index >= STORY.length ? 'memory retained' : index >= 5 ? 'weather.patch(shared)' : index >= 3 ? 'rain.render()' : 'world.build = incomplete';
     $('world-code').textContent = index >= 8 ? 'gc.retain("first_rain");' : index >= 5 ? 'world.patch.author = "shared";' : 'const world = await you;';
     if (state.started) renderTranscript(view); renderChoices(view); renderLogs(view); renderMemory(view);
-    HerWorld?.setProgress(index / STORY.length); HerWorld?.setRain(view.effect); updateStatus();
+    window.HerWorld?.setProgress(index / STORY.length); window.HerWorld?.setRain(view.effect); updateStatus();
   }
   function setPanel(next) {
     panel = next; const open = next !== 'dialogue';
@@ -169,6 +176,7 @@
     if (version !== operation || item.index !== state.decisions.length) return;
     state.decisions.push({ ...item.decision, lines, mode: mode === 'ai' ? 'ai' : 'offline' }); busy = false; pending = null; $('free-input').value = ''; save(); render();
     if (panel === 'logs') setPanel('logs');
+    $('choices').querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
   }
   $('start-button').addEventListener('click', start);
   $('ai-status-button').addEventListener('click', chooseMode);
@@ -191,7 +199,7 @@
   $('connect-dialog').addEventListener('close', () => { $('api-key').value = ''; if (pending && mode === 'unconnected') pending = null; });
   $('reset-button').addEventListener('click', () => $('reset-dialog').showModal());
   $('confirm-reset').addEventListener('click', () => { operation++; HerAI.disconnect(); mode = 'unconnected'; busy = false; pending = null; state = { version: 2, started: false, decisions: [], logVisits: [], opening: [] }; $('api-key').value = ''; $('request-error').hidden = true; $('reset-dialog').close(); previousMemoryCount = 0; setPanel('dialogue'); save(); render(); $('start-button').focus(); });
-  function updateMotion() { document.documentElement.classList.toggle('motion-paused', paused); $('motion-toggle').setAttribute('aria-pressed', String(paused)); $('motion-toggle').setAttribute('aria-label', paused ? '播放场景动画' : '暂停场景动画'); $('motion-toggle').title = paused ? '播放场景动画' : '暂停场景动画'; HerWorld?.pause(paused); }
+  function updateMotion() { document.documentElement.classList.toggle('motion-paused', paused); $('motion-toggle').setAttribute('aria-pressed', String(paused)); $('motion-toggle').setAttribute('aria-label', paused ? '播放场景动画' : '暂停场景动画'); $('motion-toggle').title = paused ? '播放场景动画' : '暂停场景动画'; window.HerWorld?.pause(paused); }
   $('motion-toggle').addEventListener('click', () => { paused = !paused; updateMotion(); });
   window.addEventListener('pagehide', () => { $('api-key').value = ''; });
   window.addEventListener('pageshow', event => { if (event.persisted) { mode = 'unconnected'; busy = false; pending = null; operation++; $('request-error').hidden = true; render(); } });

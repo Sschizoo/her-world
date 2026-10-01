@@ -93,7 +93,7 @@
         { id: 'not_bug', label: '看起来，这不是一个故障', reply: ['它没有让程序停止，也没有影响其他东西。', '那我能不能先不把它归进需要修复的那一栏？'], logs: ['diagnostic.classify("first_rain", "memory")'], tone: 'quiet' },
         { id: 'check_cost', label: '只要不会影响运行，就先留着', reply: ['占用很小。比一张空白贴图还小。', '我会留意它的边界，不让一段记忆占满整个世界。'], logs: ['first_rain.size = "small"', 'world.capacity.reserve()  // 后面还会有别的事'], tone: 'curious' }
       ],
-      logs: ['memory.inspect()', 'first_rain.name = "{{rainName}}"', 'first_rain.source = "shared_edit"', 'gc.roots.add("first_rain")  // 她没有收到保存它的指令', '// 但下一次看见雨时，她想记得第一场是什么样子']
+      logs: ['gc.scan()', '[discard] weather.temporary_buffer', '[retain] memory_001 : first_rain', 'first_rain.name = "{{rainName}}"', 'reference_count: 1', 'gc.roots.add("first_rain")  // 她没有收到保存它的指令', '// 但下一次看见雨时，她想记得第一场是什么样子']
     },
     {
       id: 'her_choice', day: '01', title: '一个自己的理由',
