@@ -228,7 +228,7 @@
   function renderPresentation() {
     const view = snapshot(revealedCount), index = view.index;
     softText('connection-label', state.started ? index >= STORY.length ? 'CONNECTION REMEMBERED' : 'PROCESS / INCOMPLETE' : 'WAITING FOR YOU');
-    softText('progress-label', state.started ? `PROLOGUE v0.2.1 / ${Math.round(index / STORY.length * 100)}%` : 'PROLOGUE v0.2.1 / 5–10 分钟');
+    softText('progress-label', state.started ? `PROLOGUE v0.2.2 / ${Math.round(index / STORY.length * 100)}%` : 'PROLOGUE v0.2.2 / 5–10 分钟');
     softText('world-caption', index >= 6 ? `「${view.name}」` : index >= 3 ? '第一次一起看雨' : '一扇尚未被命名的窗');
     softText('world-status', index >= STORY.length ? 'memory retained' : index >= 5 ? 'weather.patch(shared)' : index >= 3 ? 'rain.render()' : 'world.build = incomplete');
     softText('world-code', index >= 8 ? 'gc.retain("first_rain");' : index >= 5 ? 'world.patch.author = "shared";' : 'const world = await you;');

@@ -2,7 +2,7 @@
 
 ## Automated, mock-only
 
-21 application interaction/pacing checks, 3 world-animation checks and 18 AI transport checks (42 total). All automated tests used mocks; no real provider credential was used.
+21 application interaction/pacing checks, 5 character-world checks and 18 AI transport checks (44 total). All automated tests used mocks; no real provider credential was used.
 
 Application: three complete authored routes; named rain as plain text; empty/overlong names; log discovery gate; duplicate-click guard; refresh restoring progress without a key; unavailable/corrupt storage; mock AI key clearing and absence from save; explicit AI failure-to-offline recovery; reset confirmation; keyboard tabs and reduced motion; model text cannot alter progression; nine-scene free-input route; exact free input passed to a mocked AI response.
 
@@ -15,7 +15,7 @@ node --test tests/app.test.cjs tests/world.test.cjs
 node tests/ai.test.cjs
 ```
 
-Additional v0.2.1 checks: Unicode-by-character reveal; sequential sentence order; skip/held-Space safety; stale double clicks and free-send lock; refresh mid-reveal; reduced motion/pause settlement; sequential log gates; opening AI before authored prompts; immediate opening failure→retry/offline; smooth world targets and bfcache resume; known HTTP status surviving cleanup failure; known response-read interruption distinguished from status-unavailable fetch errors; local rejection of full headers/prefixed/quoted credential input.
+Additional v0.2.1/v0.2.2 checks: Unicode-by-character reveal; sequential sentence order; skip/held-Space safety; stale double clicks and free-send lock; refresh mid-reveal; reduced motion/pause settlement; sequential log gates; opening AI before authored prompts; immediate opening failure→retry/offline; smooth world targets and bfcache resume; every scene mark is printable ASCII in one neutral hue over a black clear; tall/open-drawer desktop geometry; known HTTP status surviving cleanup failure; known response-read interruption distinguished from status-unavailable fetch errors; local rejection of full headers/prefixed/quoted credential input.
 
 ## Browser verification
 
@@ -23,7 +23,7 @@ Desktop browser is the target, including 1366×768, 1440×900 and larger screens
 
 Local Chromium launch and localhost access were blocked by the development environment, so automated local pixel screenshots could not be captured there. The mock DOM harness does not verify layout. The prior release’s public Pages desktop inspection subsequently passed: full offline route completed (initial two scenes checked by the publishing reviewer, remaining scenes and ending checked by the implementation worker), named rain, log gate, free text, anonymous-memory choice, drawer layouts, replay Cancel and refresh restoration. No application-origin console errors observed; the cloud browser extension emitted unrelated metadata errors.
 
-The v0.2.1 paced build additionally needs a public desktop browser spot-check after deployment; automated timing checks pass.
+The v0.2.1 paced build passed a public desktop spot-check: boot/lines arrive in order, player text appears immediately, skip completes only the active sentence, controls remain locked until reveal completes, and logs appear incrementally. The v0.2.2 character-only world has passed automated drawing-surface checks and a local glyph-raster preview; public desktop screenshot verification follows deployment.
 
 Checklist: introductory screen; connect disclosure dialog; full offline path; rain naming; log drawer with narrow desktop height; memory card; end-of-prologue screen; refresh; cancel reset; key-free offline mode; keyboard focus.
 
