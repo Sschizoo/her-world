@@ -410,16 +410,15 @@
   }
   function view(state, through = Infinity) {
     const messages = [], logs = [], current = initial(state), max = Number.isFinite(through) ? Math.max(0, Math.floor(through)) : Infinity;
-    let visible = copy(current);
-    const capture = () => { if (messages.length <= max) visible = { ...copy(current), logs: copy(logs) }; };
+    let neutralHints = false, visible = { ...copy(current), neutralHints };
+    const capture = () => { if (messages.length <= max) visible = { ...copy(current), neutralHints, logs: copy(logs) }; };
     const add = (role, text, index) => messages.push({ role, text, index });
     if (state.started) {
       if (state.legacy) {
         messages.push(...copy(state.legacy.messages)); logs.push(...copy(state.legacy.logs)); capture();
       } else {
         add('system', 'boot() → build: incomplete / input: connected', 0);
-        state.opening.forEach(text => add('her', text, 0));
-        (scene('boot')?.prompt || ['……启动完成。']).filter(text => !state.opening.includes(text)).forEach(text => add('her', text, 0));
+        (state.opening.length ? state.opening : scene('boot')?.prompt || ['……启动完成。']).forEach(text => add('her', text, 0));
         (scene('boot')?.logs || []).forEach(text => logs.push({ text, index: 0 })); capture();
       }
       state.events.forEach((event, eventIndex) => {
@@ -428,16 +427,20 @@
         const result = describe(current, event.request);
         add('user', event.request.text || label(event.request.choiceId), index);
         visibleReply(event).forEach(text => add('her', text, index));
+        // Free AI dialogue may have moved on without asserting a new topic.
+        // Keep that uncertainty in presentation; never infer story state from prose.
+        neutralHints = event.mode === 'ai' && !event.request.choiceId && !acceptedStoryIntent(result) && !result.teach && !result.action && result.topic === current.topic && !event.storyIntent && !event.answer && !event.action;
         applyTurn(current, result, event).forEach(text => logs.push({ text, index })); capture();
       });
     }
     const rain = { name: visible.name, density: visible.density, paused: visible.paused, created: visible.created };
-    return { messages, logs: visible.logs || [], memories: visible.memories, name: visible.name, effect: !visible.created || visible.paused ? 'pause_rain' : { gentle: 'soft_rain', normal: 'normal', heavy: 'heavy_rain' }[visible.density], rain, index: visible.milestones.length, sceneIndex: TOPICS.indexOf(visible.topic), milestones: visible.milestones, maxMilestones: MILESTONES.length, topic: visible.topic, pendingTopic: visible.pendingTopic || null, ended: visible.ended, logsEligible: eligible(visible), tone: 'quiet', status: !state.started ? '等待连接' : visible.ended ? '暂别 · 随时可以继续聊' : visible.created ? `雨${visible.paused ? '暂时停着' : '正在落下'} · 可以自由交谈` : '第一次相遇 · 不必急着往下走' };
+    return { messages, logs: visible.logs || [], memories: visible.memories, name: visible.name, effect: !visible.created || visible.paused ? 'pause_rain' : { gentle: 'soft_rain', normal: 'normal', heavy: 'heavy_rain' }[visible.density], rain, index: visible.milestones.length, sceneIndex: TOPICS.indexOf(visible.topic), milestones: visible.milestones, maxMilestones: MILESTONES.length, topic: visible.topic, pendingTopic: visible.pendingTopic || null, ended: visible.ended, neutralHints: visible.neutralHints, logsEligible: eligible(visible), tone: 'quiet', status: !state.started ? '等待连接' : visible.ended ? '暂别 · 随时可以继续聊' : visible.created ? `雨${visible.paused ? '暂时停着' : '正在落下'} · 可以自由交谈` : '第一次相遇 · 不必急着往下走' };
   }
   function suggestions(state) {
     if (!state?.started || state.events.length >= MAX_EVENTS) return [];
     const current = derive(state); let ids;
-    if (current.ended) ids = ['continue_chat', 'topic_rain', 'topic_memory'];
+    if (view(state).neutralHints) ids = ['continue_chat', 'topic_unfinished', 'topic_rain', ...(current.created ? ['topic_name', 'topic_memory'] : [])];
+    else if (current.ended) ids = ['continue_chat', 'topic_rain', 'topic_memory'];
     else if (current.topic === 'boot') ids = ['hello', 'inspect', 'not_author', 'topic_unfinished', 'topic_rain'];
     else if (current.topic === 'unfinished') ids = ['small_start', 'leave_gaps', 'ask_her', 'topic_rain'];
     else if (current.topic === 'teach_rain' && !current.created) ids = [...(current.milestones.includes('rain_taught') ? ['render_rain'] : []), 'water', 'sound', 'shelter'];

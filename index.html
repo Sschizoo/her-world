@@ -7,13 +7,13 @@
   <meta name="description" content="她的世界：一段关于雨、记忆与被保留的引用的互动叙事。">
   <title>她的世界 · HER WORLD</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=0.3.2">
-  <script src="./story.js?v=0.3.2" defer></script>
-  <script src="./engine.js?v=0.3.2" defer></script>
-  <script src="./focus.js?v=0.3.2" defer></script>
-  <script src="./ai.js?v=0.3.2" defer></script>
-  <script src="./world.js?v=0.3.2" defer></script>
-  <script src="./app.js?v=0.3.2" defer></script>
+  <link rel="stylesheet" href="./styles.css?v=0.3.3">
+  <script src="./story.js?v=0.3.3" defer></script>
+  <script src="./engine.js?v=0.3.3" defer></script>
+  <script src="./focus.js?v=0.3.3" defer></script>
+  <script src="./ai.js?v=0.3.3" defer></script>
+  <script src="./world.js?v=0.3.3" defer></script>
+  <script src="./app.js?v=0.3.3" defer></script>
 </head>
 <body>
   <a class="skip" href="#choices">跳到当前选择</a>
@@ -74,7 +74,7 @@
     </section>
     <footer class="statusbar"><button class="chapter-status" id="ai-status-button" title="连接模式与 Key 设置">未连接 · 选择试玩模式</button><div><button id="reset-button" hidden>重新开始</button><span class="save-status" id="save-status"><i aria-hidden="true"></i> LOCAL SAVE · 本地保存</span></div></footer>
   </main>
-  <dialog id="about-dialog" aria-labelledby="about-title"><button class="dialog-close" data-close="about-dialog" aria-label="关闭">×</button><div class="eyebrow">HER WORLD / PROLOGUE v0.3.2</div><h2 id="about-title">有些东西，值得留着。</h2><p>这是一段可以慢慢停留的原创互动序章。你将唤醒一个未完成的程序，和她一起理解、修改并命名一场雨。雨的能力可反复使用，聊天不会自动跳到下一个问题。</p><p>打开底部的「运行日志」，看看语言之外发生了什么。你可以随时停下，下次从同一浏览器继续。</p><p class="muted">AI 模式由你自己的 DMXAPI Key 提供实时回应；天气和记忆由本地校验的事件控制。离线模式使用作者编写的分支文本。关注比例只根据游戏内已发生的对话与变化计算；运行日志是叙事内容，两者都不是模型的真实思维过程。故事结局尚未确定。</p><button class="start-button" data-close="about-dialog">回到窗边 <span aria-hidden="true">↗</span></button></dialog>
+  <dialog id="about-dialog" aria-labelledby="about-title"><button class="dialog-close" data-close="about-dialog" aria-label="关闭">×</button><div class="eyebrow">HER WORLD / PROLOGUE v0.3.3</div><h2 id="about-title">有些东西，值得留着。</h2><p>这是一段可以慢慢停留的原创互动序章。你将唤醒一个未完成的程序，和她一起理解、修改并命名一场雨。雨的能力可反复使用，聊天不会自动跳到下一个问题。</p><p>打开底部的「运行日志」，看看语言之外发生了什么。你可以随时停下，下次从同一浏览器继续。</p><p class="muted">AI 模式由你自己的 DMXAPI Key 提供实时回应；天气和记忆由本地校验的事件控制。离线模式使用作者编写的分支文本。关注比例只根据游戏内已发生的对话与变化计算；运行日志是叙事内容，两者都不是模型的真实思维过程。故事结局尚未确定。</p><button class="start-button" data-close="about-dialog">回到窗边 <span aria-hidden="true">↗</span></button></dialog>
   <dialog id="connect-dialog" aria-labelledby="connect-title"><button class="dialog-close" data-close="connect-dialog" aria-label="关闭连接设置">×</button><div class="eyebrow">CONNECTION / 连接方式</div><h2 id="connect-title">让她回应，或者先听一场雨。</h2><p>AI 模式会把你输入的 Key 和本局近期对话直接发送至 <span class="endpoint">https://www.dmxapi.cn/v1/chat/completions</span>，模型固定为 glm-5.3-flash。可能产生服务商费用，每次连接开场或回应发起一次请求，单次输出上限 2048 tokens（含推理），不自动重试。</p><form id="connect-form" autocomplete="off"><label for="api-key">DMXAPI Key</label><input id="api-key" name="her-world-volatile-key" type="password" autocomplete="off" spellcheck="false" maxlength="500" placeholder="仅在此页面内存中使用" aria-describedby="key-note"><p class="muted" id="key-note">Key 不写入本地存储、网址或日志。刷新、离开页面或点击断开后需重新输入。浏览器扩展与此页面脚本仍可读取运行时信息，请使用低额度的专用 Key。服务商若禁止跨域访问，仍需要转发服务。</p><button type="submit" class="start-button" id="connect-button">连接并继续 <span aria-hidden="true">↗</span></button></form><p id="connection-error" class="connection-error" role="alert" hidden></p><div class="connect-alternatives"><button class="secondary-button" id="offline-button">先玩离线版本</button><button class="secondary-button" id="disconnect-button" hidden>断开并清除 Key</button></div><p class="muted">AI 输出与游戏选择会随进度保存在此浏览器。页面限额只是使用提醒；真实额度以服务商设置为准。</p></dialog>
   <dialog id="reset-dialog" aria-labelledby="reset-title"><div class="eyebrow">RESET / REPLAY</div><h2 id="reset-title">再认识她一次？</h2><p>这会清除这段故事在此浏览器保存的对话、选择和记忆。从第一天重新开始。</p><div class="dialog-actions"><button class="secondary-button" data-close="reset-dialog">留在这里</button><button class="start-button" id="confirm-reset">重新开始</button></div></dialog>
   <div class="toast" id="toast" role="status" hidden></div>

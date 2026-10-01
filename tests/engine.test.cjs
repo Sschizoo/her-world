@@ -548,6 +548,64 @@ test('opening does not repeat an exact AI line already present in the authored g
   assert.deepEqual(E.view(roundTrip(s)), E.view(s));
 });
 
+test('AI opening replaces authored greeting in display while offline greeting and saved source stay intact', () => {
+  const prompt = story.find(item => item.id === 'boot').prompt;
+  for (const opening of [[prompt.join(' ')], ['旧模型开场。']]) {
+    const s = E.start(E.create(), opening), source = JSON.stringify(s), restored = roundTrip(s);
+    assert.deepEqual(E.view(s).messages.map(item => item.text), ['boot() → build: incomplete / input: connected', ...opening]);
+    assert.deepEqual(E.view(restored), E.view(s)); assert.deepEqual(restored.opening, opening);
+    assert.equal(JSON.stringify(s), source); assert.deepEqual(s.events, []);
+  }
+  assert.deepEqual(E.view(fresh()).messages.map(item => item.text), ['boot() → build: incomplete / input: connected', ...prompt]);
+});
+
+test('free AI naming dialogue uses neutral hints without inferring a naming topic or answer', () => {
+  const s = rain(), before = E.view(s), text = '我们给眼前这场雨起个名字吧';
+  const next = turn(s, text, { mode: 'ai', lines: ['你想给它什么名字？'] }), v = E.view(next);
+  assert.equal(v.neutralHints, true); assert.equal(v.topic, before.topic); assert.equal(v.pendingTopic, before.pendingTopic);
+  assert.deepEqual(v.rain, before.rain); assert.deepEqual(v.memories, before.memories); assert.deepEqual(v.milestones, before.milestones);
+  assert.deepEqual(E.suggestions(next).slice(0, 3).map(item => item.id), ['continue_chat', 'topic_unfinished', 'topic_rain']);
+  assert(!E.suggestions(next).some(item => /^(?:rain_|name_)/u.test(item.id)));
+  assert.equal(next.events.length, s.events.length + 1); assert.equal(next.events.at(-1).storyIntent, null);
+  assert(!Object.hasOwn(next.events.at(-1), 'neutralHints')); assert.deepEqual(E.view(roundTrip(next)), v);
+  for (const request of ['如果我们给眼前这场雨起个名字会怎样', '先别给眼前这场雨起名字', '“我们给眼前这场雨起个名字吧”']) {
+    const hypothetical = turn(s, request, { mode: 'ai', lines: ['我们可以继续聊这个想法。'] }), display = E.view(hypothetical);
+    assert.equal(display.neutralHints, true); assert.equal(display.topic, before.topic); assert.equal(display.pendingTopic, before.pendingTopic);
+    assert.deepEqual(display.rain, before.rain); assert.deepEqual(display.milestones, before.milestones);
+  }
+});
+
+test('free AI chat after farewell clears stale hints while canonical state and pending questions survive', () => {
+  const remembered = choice(E.visitLogs(turn(rain(), '把雨叫做夜航')), 'remember_me');
+  for (const source of [fresh(), choice(rain(), 'topic_name'), remembered]) {
+    const ended = turn(source, '晚安'), before = E.view(ended);
+    const next = turn(ended, '先别改变天气，我想再坐一会儿', { mode: 'ai', lines: ['好，我们就在这里再坐一会儿。'] }), v = E.view(next);
+    assert.equal(v.ended, false); assert.equal(v.neutralHints, true); assert.equal(v.topic, 'parting');
+    assert.equal(v.pendingTopic, before.pendingTopic); assert.deepEqual(v.rain, before.rain);
+    assert.deepEqual(v.memories, before.memories); assert.deepEqual(v.milestones, before.milestones);
+    assert.equal(next.events.length, ended.events.length + 1); assert(!E.suggestions(next).some(item => item.id === 'goodbye'));
+    assert.deepEqual(E.view(roundTrip(next)), v); assert.deepEqual(E.suggestions(roundTrip(next)), E.suggestions(next));
+  }
+});
+
+test('neutral hints follow visible completed turns and explicit local or model context restores focused hints', () => {
+  const s = rain(), next = turn(s, '我们给眼前这场雨起个名字吧', { mode: 'ai', lines: ['你想给它什么名字？'] });
+  assert.equal(E.view(next, E.view(next).messages.length - 1).neutralHints, false);
+  assert.equal(E.view(next).neutralHints, true);
+  const focused = turn(next, { choiceId: 'topic_name' }, { mode: 'ai', lines: ['你想怎么叫它？'] });
+  assert.equal(E.view(focused, E.view(focused).messages.length - 1).neutralHints, true);
+  assert.equal(E.view(focused).neutralHints, false); assert.equal(E.suggestions(focused)[0].id, 'name_slowly');
+  for (const known of [
+    turn(next, '把雨叫做夜航', { mode: 'ai', lines: ['现在它叫夜航。'] }),
+    turn(next, '让雨停下', { mode: 'ai', lines: ['停下了。'] }),
+    modelStory(next, '我们给眼前这场雨起个名字吧', 'topic', 'rain_name'),
+    modelWeather(next, '让窗外暂且安静一些吧', { type: 'rain_pause' }),
+    turn(choice(fresh(), 'topic_rain'), metaphor, { mode: 'ai', lines: ['我记下了。'], answer: rainAnswer() })
+  ]) assert.equal(E.view(known).neutralHints, false);
+  const offline = turn(s, '我们给眼前这场雨起个名字吧');
+  assert.equal(E.view(offline).neutralHints, false); assert.deepEqual(E.suggestions(offline), E.suggestions(s));
+});
+
 test('story meaning handles ordinary negation without authorizing negated weather or departure', () => {
   const found = E.visitLogs(turn(rain(), '把雨叫做夜航'));
   assert.equal(E.view(modelStory(found, '不想聊雨了，换个话题', 'topic', 'unfinished')).topic, 'unfinished');
