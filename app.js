@@ -187,7 +187,7 @@
       $('free-input').maxLength = 80; $('free-input-label').textContent = '自由聊天或改变雨，最多 80 个字';
       $('free-input').placeholder = view.topic === 'rain_name' ? '例如：把雨叫做「夜航」；也可以先聊别的…' : view.rain.created ? '继续聊，或说：让雨更密一点 / 停雨 / 再下起来…' : '你想说什么？不用急着走到下一个话题…';
       $('free-input').disabled = false; $('free-send').disabled = false;
-      $('input-note').textContent = mode === 'offline' ? '离线理解有限 · 未听懂不会推进或改天气 · 名字最多 20 字' : '自由聊天不会自动推进 · 这段对话会发送给 DMXAPI';
+      $('input-note').textContent = mode === 'unconnected' ? '尚未选择连接方式 · 发送前会让你选择 AI 或离线' : mode === 'offline' ? '离线理解有限 · 未听懂不会推进或改天气 · 名字最多 20 字' : '自由聊天不会自动推进 · 这段对话会发送给 DMXAPI';
     }
     document.querySelectorAll('[data-topic]').forEach(button => { button.disabled = locked; button.setAttribute('aria-pressed', String(button.dataset.topic === view.topic)); });
     const skills = $('weather-controls'); skills.replaceChildren();
@@ -206,7 +206,7 @@
   function renderPresentation() {
     const view = snapshot(revealedCount), progress = view.index / view.maxMilestones;
     softText('connection-label', state.started ? 'PROCESS / STILL LEARNING' : 'WAITING FOR YOU');
-    softText('progress-label', state.started ? 'PROLOGUE v0.3.0 / 不必赶路' : 'PROLOGUE v0.3.0 / 初次相遇');
+    softText('progress-label', state.started ? 'PROLOGUE v0.3.1 / 不必赶路' : 'PROLOGUE v0.3.1 / 初次相遇');
     softText('world-caption', view.name !== '未命名的雨' ? `「${view.name}」` : view.rain.created ? '第一次一起看雨' : '一扇尚未被命名的窗');
     softText('world-status', view.rain.created ? `rain.${view.rain.paused ? 'paused' : view.rain.density} / persistent` : 'world.build = incomplete');
     softText('world-code', view.memories.length ? 'gc.retain("first_rain");' : view.rain.created ? 'skills.rain = reusable;' : 'const world = await you;');

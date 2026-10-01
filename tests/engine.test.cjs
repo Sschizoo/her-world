@@ -375,3 +375,6 @@ test('v2 unanswered teaching and naming boundaries migrate with their actual pen
   const named = turn(naming, '叫夜航吧'); assert.equal(E.view(named).name, '夜航'); assert.equal(E.view(named).pendingTopic, null);
   for (const count of [3, 6, 12]) assert.equal(E.view(E.restore(legacy(count))).pendingTopic, null, 'already answered boundary ' + count);
 });
+
+test('quiet greeting is understood without answering a question or changing weather',()=>{const s=choice(rain(),'topic_name'),next=turn(s,'你好，我只是想在这里坐一会儿');assert.equal(E.view(next).pendingTopic,'rain_name');assert.deepEqual(E.view(next).rain,E.view(s).rain);assert.deepEqual(E.view(next).milestones,E.view(s).milestones);assert.match(E.view(next).messages.at(-2).text,/没有一定要赶完/);});
+test('settled name suggestions invite continued conversation rather than overwriting it',()=>{const s=turn(choice(rain(),'topic_name'),'把雨叫做夜航');assert.deepEqual(E.suggestions(s).slice(0,3).map(x=>x.id),['topic_memory','topic_silence','topic_rain']);assert.equal(E.view(choice(s,'topic_name')).pendingTopic,null);assert.equal(E.view(turn(s,'把雨叫做窗边')).name,'窗边');});

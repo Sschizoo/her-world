@@ -235,6 +235,7 @@
     const groundedDefinition = !/(?:贴纸|玩具|积木|图片|画纸|纸片|桌子|桌下)/u.test(text) && /(?:水滴|雨滴|水珠|小水滴|颗颗水).*(?:落|掉|下)|(?:落|掉).*(?:水滴|雨滴|水珠)|(?:天空|天上|空中|云).*(?:落|掉|降).*(?:水|雨)|(?:水|雨).*(?:从|在).*(?:天空|天上|空中|云).*(?:落|掉|降)|(?:水汽|水蒸气).*(?:凝结|冷凝|凝聚).*(?:降水|雨|水滴)|(?:屋顶|屋檐|地面|路面).*(?:声音|滴答|淅沥|沙沙)|(?:滴答|淅沥|沙沙|声音).*(?:屋顶|屋檐|地面|路面)|(?:雨|水).*(?:淋湿|躲|避雨)|(?:伞|屋檐).*(?:躲|湿)/u.test(text);
     if (definitionContext && groundedDefinition && !/[？?“”"「」]|不是|不懂|不知道|如果|假如|假设|以前|昨天|刚才|说过|记得|什么|怎么|为什么|几点|是否|吗|么|呢/u.test(text)) return description('teach_rain', ['我先把这份描述记下来。', state.created ? '这让已经落下来的雨，多了一点可以继续理解的东西。' : '如果愿意，可以按“试着画出第一场雨”，看看这里能画出什么。'], { teach: true });
     if (/^(?:晚安|再见|拜拜|下次见|我先走了|我先走|今天先到这里|今晚先到这里|先聊到这里|goodbye|good night|bye)[。！!～~]*$/iu.test(text)) return description('parting', ['那就先停在这里。', '刚才发生过的事已经在记录里。以后是否再来，由你决定。'], { goodbye: true });
+    if (/^(?:你好[，,。！!\s]*)?(?:我)?(?:只是)?(?:想|想要)?(?:在这里)?(?:坐|待|停留)一会(?:儿)?[。！!～~]*$/u.test(text)) return description(state.topic, ['可以。这里没有一定要赶完的事。', '你可以先坐一会儿，想到什么再说。窗外也不必为了下一句话改变。']);
     if (/^(?:你好|嗨|晚上好|hello|hi)[。！!～~]*$/iu.test(text)) return description(state.topic, ['你好。', state.ended ? '记录还在，我们可以接着聊。' : '不用急着做下一件事。你可以讲讲现在想到的东西。']);
     if (/^(?:你是谁|你是什么|你能做什么)[？?。]*$/u.test(text)) return description('boot', ['我是这个未完成程序的一部分，源文件里叫 her。', '离线时我只认得少数说法。能调整的是已经画出的雨，不明白的地方，我会直说。']);
     if (/^(?:聊聊|说说|看看)(?:这座)?(?:城市|世界|没做完的地方)[。！!]*$/u.test(text)) return describe(state, { choiceId: 'topic_unfinished' });
@@ -309,7 +310,7 @@
     else if (current.topic === 'boot') ids = ['hello', 'inspect', 'not_author', 'topic_unfinished', 'topic_rain'];
     else if (current.topic === 'unfinished') ids = ['small_start', 'leave_gaps', 'ask_her', 'topic_rain'];
     else if (current.topic === 'teach_rain' && !current.created) ids = [...(current.milestones.includes('rain_taught') ? ['render_rain'] : []), 'water', 'sound', 'shelter'];
-    else if (current.topic === 'rain_name' && current.created) ids = ['name_slowly', 'name_unnamed', 'name_window', 'topic_silence', 'topic_memory'];
+    else if (current.topic === 'rain_name' && current.created) ids = current.milestones.includes('rain_named') ? ['topic_memory', 'topic_silence', 'topic_rain'] : ['name_slowly', 'name_unnamed', 'name_window', 'topic_silence', 'topic_memory'];
     else if (current.topic === 'memory_discovery') ids = current.milestones.includes('memory_found') ? ['found_rain', 'not_bug', 'check_cost', 'topic_choice', 'topic_visitor'] : current.created ? ['topic_name', 'topic_rain'] : ['topic_rain'];
     else if (current.topic === 'her_choice') ids = ['enough', 'record', 'no_big_claim', 'topic_visitor'];
     else if (current.topic === 'visitor_reference') ids = ['remember_me', 'anonymous', 'undecided', 'topic_silence'];

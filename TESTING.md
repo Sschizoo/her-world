@@ -47,3 +47,10 @@ Local aggregate checks currently pass: 29 application integration checks, 34 eng
 Covered: the exact reported “rain definition → what time is it?” regression in offline and mocked AI mode; no automatic first rain or question completion; density → naming topic → stop → unrelated topic → resume preserving density; negated, hypothetical and recalled commands; explicit names and recall; compounds; explicit log discovery; farewell/reopening; v2 migration across every old boundary; caps and invalid saves; error/cancel/disconnect/reset with pending response; no key persistence; slow reveal/skip/save/refresh; evidence-only focus, normalized stable scores, decay and no future transcript leakage.
 
 No valid credentials, paid requests or provider generation used. Existing real-user HTTP401 cause remains unresolved and is not claimed fixed by this iteration. Browser visual verification of v0.3.0 must follow parent-coordinated publication; v0.2.2 live screenshot evidence is not a v0.3.0 verification.
+
+
+## v0.3.0 public desktop loop and v0.3.1 polish
+
+Actual cloud desktop playthrough on the published v0.3.0 completed all nine milestones and remained open afterward. Checked the exact clock-question regression, deliberate first rendering, density/pause/resume across topics, hypothetical no-op, naming-question rejection, compound name+resume, log discovery/focus proportions, anonymous memory, farewell/reopening/name recall, refresh with paused rain/name preserved, cancel reconnect, and explicit offline resume. Drawer-open and closed layouts were visually checked; the original UI palette and monochrome ASCII world remain intact. No live provider/key use.
+
+Playtest led to a small v0.3.1 improvement: settled-name hints now suggest continued conversation instead of three replacements; a quiet greeting is understood in offline mode without advancing or changing weather; unconnected input guidance accurately asks for mode choice. All affected behavior has added regressions; final aggregate is 140 checks (30 app,36 engine,20 focus,5 world,49 transport). v0.3.1 publication/replay remains pending at this note's writing.
