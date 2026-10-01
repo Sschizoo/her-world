@@ -3,7 +3,13 @@ const source=fs.readFileSync(require('path').join(__dirname, '../ai.js'),'utf8')
 const fakeKey='MOCK_ONLY_NOT_A_REAL_KEY';
 function runtime(fetchImpl, overrides={}) { const listeners={}; const w={addEventListener:(name,cb)=>listeners[name]=cb}; const c={window:w,fetch:fetchImpl,AbortController,TextEncoder,TextDecoder,setTimeout,clearTimeout,...overrides}; vm.runInNewContext(source,c); return {api:w.HerAI,listeners}; }
 const response=(lines=['一场雨。'])=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({lines})}}]}),{status:200,headers:{'Content-Type':'application/json'}});
+const contentResponse=(content,extra={})=>new Response(JSON.stringify({choices:[{message:{content,...extra}}]}),{status:200,headers:{'Content-Type':'application/json'}});
+const jsonResponse=payload=>contentResponse(JSON.stringify(payload));
 const input={scene:{id:'first_rain',prompt:['雨是什么？']},input:'你好',rainName:'小雨',recent:[]};
+const turnInput={...input,world:{rain:{name:'小雨',density:'normal',paused:false,created:true},name:'她',milestones:['awakened','rain_created']},topic:'rain',allowedActions:[]};
+const semanticInput={...turnInput,input:'它像天空给大地写的一封湿润的信。',answerQuestion:'teach_rain',pendingTopic:'teach_rain'};
+const verdict=evidence=>({type:'rain_definition',question:'teach_rain',evidence});
+const plain=value=>JSON.parse(JSON.stringify(value));
 (async()=>{
  let checks=0;
  const check=async(name,fn)=>{await fn(); checks++; console.log('PASS '+name)};
@@ -25,5 +31,103 @@ const input={scene:{id:'first_rain',prompt:['雨是什么？']},input:'你好',r
  await check('whole headers, Bearer prefixes, quotes, internal spaces and non-ASCII fail locally',async()=>{let calls=0;let{api}=runtime(async()=>{calls++;return response()});for(const value of ['Bearer '+fakeKey,'Authorization:'+fakeKey,'"'+fakeKey+'"',"'"+fakeKey+"'",fakeKey+' space',fakeKey+'中文'])assert.equal(api.connect(value),false);assert.equal(calls,0);assert(api.connect('  '+fakeKey+'  '));await api.request(input);assert.equal(calls,1);});
  await check('disconnect before request prevents empty Authorization transmission',async()=>{let calls=0;let{api}=runtime(async()=>{calls++;return response()});api.connect(fakeKey);api.disconnect();await assert.rejects(api.request(input),e=>e.code==='disconnected');assert.equal(calls,0);});
  await check('known response read interruption retains HTTP status',async()=>{let{api}=runtime(async()=>new Response(new ReadableStream({start(c){c.error(Error('PRIVATE_STREAM_FAILURE'))}}),{status:200}));api.connect(fakeKey);await assert.rejects(api.request(input),e=>e.code==='response_read'&&e.httpStatus===200&&!e.message.includes('PRIVATE_STREAM_FAILURE'));});
+ await check('nonlinear prose does not require JSON and never executes an action',async()=>{for(const content of ['雨落下来了。\n我想再看一会儿。','我已经把雨停下了。',[{type:'text',text:'我听见了。'},{type:'reasoning',text:'PRIVATE_THOUGHT'}]]){let{api}=runtime(async()=>contentResponse(content));api.connect(fakeKey);const result=await api.request({...turnInput,allowedActions:[{type:'rain_pause'}]});assert(result.lines.length>0);assert.equal(result.action,null);assert.equal(result.structured,false);assert(!result.lines.join('').includes('PRIVATE_THOUGHT'));}});
+ await check('each whitelisted structured rain action matches an exact local allowance',async()=>{for(const action of [{type:'rain_density',value:'gentle'},{type:'rain_density',value:'normal'},{type:'rain_density',value:'heavy'},{type:'rain_pause'},{type:'rain_resume'}]){let{api}=runtime(async()=>jsonResponse({lines:['我会照你说的做。'],action}));api.connect(fakeKey);const result=await api.request({...turnInput,allowedActions:[action]});assert.deepEqual(plain(result),{lines:['我会照你说的做。'],action,structured:true,answer:null});assert(Object.isFrozen(result.action));}});
+ await check('structured null action succeeds and ignores unknown state fields',async()=>{let{api}=runtime(async()=>jsonResponse({lines:['我们可以慢慢聊。'],action:null,scene:'ending',state:{density:'heavy'},tools:[{type:'rain_pause'}]}));api.connect(fakeKey);assert.deepEqual(plain(await api.request(turnInput)),{lines:['我们可以慢慢聊。'],action:null,structured:true,answer:null});});
+ await check('legacy lines and common JSON text wrappers remain displayable in nonlinear mode',async()=>{for(const payload of [{lines:['我们慢慢来。']},{reply:'我们慢慢来。'},{text:'我们慢慢来。'},{response:'我们慢慢来。'}]){let{api}=runtime(async()=>jsonResponse(payload));api.connect(fakeKey);assert.deepEqual(plain(await api.request(turnInput)),{lines:['我们慢慢来。'],action:null,structured:false,answer:null});}});
+ await check('forbidden, extra-field, malformed or unallowed actions reject the whole reply',async()=>{for(const action of [{type:'scene',value:'ending'},{type:'rain_density',value:'storm'},{type:'rain_density',value:'heavy'},{type:'rain_pause',value:'gentle'},{type:'rain_pause',state:{scene:'ending'}},{type:'rain_pause',tool:'eval'},{type:'rain_resume'},'rain_pause',[],[{type:'rain_pause'}],{},true,1]){let{api}=runtime(async()=>jsonResponse({lines:['操作已经完成。'],action}));api.connect(fakeKey);await assert.rejects(api.request({...turnInput,allowedActions:[{type:'rain_pause'},{type:'rain_density',value:'gentle'}]}),e=>e.code==='format'&&!e.message.includes('操作已经完成'));}});
+ await check('empty allowance rejects even a globally recognized action',async()=>{let{api}=runtime(async()=>jsonResponse({lines:['雨停了。'],action:{type:'rain_pause'}}));api.connect(fakeKey);await assert.rejects(api.request(turnInput),e=>e.code==='format');});
+ await check('structured action requires the documented lines array',async()=>{for(const payload of [{reply:'雨停了。',action:{type:'rain_pause'}},{lines:[],action:{type:'rain_pause'}},{lines:[42],action:{type:'rain_pause'}},{lines:[42],reply:'雨停了。',action:{type:'rain_pause'}},{lines:'雨停了。',action:{type:'rain_pause'}},{action:{type:'rain_pause'}},{state:{rain:'paused'}},['雨停了。']]){let{api}=runtime(async()=>jsonResponse(payload));api.connect(fakeKey);await assert.rejects(api.request({...turnInput,allowedActions:[{type:'rain_pause'}]}),e=>e.code==='format');}});
+ await check('malformed nonlinear JSON never falls back to prose or operations',async()=>{for(const content of ['{"lines":','{"lines":["雨停了。"],"action":{"type":"rain_pause"}', '```json\n{"action":\n```']){let{api}=runtime(async()=>contentResponse(content));api.connect(fakeKey);await assert.rejects(api.request({...turnInput,allowedActions:[{type:'rain_pause'}]}),e=>e.code==='format');}});
+ await check('outgoing allowlist strips invalid objects, deduplicates and preserves caller data',async()=>{let sent;const allowedActions=[{type:'rain_pause'},{type:'rain_pause'},{type:'rain_resume'},{type:'rain_density',value:'gentle'},{type:'rain_density',value:'heavy',scene:'ending'},{type:'scene',value:'ending'},null];const before=JSON.stringify(allowedActions);let{api}=runtime(async(url,options)=>{sent=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return jsonResponse({lines:['听见了。'],action:null});});api.connect(fakeKey);await api.request({...turnInput,allowedActions});assert.deepEqual(sent.allowedActions,[{type:'rain_pause'},{type:'rain_resume'},{type:'rain_density',value:'gentle'}]);assert.equal(JSON.stringify(allowedActions),before);});
+ await check('allowlist is snapshotted before awaiting provider response',async()=>{let complete;const allowedActions=[{type:'rain_pause'}];let{api}=runtime(()=>new Promise(resolve=>complete=resolve));api.connect(fakeKey);const pending=api.request({...turnInput,allowedActions});allowedActions[0].type='rain_resume';allowedActions.push({type:'rain_density',value:'heavy'});complete(jsonResponse({lines:['雨继续落下。'],action:{type:'rain_resume'}}));await assert.rejects(pending,e=>e.code==='format');});
+ await check('only a bounded world snapshot and capped user context leave the page',async()=>{let body;const unknown='DO_NOT_SERIALIZE';let{api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return jsonResponse({lines:['我听见了。'],action:null});});api.connect(fakeKey);await api.request({...turnInput,scene:{id:'s'.repeat(100),prompt:Array.from({length:8},()=> 'q'.repeat(500)),private:unknown},input:'i'.repeat(1000),rainName:'n'.repeat(1000),topic:'t'.repeat(1000),recent:Array.from({length:20},(_,i)=>({role:i%2?'user':'system',text:'h'.repeat(1000),secret:unknown})),world:{rain:{name:'r'.repeat(1000),density:'heavy',paused:true,created:true,secret:unknown},name:'p'.repeat(1000),milestones:Array.from({length:25},()=> 'm'.repeat(1000)),secrets:unknown,chapter:100},allowedActions:[]});const context=JSON.parse(body.messages.at(-1).content);assert.equal(context.playerSaid.length,80);assert.equal(context.namedRain.length,20);assert.equal(context.scene.length,50);assert.equal(context.currentQuestion.length,3);assert(context.currentQuestion.every(line=>line.length<=100));assert.equal(context.topic.length,60);assert.equal(context.world.name.length,20);assert.equal(context.world.rain.name.length,20);assert.deepEqual(Object.keys(context.world).sort(),['milestones','name','rain']);assert.deepEqual(Object.keys(context.world.rain).sort(),['created','density','name','paused']);assert.equal(context.world.milestones.length,12);assert(context.world.milestones.every(mark=>mark.length<=60));assert.equal(body.messages.length,8);assert(body.messages.slice(1,-1).every(item=>['user','assistant'].includes(item.role)&&item.content.length<=300));assert(!JSON.stringify(body).includes(unknown));assert.equal(body.max_tokens,2048);assert.equal(body.reasoning_effort,'low');assert.equal(body.stream,false);assert(!('tools' in body));assert(!('response_format' in body));});
+ await check('invalid world fields cannot serialize unknown objects or arbitrary states',async()=>{let context;let{api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return contentResponse('我们继续聊。');});api.connect(fakeKey);await api.request({...turnInput,scene:{prompt:{private:'not a list'}},input:{private:'not input'},rainName:{private:'not name'},topic:{private:'not topic'},recent:[null],world:{rain:{name:{secret:'no'},density:'storm',paused:'yes',created:1},name:{secret:'no'},milestones:[{secret:'no'},123,'valid']},allowedActions:[{type:'rain_pause',extra:true}]});assert.deepEqual(context.world,{rain:{name:'',density:'normal',paused:false,created:false},name:'',milestones:['valid']});assert.deepEqual(context.allowedActions,[]);assert.deepEqual(context.currentQuestion,[]);assert.equal(context.playerSaid,'');assert.equal(context.topic,'');});
+ await check('opening keeps legacy array shape even when nonlinear context is supplied',async()=>{let body;let{api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return contentResponse('原来有人在。');});api.connect(fakeKey);assert.deepEqual(plain(await api.request({...turnInput,opening:true,allowedActions:[{type:'rain_pause'}]})),['原来有人在。']);const context=JSON.parse(body.messages.at(-1).content);assert(!('allowedActions' in context));assert(!('world' in context));assert(body.messages[0].content.includes('不要JSON'));});
+ await check('topic-only and allowlist-only callers opt into turn mode',async()=>{for(const options of [{...input,topic:'memory'},{...input,allowedActions:[]},{...input,world:{}}]){let{api}=runtime(async()=>contentResponse('我还记得。'));api.connect(fakeKey);assert.deepEqual(plain(await api.request(options)),{lines:['我还记得。'],action:null,structured:false,answer:null});}});
+ await check('marked thought stripping, key echo checks and visible limits also apply to structured turns',async()=>{let{api}=runtime(async()=>contentResponse('<think>PRIVATE_THOUGHT</think>```json\n'+JSON.stringify({lines:['<analysis>PRIVATE_THOUGHT</analysis>'+ '雨'.repeat(600)],action:{type:'rain_pause'}})+'\n```',{reasoning_content:'PRIVATE_THOUGHT'}));api.connect(fakeKey);const result=await api.request({...turnInput,allowedActions:[{type:'rain_pause'}]});assert.equal(result.structured,true);assert.equal(result.action.type,'rain_pause');assert(result.lines.join('').length<=450);assert(!result.lines.join('').includes('PRIVATE_THOUGHT'));for(const lines of [[fakeKey],['<think>unfinished'],['<analysis>unfinished']]){let{api:bad}=runtime(async()=>jsonResponse({lines,action:{type:'rain_pause'}}));bad.connect(fakeKey);await assert.rejects(bad.request({...turnInput,allowedActions:[{type:'rain_pause'}]}),e=>e.code==='format'&&!e.message.includes(fakeKey));}});
+ await check('transport never mutates supplied world or allowance while selecting an action',async()=>{const options=JSON.parse(JSON.stringify({...turnInput,allowedActions:[{type:'rain_pause'}]}));const before=JSON.stringify(options);let{api}=runtime(async()=>jsonResponse({lines:['让它安静片刻。'],action:{type:'rain_pause'}}));api.connect(fakeKey);const result=await api.request(options);assert.equal(result.action.type,'rain_pause');assert.equal(JSON.stringify(options),before);assert.equal(options.world.rain.paused,false);});
+ await check('locally accepted answers and pending questions are exact bounded metadata',async()=>{for(const [answer,expected] of [[{type:'rain_name',value:'夜航'},{type:'rain_name',value:'夜航'}],[{type:'rain_definition'},{type:'rain_definition'}],[{type:'rain_name',value:'雨'.repeat(21)},null],[{type:'rain_name',value:'夜航',secret:'DO_NOT_SERIALIZE'},null],[{type:'scene',value:'ending'},null]]){let sent;const {api}=runtime(async(url,options)=>{sent=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return contentResponse('我听到了。');});api.connect(fakeKey);await api.request({...turnInput,acceptedAnswer:answer,pendingTopic:'teach_rain'});assert.deepEqual(sent.acceptedAnswer,expected);assert.equal(sent.pendingTopic,'teach_rain');assert(!JSON.stringify(sent).includes('DO_NOT_SERIALIZE'));}});
+ await check('semantic metaphor verdict uses exact current input without creating weather',async()=>{
+  for(const text of ['它像天空给大地写的一封湿润的信。','冰凉的细丝落在脸上，让远处的街道慢慢模糊。','雨是天空落下的小水滴。']){
+   const answer=verdict(text);const options={...semanticInput,input:text};const before=JSON.stringify(options);
+   const {api}=runtime(async()=>jsonResponse({lines:['我想象到了那种触感。'],action:null,answer}));api.connect(fakeKey);
+   const result=await api.request(options);assert.deepEqual(plain(result),{lines:['我想象到了那种触感。'],action:null,structured:true,answer});assert(Object.isFrozen(result.answer));assert.equal(JSON.stringify(options),before);
+  }
+ });
+ await check('prompt grants only the explicit bounded semantic question and retains local metadata',async()=>{
+  let body;const {api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return contentResponse('我听着。')});api.connect(fakeKey);
+  const result=await api.request({...semanticInput,acceptedAnswer:{type:'rain_definition'}});const context=JSON.parse(body.messages.at(-1).content);
+  assert.equal(context.answerQuestion,'teach_rain');assert.equal(context.pendingTopic,'teach_rain');assert.deepEqual(context.acceptedAnswer,{type:'rain_definition'});assert.equal(result.answer,null);
+  for(const instruction of ['比喻','时钟','假设','否定','引用','回忆','当前playerSaid','answerQuestion为空时answer只能为null','不创造雨'])assert(body.messages[0].content.includes(instruction));
+ });
+ await check('ordinary prose and explicit null verdict never imply a semantic answer',async()=>{
+  for(const content of ['我听懂你的意思了。',JSON.stringify({lines:['我听着。'],action:null,answer:null}),JSON.stringify({lines:['我听着。'],answer:null})]){
+   const {api}=runtime(async()=>contentResponse(content));api.connect(fakeKey);const result=await api.request(semanticInput);assert.equal(result.answer,null);assert.equal(result.action,null);assert.equal(result.structured,content.startsWith('{'));
+  }
+ });
+ await check('obvious clock, date and status questions revoke semantic authority independently',async()=>{
+  for(const text of ['现在的时间是几点？','现在几点了？','时间是多少？','今天星期几？','你是谁？','系统的版本号是什么？','你的状态如何？','What time is it?','what is your version?']){
+   let context;const {api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return jsonResponse({lines:['我明白雨了。'],action:null,answer:verdict(text)})});api.connect(fakeKey);
+   await assert.rejects(api.request({...semanticInput,input:text}),e=>e.code==='format');assert.equal(context.answerQuestion,null);assert.equal(context.pendingTopic,'teach_rain');
+  }
+ });
+ await check('absent, invalid or different question cannot authorize a current-input verdict',async()=>{
+  for(const answerQuestion of [undefined,null,'rain_name','teach_rain ',true,{},['teach_rain']]){
+   let context;const {api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return jsonResponse({lines:['我听到了。'],answer:verdict(semanticInput.input)})});api.connect(fakeKey);
+   await assert.rejects(api.request({...semanticInput,answerQuestion}),e=>e.code==='format');assert.equal(context.answerQuestion,null);
+  }
+ });
+ await check('semantic verdict requires exactly the allowed keys, type and question',async()=>{
+  const valid=verdict(semanticInput.input);
+  for(const answer of [{...valid,type:'rain_name'},{...valid,question:'rain_name'},{...valid,question:'teach_rain '},{...valid,action:{type:'rain_pause'}},{...valid,state:{created:true}},{...valid,reasoning:'private'}, {type:'rain_definition',question:'teach_rain'}, {type:'rain_definition',evidence:semanticInput.input},'rain_definition',[],[valid],{},true,1]){
+   const {api}=runtime(async()=>jsonResponse({lines:['回答已记录。'],action:null,answer}));api.connect(fakeKey);await assert.rejects(api.request(semanticInput),e=>e.code==='format'&&!e.message.includes('回答已记录'));
+  }
+ });
+ await check('semantic evidence must be a nonempty exact excerpt of current bounded input',async()=>{
+  for(const evidence of ['', ' ',null,7,{},'天空写给大地的一封信','历史里的细雨','尾部不能引用','雨'.repeat(81)]){
+   const {api}=runtime(async()=>jsonResponse({lines:['我听到了。'],answer:verdict(evidence)}));api.connect(fakeKey);
+   await assert.rejects(api.request({...semanticInput,input:'雨'.repeat(80)+'尾部不能引用',recent:[{role:'user',text:'历史里的细雨'}]}),e=>e.code==='format');
+  }
+  const excerpt='天空给大地写的一封湿润的信';const {api}=runtime(async()=>jsonResponse({lines:['这封信很轻。'],answer:verdict(excerpt)}));api.connect(fakeKey);assert.equal((await api.request(semanticInput)).answer.evidence,excerpt);
+ });
+ await check('input and verdict evidence snapshots cannot be changed while provider is pending',async()=>{
+  let complete;const options={...semanticInput};const {api}=runtime(()=>new Promise(resolve=>complete=resolve));api.connect(fakeKey);const pending=api.request(options);options.input='后来改成了雨是水滴';options.answerQuestion=null;
+  complete(jsonResponse({lines:['我听到了。'],action:null,answer:verdict(semanticInput.input)}));assert.equal((await pending).answer.evidence,semanticInput.input);
+ });
+ await check('semantic evidence shares the outgoing bound and never serializes tail metadata',async()=>{
+  let context,body;const {api}=runtime(async(url,options)=>{body=options.body;context=JSON.parse(JSON.parse(body).messages.at(-1).content);return jsonResponse({lines:['它一直落下。'],action:null,answer:verdict('雨'.repeat(80))})});api.connect(fakeKey);
+  const result=await api.request({...semanticInput,input:'雨'.repeat(80)+'DO_NOT_SERIALIZE',answerQuestion:'teach_rain'});assert.equal(context.playerSaid,'雨'.repeat(80));assert.equal(result.answer.evidence.length,80);assert(!body.includes('DO_NOT_SERIALIZE'));
+  let sent;const {api:unicode}=runtime(async(url,options)=>{sent=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return jsonResponse({lines:['我听到了。'],answer:verdict('🌧'.repeat(40))})});unicode.connect(fakeKey);
+  const result2=await unicode.request({...semanticInput,input:'🌧'.repeat(80)});assert.equal(sent.playerSaid,'🌧'.repeat(40));assert.equal(result2.answer.evidence,sent.playerSaid);assert(!/[\uD800-\uDBFF]$/.test(sent.playerSaid));
+ });
+ await check('semantic answer requires documented valid dialogue lines',async()=>{
+  for(const payload of [{reply:'我听到了。'},{lines:[]},{lines:[42],reply:'我听到了。'},{lines:'我听到了。'},{}]){
+   const {api}=runtime(async()=>jsonResponse({...payload,answer:verdict(semanticInput.input)}));api.connect(fakeKey);await assert.rejects(api.request(semanticInput),e=>e.code==='format');
+  }
+ });
+ await check('opening and legacy responses ignore verdict fields and cannot receive authority',async()=>{
+  for(const options of [{...semanticInput,opening:true},{...input,answerQuestion:'teach_rain',pendingTopic:'teach_rain'}]){
+   let context;const {api}=runtime(async(url,request)=>{context=JSON.parse(JSON.parse(request.body).messages.at(-1).content);return jsonResponse({lines:['原来你在这里。'],answer:{type:'unknown',evidence:'not current'},action:{type:'rain_pause'}})});api.connect(fakeKey);
+   assert.deepEqual(plain(await api.request(options)),['原来你在这里。']);assert(!('answerQuestion' in context));
+  }
+ });
+ await check('thought tags and key echoes inside exact evidence reject the whole verdict',async()=>{
+  for(const evidence of [fakeKey,'<think>private</think>雨','<analysis>private</analysis>雨','<think>unfinished','<analysis>unfinished','雨\u0000滴']){
+   const {api}=runtime(async()=>jsonResponse({lines:['听见了。'],action:null,answer:verdict(evidence)}));api.connect(fakeKey);
+   await assert.rejects(api.request({...semanticInput,input:evidence}),e=>e.code==='format'&&!e.message.includes(fakeKey)&&!e.message.includes('private'));
+  }
+  const {api}=runtime(async()=>jsonResponse({lines:['听见了。'],answer:verdict('<think>private</think>雨')}));api.connect(fakeKey);await assert.rejects(api.request({...semanticInput,input:'<think>private</think>雨，雨'}),e=>e.code==='format');
+ });
+ await check('safe semantic verdict can coexist with filtered dialogue but cannot widen weather authority',async()=>{
+  const answer=verdict(semanticInput.input);const {api}=runtime(async()=>contentResponse('<think>PRIVATE_THOUGHT</think>```json\n'+JSON.stringify({lines:['<analysis>PRIVATE_THOUGHT</analysis>我听到了。'],action:null,answer})+'\n```'));api.connect(fakeKey);
+  assert.deepEqual(plain(await api.request(semanticInput)),{lines:['我听到了。'],action:null,structured:true,answer});
+  const {api:bad}=runtime(async()=>jsonResponse({lines:['雨已经开始落下。'],action:{type:'rain_resume'},answer}));bad.connect(fakeKey);await assert.rejects(bad.request(semanticInput),e=>e.code==='format');
+ });
+ await check('all name context fields consistently preserve twenty Unicode codepoints',async()=>{
+  const name='🌧'.repeat(20);let context;const {api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return contentResponse('我记下了这个名字。')});api.connect(fakeKey);
+  await api.request({...turnInput,rainName:name,world:{...turnInput.world,name,rain:{...turnInput.world.rain,name}},acceptedAnswer:{type:'rain_name',value:name}});
+  assert.equal(context.namedRain,name);assert.equal(context.world.name,name);assert.equal(context.world.rain.name,name);assert.equal(context.acceptedAnswer.value,name);
+ });
  console.log(`${checks} mock-only transport checks passed; no network used.`)
 })().catch(e=>{console.error(e);process.exit(1)});

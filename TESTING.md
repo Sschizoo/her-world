@@ -23,7 +23,7 @@ Desktop browser is the target, including 1366×768, 1440×900 and larger screens
 
 Local Chromium launch and localhost access were blocked by the development environment, so automated local pixel screenshots could not be captured there. The mock DOM harness does not verify layout. The prior release’s public Pages desktop inspection subsequently passed: full offline route completed (initial two scenes checked by the publishing reviewer, remaining scenes and ending checked by the implementation worker), named rain, log gate, free text, anonymous-memory choice, drawer layouts, replay Cancel and refresh restoration. No application-origin console errors observed; the cloud browser extension emitted unrelated metadata errors.
 
-The v0.2.1 paced build passed a public desktop spot-check: boot/lines arrive in order, player text appears immediately, skip completes only the active sentence, controls remain locked until reveal completes, and logs appear incrementally. The v0.2.2 character-only world has passed automated drawing-surface checks and a local glyph-raster preview; public desktop screenshot verification follows deployment.
+The v0.2.1 paced build passed a public desktop spot-check: boot/lines arrive in order, player text appears immediately, skip completes only the active sentence, controls remain locked until reveal completes, and logs appear incrementally. The v0.2.2 character-only world passed automated drawing-surface checks, a local glyph-raster preview, and a live desktop screenshot check on GitHub Pages. The deployed build label, monochrome glyph-only scene, preserved original UI colors, and paced transition into falling character rain were verified.
 
 Checklist: introductory screen; connect disclosure dialog; full offline path; rain naming; log drawer with narrow desktop height; memory card; end-of-prologue screen; refresh; cancel reset; key-free offline mode; keyboard focus.
 
@@ -39,3 +39,11 @@ After the user reported a network failure, one intentionally invalid, accountles
 - Cross-browser Safari/Firefox rendering
 
 The page reports actual request failures and never silently labels authored fallback as AI.
+
+## v0.3.0 — non-linear rain and evidence-based focus
+
+Local aggregate checks currently pass: 29 application integration checks, 34 engine checks, 20 focus checks, 5 ASCII world checks and 49 mocked transport groups (137 total). Natural-answer, compound-action and prior-topic revisiting checks are included. The online semantic path separately validates exact current-input evidence and pending question ID, persists accepted verdicts, rejects forged context/evidence, and never automatically renders rain. Confirmed reset covers legacy-copy cleanup, unrelated-key preservation and removal failure. Tests are dependency-free VM/DOM emulation, not a pixel-browser substitute.
+
+Covered: the exact reported “rain definition → what time is it?” regression in offline and mocked AI mode; no automatic first rain or question completion; density → naming topic → stop → unrelated topic → resume preserving density; negated, hypothetical and recalled commands; explicit names and recall; compounds; explicit log discovery; farewell/reopening; v2 migration across every old boundary; caps and invalid saves; error/cancel/disconnect/reset with pending response; no key persistence; slow reveal/skip/save/refresh; evidence-only focus, normalized stable scores, decay and no future transcript leakage.
+
+No valid credentials, paid requests or provider generation used. Existing real-user HTTP401 cause remains unresolved and is not claimed fixed by this iteration. Browser visual verification of v0.3.0 must follow parent-coordinated publication; v0.2.2 live screenshot evidence is not a v0.3.0 verification.

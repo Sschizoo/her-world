@@ -19,3 +19,16 @@
 .message.typing .message-text:after{content:'▏';color:var(--amber);font-size:.85em;margin-left:2px;animation:blink 1s infinite}
 .message.restored{animation:none}.message.system{animation:arrive .65s ease-out}.message.you{animation:none}.log-line{animation:arrive .55s ease-out}.memory-card{animation:arrive .85s ease-out}
 .inspector-panel{animation:arrive .5s ease-out}.response-area:not(:has(.response-wait)) .choices,.response-area:not(:has(.response-wait)) .free-form{animation:arrive .6s ease-out}
+
+/* Conversation is a place to stay; skills are available independently of topics. */
+.topic-nav{order:4;display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:10px;font:10px var(--sans);color:var(--dim)}
+.topic-nav button{padding:4px 1px;border-bottom:1px solid transparent;color:var(--muted)}.topic-nav button:hover,.topic-nav button[aria-pressed="true"]{color:var(--amber);border-bottom-color:var(--amber)}
+.request-error{order:5}.weather-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 28px;flex:none;border-top:1px solid var(--line-soft);font:9px var(--mono);color:var(--dim)}
+#weather-controls{display:flex;gap:6px}.weather-skill{font:11px var(--sans);padding:7px 9px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}.weather-skill:disabled{opacity:.35;cursor:default}.weather-skill:hover:not(:disabled){color:var(--amber);border-color:var(--amber)}
+@media(max-height:790px) and (min-width:761px){.topic-nav{margin-top:6px}.response-area.has-free .choice{min-height:36px;padding:6px 8px}.weather-tools{padding:8px 20px}.input-note{margin-bottom:7px}.topic-nav button{padding:3px 1px}}
+
+.focus-bars{display:flex;flex-direction:column;justify-content:center;gap:13px;height:calc(100% - 47px);min-height:100px;padding:12px 0}.focus-row{display:grid;grid-template-columns:48px minmax(70px,1fr) 32px;gap:10px;align-items:center;font:10px var(--mono);color:var(--muted)}.focus-label{font-family:var(--sans)}.focus-meter{position:relative;display:block;white-space:nowrap;overflow:hidden;line-height:1;letter-spacing:3px;font:12px/1 var(--mono)}.focus-track{color:#304955}.focus-fill{position:absolute;left:0;top:0;overflow:hidden;color:var(--amber);transition:width 1.2s ease-in-out}.focus-percent{text-align:right;color:var(--blue);font-size:9px}.focus-empty{font-size:11px;color:var(--dim);line-height:1.8}.attention p{font-size:9px;letter-spacing:0;line-height:1.7}.attention .trace-note{display:inline}
+
+.focus-meter{width:20ch;max-width:100%;letter-spacing:0;font:12px/1 var(--mono)}.focus-row{grid-template-columns:48px minmax(70px,1fr) 32px}.focus-meter{justify-self:center}.focus-fill{will-change:width}
+
+.response-wait{grid-column:1 / -1}
