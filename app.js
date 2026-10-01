@@ -107,11 +107,11 @@
     rows.forEach((item, i) => { const cls = item.text.trim().startsWith('//') ? 'comment' : /retain|first_rain|reference|memory.reason/.test(item.text) ? 'retain' : /discard|todo|pending/.test(item.text) ? 'discard' : ''; const row = element('div', `log-line ${cls}`); row.append(element('span', 'line-no', String(i + 1).padStart(2, '0')), element('span', 'log-time', `[${stamp(item.index)}]`), element('span', '', item.text)); target.append(row); });
     requestAnimationFrame(() => { target.scrollTop = target.scrollHeight; });
     document.querySelector('.trace-paths').style.opacity = String(.2 + Math.min(state.decisions.length / STORY.length, 1) * .8);
-    $('attention-caption').textContent = state.decisions.length >= 10 && state.decisions[9]?.choiceId !== 'remember_me' ? '只留下相遇的片刻，不保存指向你的引用。' : state.decisions.length >= 8 ? '从雨，到窗，再到一起看雨的人。' : '有一个坐标，暂时还没有名字。';
+    $('attention-caption').textContent = state.decisions.length >= 10 && state.decisions[9]?.choiceId !== 'remember_me' ? '只留下相遇的片刻，不保存指向你的引用。' : state.decisions.length >= 7 ? '从雨，到窗，再到一起看雨的人。' : '有一个坐标，暂时还没有名字。';
   }
   function renderChoices(view) {
     const target = $('choices'); target.replaceChildren(); const index = state.decisions.length, scene = STORY[index];
-    $('free-form').hidden = true; $('input-note').hidden = true;
+    $('free-form').hidden = true; $('input-note').hidden = true; $('response-area').classList.toggle('has-free', Boolean(scene?.free));
     if (!scene) {
       $('scene-title').textContent = '序章 / 完'; $('turn-count').textContent = '12 / 12';
       const ending = element('div', 'ending'); ending.append(element('div', 'eyebrow', 'END OF PROLOGUE / 未完待续'), element('h2', '', '第一场雨，有了名字。'), element('p', '', `「${view.name}」已留在她的记忆里。今晚的相遇到这里，之后的故事，还没有写完。`));
@@ -121,7 +121,7 @@
     const needsLogs = scene.requiresLogs && !state.logVisits.includes(index);
     if (needsLogs) { const button = element('button', 'choice log-gate', '↳ 打开运行日志，看看她保留了什么'); button.addEventListener('click', () => setPanel('logs')); target.append(button); }
     scene.choices.forEach((choice, i) => { const button = element('button', 'choice'); button.disabled = busy || needsLogs; button.dataset.choice = choice.id; button.append(element('span', 'choice-index', `0${i + 1}`), element('span', '', interpolate(choice.label, view.name)), element('span', 'choice-arrow', '↗')); button.addEventListener('click', () => respond({ choiceId: choice.id })); target.append(button); });
-    if (scene.free) { $('free-form').hidden = false; $('input-note').hidden = false; $('free-input').maxLength = scene.free.maxLength || 80; $('free-input').placeholder = scene.free.hint; $('free-input').disabled = busy || needsLogs; $('free-send').disabled = busy || needsLogs; $('input-note').textContent = scene.free.kind === 'rain_name' ? '给雨的名字只属于这段故事 · 最多 20 个字' : mode === 'offline' ? '离线模式 · 输入会匹配作者预设的回应' : '你的这段回应会发送给 DMXAPI'; }
+    if (scene.free) { $('free-form').hidden = false; $('input-note').hidden = false; $('free-input').maxLength = scene.free.maxLength || 80; $('free-input-label').textContent = scene.free.kind === 'rain_name' ? '给这场雨起个名字，最多 20 个字' : '用自己的话回应她，最多 80 个字'; $('free-input').placeholder = scene.free.hint; $('free-input').disabled = busy || needsLogs; $('free-send').disabled = busy || needsLogs; $('input-note').textContent = scene.free.kind === 'rain_name' ? '给雨的名字只属于这段故事 · 最多 20 个字' : mode === 'offline' ? '离线模式 · 输入会匹配作者预设的回应' : '你的这段回应会发送给 DMXAPI'; }
   }
   function render() {
     const view = snapshot(), index = state.decisions.length;
@@ -140,6 +140,7 @@
     $('inspector-panel').setAttribute('aria-labelledby', `tab-${open ? next : 'dialogue'}`);
     document.querySelectorAll('.tab').forEach(tab => { const active = tab.dataset.panel === next; tab.classList.toggle('active', active); tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; });
     $('drawer-toggle').setAttribute('aria-expanded', String(open)); $('drawer-toggle').setAttribute('aria-label', open ? '收起记录面板' : '打开运行日志'); $('drawer-hint').textContent = open ? '先留在这里' : '有些话，藏在这里';
+    requestAnimationFrame(() => { $('transcript').scrollTop = $('transcript').scrollHeight; });
     if (next === 'logs') { $('log-dot').hidden = true; const current = state.decisions.length; if (state.started && !state.logVisits.includes(current) && current < STORY.length) { state.logVisits.push(current); save(); renderChoices(snapshot()); } requestAnimationFrame(() => { $('log-list').scrollTop = $('log-list').scrollHeight; }); }
   }
   function chooseMode() { $('connection-error').hidden = true; $('api-key').value = ''; updateStatus(); $('connect-dialog').showModal(); }
@@ -157,7 +158,7 @@
     if (busy || pending || state.decisions.length >= STORY.length) return;
     const index = state.decisions.length, scene = STORY[index];
     if (scene.requiresLogs) { if (!state.logVisits.includes(index)) return; decision.logsViewed = true; }
-    const clean = validateDecision(decision, index); if (!clean) { toast('请写下 1–20 个字的名字，不使用控制字符。'); return; }
+    const clean = validateDecision(decision, index); if (!clean) { toast(`请写下 1–${scene.free?.maxLength || 80} 个字，不使用控制字符。`); return; }
     pending = { decision: clean, index }; await processPending();
   }
   async function processPending() {
@@ -191,7 +192,7 @@
   $('retry-button').addEventListener('click', () => { if (!HerAI.connected()) return; mode = 'ready'; processPending(); });
   $('fallback-button').addEventListener('click', () => { HerAI.disconnect(); mode = 'offline'; processPending(); });
   $('cancel-request-button').addEventListener('click', () => { operation++; busy = false; pending = null; $('request-error').hidden = true; mode = HerAI.connected() ? 'ready' : 'unconnected'; render(); });
-  $('free-form').addEventListener('submit', event => { event.preventDefault(); const text = textClean($('free-input').value); if (!text) { toast('给这场雨写下一个名字吧。'); return; } respond({ text }); });
+  $('free-form').addEventListener('submit', event => { event.preventDefault(); const text = textClean($('free-input').value); if (!text) { toast(STORY[state.decisions.length]?.free?.kind === 'rain_name' ? '给这场雨写下一个名字吧。' : '写下一点你想对她说的话吧。'); return; } respond({ text }); });
   document.querySelectorAll('.tab').forEach((button, index) => { button.addEventListener('click', () => setPanel(button.dataset.panel)); button.addEventListener('keydown', event => { const tabs = [...document.querySelectorAll('.tab')]; let next; if (event.key === 'ArrowRight') next = (index + 1) % tabs.length; if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length; if (event.key === 'Home') next = 0; if (event.key === 'End') next = tabs.length - 1; if (next !== undefined) { event.preventDefault(); setPanel(tabs[next].dataset.panel); tabs[next].focus(); } }); });
   $('drawer-toggle').addEventListener('click', () => setPanel(panel === 'dialogue' ? 'logs' : 'dialogue'));
   $('about-button').addEventListener('click', () => $('about-dialog').showModal());

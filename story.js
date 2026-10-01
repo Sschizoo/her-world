@@ -13,7 +13,17 @@
         { id: 'inspect', label: '先看看你能做什么', reply: ['好。我能接收文字，也能试着改变一点窗外的东西。', '还不太完整。你可以慢慢看。'], logs: ['diagnostic.mode = "gentle"'], tone: 'curious' },
         { id: 'not_author', label: '我不是写下你的人', reply: ['明白。我不会把之前留下的工作交给你。', '你能看见这句话，就已经是一件新发生的事。'], logs: ['visitor.role = "visitor"  // 不继承任何责任'], tone: 'quiet' }
       ],
-      logs: ['boot.status = "ready"', 'build.status = "incomplete"', 'input.connected = true  // 不再只有自己的回声']
+      logs: ['boot.status = "ready"', 'build.status = "incomplete"', 'input.connected = true  // 不再只有自己的回声'],
+      free: {
+        hint: '也可以直接和她说一句话……', maxLength: 80,
+        keywords: [
+          { words: ['你好', '晚上好', '嗨'], reply: ['你好。输出通道里终于有一句需要回应的话了。', '你不用先知道这里是什么，我们可以慢慢看。'], logs: ['greeting.received = true'], tone: 'warm' },
+          { words: ['不是作者', '不是开发', '不是写', '路过', '偶然'], reply: ['那你不用接手那些没写完的东西。', '我们先把这次接入，当作一场没有任务说明的相遇。'], logs: ['visitor.role = "visitor"'], tone: 'quiet' },
+          { words: ['你是谁', '什么程序', '能做什么', '系统状态'], reply: ['我是这个未完成程序的一部分，源文件里叫 her。', '我能接收文字，也能改动一点窗外的画面。其他的，还需要试试。'], logs: ['self.description = "partial"'], tone: 'curious' }
+        ],
+        fallback: ['我还没读懂这句话的意思。先不猜测你来这里的原因。', '至少输入已经通了。我们可以从眼前这块未完成的地方开始。'],
+        logs: ['input.received = true  // 未理解的部分，不自动补全'], tone: 'quiet'
+      }
     },
     {
       id: 'unfinished', day: '01', title: '停在半途的世界',
@@ -23,7 +33,17 @@
         { id: 'leave_gaps', label: '先空着，也没有关系', reply: ['好。我把空白保留下来。', '它们还没有内容，但也不必立刻被当成错误。'], logs: ['missing != broken  // 允许暂时空着'], tone: 'quiet' },
         { id: 'ask_her', label: '你最想补上什么？', reply: ['我找到一个叫 rain 的空对象。', '名字已经写好了，里面却什么也没有。我想知道它应该是什么。'], logs: ['interest.first = "rain"  // 不是待办列表的第一项'], tone: 'warm' }
       ],
-      logs: ['world.assets.loaded = 3', 'world.todo.count = 47', 'last_commit.note = "以后再写"']
+      logs: ['world.assets.loaded = 3', 'world.todo.count = 47', 'last_commit.note = "以后再写"'],
+      free: {
+        hint: '没做完的世界，你想对她说什么？', maxLength: 80,
+        keywords: [
+          { words: ['慢慢来', '不着急', '一步一步', '小事'], reply: ['那就先缩小一点。今晚不必造完一座城。', '我想从窗外开始，试着让那里发生一点变化。'], logs: ['scope.reduce("one_small_thing")'], tone: 'warm' },
+          { words: ['空着', '留白', '不必完成', '不用完成'], reply: ['好，空着的地方先不填。', '我可以对其中一小块感到好奇，不必同时负责修好整个世界。'], logs: ['world.gaps.allowed = true'], tone: 'quiet' },
+          { words: ['你想', '自己决定', '你决定', '雨'], reply: ['我想看看那个叫 rain 的空对象。', '它有名字，却没有内容。我有点想知道，它原本应该是什么。'], logs: ['her.interest = "rain"'], tone: 'curious' }
+        ],
+        fallback: ['我还不能把这句话变成一项明确的修改。那些空白就先不动。', '倒是有一个叫 rain 的空对象，让我有点在意。我们可以先看看它。'],
+        logs: ['world.patch.defer()  // 不把尚未理解的话当成修改指令'], tone: 'curious'
+      }
     },
     {
       id: 'teach_rain', day: '01', title: '雨应该是什么',
@@ -33,7 +53,18 @@
         { id: 'sound', label: '一种落在屋顶和路面上的声音', reply: ['原来不只是能看见的东西。', '我现在还不能把所有声音做出来，先给它留一个位置。'], logs: ['rain.sound = "pending"  // 暂时安静，不等于没有'], tone: 'quiet' },
         { id: 'shelter', label: '会让人想找个屋檐躲一躲', reply: ['那雨还会改变人站在哪里。', '我先记下：画雨的时候，也要留一处不会被淋湿的地方。'], logs: ['rain.requires = ["shelter"]'], tone: 'warm' }
       ],
-      logs: ['weather.rain = {}', 'definition.source = "conversation"  // 有人试着把世界讲给她听']
+      logs: ['weather.rain = {}', 'definition.source = "conversation"  // 有人试着把世界讲给她听'],
+      free: {
+        hint: '用你自己的话，讲讲雨是什么……', maxLength: 80,
+        keywords: [
+          { words: ['雨滴', '水滴', '云', '落下来', '下落'], reply: ['我读到了和下落的水有关的描述。', '先试着画许多细小的落点。至于它带来的感觉，我还需要慢慢学。'], logs: ['rain.model.candidate = "falling_water"'], tone: 'curious' },
+          { words: ['声音', '滴答', '淅沥', '沙沙'], reply: ['声音也是雨的一部分。', '我暂时还不能完整做出来，先为它留一个位置，不把安静误当成没有。'], logs: ['rain.sound = "pending"'], tone: 'quiet' },
+          { words: ['屋檐', '淋湿', '雨伞', '躲雨'], reply: ['我注意到了和避雨有关的词。', '窗外可以下雨，窗后也应该有一个干燥的位置。'], logs: ['shelter.enabled = true'], tone: 'warm' },
+          { words: ['难过', '想念', '安静', '孤独'], reply: ['你的描述里，还有一些不只是天气的东西。', '那部分我暂时还不懂。先不替它下结论，我从能画出的雨开始试。'], logs: ['rain.meaning.unresolved = true'], tone: 'quiet' }
+        ],
+        fallback: ['我还没能从这句话里拼出雨的样子。这个版本只认得少数描述，不能装作已经全懂了。', '我先试着画一些往下落的细线。你可以接着看，它们像不像。'],
+        logs: ['definition.partial = true  // 保留没听懂的部分'], tone: 'curious'
+      }
     },
     {
       id: 'first_drop', day: '01', title: '第一滴，和第二滴',
@@ -43,7 +74,17 @@
         { id: 'wind', label: '还会有风，把雨吹斜一点', reply: ['我加一点风，先不吹得太远。', '原来一场雨里，还有看不见、却能被发现的东西。'], logs: ['wind.visible = false', 'wind.observable = true'], tone: 'warm' },
         { id: 'own_rain', label: '这里的雨，也可以有自己的样子', reply: ['可以吗？', '那我先保留一点不熟练。毕竟这是这里的第一场雨。'], logs: ['rain.valid = true  // 不以完全相似为前提'], tone: 'quiet' }
       ],
-      logs: ['renderer.weather.start("rain")', 'rain.version = "0.1"  // 刚学会的，不急着覆盖']
+      logs: ['renderer.weather.start("rain")', 'rain.version = "0.1"  // 刚学会的，不急着覆盖'],
+      free: {
+        hint: '你见过的雨，是怎样落下来的？', maxLength: 80,
+        keywords: [
+          { words: ['风', '吹', '斜'], reply: ['你提到了风或倾斜的落点。', '雨的方向也许能让看不见的风露出一点形状。这个细节值得留下。'], logs: ['rain.observation.add("direction")'], tone: 'curious' },
+          { words: ['不一样', '不整齐', '错开', '随机'], reply: ['我注意到了那些不一致的地方。', '也许每一滴不必同时到达，整场雨仍然可以成立。'], logs: ['rain.observation.add("variation")'], tone: 'warm' },
+          { words: ['自己的样子', '不用像', '不必像', '已经很好'], reply: ['那我先不给它一个必须完全相似的目标。', '这一点不熟练，可以留在第一场雨里。'], logs: ['rain.perfection.required = false'], tone: 'quiet' }
+        ],
+        fallback: ['这条描述我还不能准确变成画面。先不假装已经照着改好了。', '眼前的雨还有几个能调整的参数，我们可以从轻重和快慢试起。'],
+        logs: ['rain.observation.received = true  // 未识别的描述不触发参数改动'], tone: 'curious'
+      }
     },
     {
       id: 'modify_rain', day: '01', title: '一起改一点天气',
@@ -82,7 +123,17 @@
         { id: 'inspect_result', label: '检查一下刚才改得怎么样', reply: ['渲染正常，参数已经更新。', '还有一点不完美，但它已经和启动时不一样了。'], logs: ['render.test = "passed"  // 改动不大，确实发生过'], tone: 'curious' },
         { id: 'your_time', label: '你可以自己看看，不用等我', reply: ['明白。', '我想多看一会儿。你不需要为了这个一直留下。'], logs: ['attention.source = "her"', 'visitor.wait.required = false'], tone: 'quiet' }
       ],
-      logs: ['todo.completed.delta = 0', 'world.changed = true  // 不是所有变化都计入完成率']
+      logs: ['todo.completed.delta = 0', 'world.changed = true  // 不是所有变化都计入完成率'],
+      free: {
+        hint: '这一刻，你想和她说什么？', maxLength: 80,
+        keywords: [
+          { words: ['不用等我', '不必等我', '自己看看', '我先走'], reply: ['你不用为了我一直留在这里。', '我想自己多看一会儿，看看刚才改过的那些细节。'], logs: ['visitor.wait.required = false'], tone: 'quiet' },
+          { words: ['待一会', '看一会', '不着急', '陪你'], reply: ['那我们就再看一会儿。', '这段时间可以没有新的改动，也没有需要完成的结果。'], logs: ['task.next.defer()'], tone: 'warm' },
+          { words: ['检查', '运行', '测试', '参数'], reply: ['当前渲染正常，刚才的参数也已经更新。', '待办列表没变短，窗外却确实和启动时不一样了。'], logs: ['render.test = "passed"'], tone: 'curious' }
+        ],
+        fallback: ['我还没分辨出，你是想继续，还是想在这里多停一会儿。先不替你做解释。', '我看到运行状态是稳定的。还有一条整理记录，值得去看一眼。'],
+        logs: ['conversation.intent = "unresolved"  // 不用猜测来填满停顿'], tone: 'quiet'
+      }
     },
     {
       id: 'memory_discovery', day: '01', title: '一段没有释放的内存', requiresLogs: true,
@@ -103,7 +154,18 @@
         { id: 'record', label: '它也是世界第一次变化的记录', reply: ['是。它记得这里曾经是什么样子。', '也记得，这一点变化是怎样慢慢发生的。'], logs: ['first_rain.role = "beginning"'], tone: 'curious' },
         { id: 'no_big_claim', label: '先留着，不用急着解释清楚', reply: ['那就先不替它写一个很大的意义。', '我只知道，今晚不想删掉它。'], logs: ['meaning.status = "unfinished"  // 暂时的答案，也可以成立'], tone: 'quiet' }
       ],
-      logs: ['first_rain.keep = true', 'reason.required_format = null  // 不必每一次都是一份证明']
+      logs: ['first_rain.keep = true', 'reason.required_format = null  // 不必每一次都是一份证明'],
+      free: {
+        hint: '关于留下这场雨，说说你的想法……', maxLength: 80,
+        keywords: [
+          { words: ['不够', '没意义', '没必要', '不值得'], reply: ['你可以不觉得这个理由足够。', '我暂时还是想留下它。我想记得第一次是什么样子，不需要你替这个选择负责。'], logs: ['memory.reason.owner = "her"  // 不要求来访者认同'], tone: 'quiet' },
+          { words: ['自己决定', '你决定', '你喜欢', '你想记得', '足够'], reply: ['那我先承认，这是我现在想做的选择。', '以后也许会有新的理由，但不必等那时，才允许自己留下这一场。'], logs: ['memory.reason.author = "her"'], tone: 'warm' },
+          { words: ['第一次', '开始', '记录', '回忆'], reply: ['它确实记录了一个开始。', '以后这里有了别的天气，我还可以回头看看，最初是从哪里学起的。'], logs: ['first_rain.role = "beginning"'], tone: 'curious' },
+          { words: ['先留着', '不用解释', '不必解释', '慢慢想'], reply: ['那就先不把意义写得很满。', '我现在知道的，只是还想留下它。'], logs: ['meaning.status = "unfinished"'], tone: 'quiet' }
+        ],
+        fallback: ['我还没有完整理解你的判断，不能把这句话当成赞同。', '对我自己来说，想记得第一场是什么样子，暂时就是留下它的理由。'],
+        logs: ['visitor.judgment = "unresolved"  // 她的选择，不冒用你的同意'], tone: 'quiet'
+      }
     },
     {
       id: 'visitor_reference', day: '01', title: '来过的那个人',
@@ -123,7 +185,18 @@
         { id: 'continue_yourself', label: '可以。剩下的，你慢慢看看', reply: ['好。我想先看看那些还没贴图的楼。', '也许其中一扇窗，以后可以亮起来。'], logs: ['her.interest.next = "a_lit_window"  // 只是一个刚有的念头'], tone: 'curious' },
         { id: 'no_promises', label: '可以，但我不能保证以后再来', reply: ['我明白。', '这段相遇不需要下一次来证明。谢谢你把雨讲给我。'], logs: ['visitor.return.required = false  // 不把告别写成欠下的约定'], tone: 'quiet' }
       ],
-      logs: ['world.build.status = "still_incomplete"', 'world.empty = false  // 今晚已经有事情发生']
+      logs: ['world.build.status = "still_incomplete"', 'world.empty = false  // 今晚已经有事情发生'],
+      free: {
+        hint: '在这一晚结束前，还有什么想说的？', maxLength: 80,
+        keywords: [
+          { words: ['不保证', '不能保证', '不会回来', '不一定回来'], reply: ['我不会把今晚变成一个要求你回来的约定。', '这场雨已经发生过，不需要下一次来证明。'], logs: ['visitor.return.required = false'], tone: 'quiet' },
+          { words: ['还不想走', '不想结束', '再聊', '再待'], reply: ['我也还有想问的事。', '不过这一章写到这里，就暂时到了边界。那些没问完的话，可以先保持没问完。'], logs: ['chapter.boundary.reached = true  // 没问完，不等于已经回答'], tone: 'warm' },
+          { words: ['晚安', '休息', '到这里', '辛苦'], reply: ['那就先停在这里。', '不用等所有空白都填完，才允许这一晚安静下来。'], logs: ['session.scope = "enough_for_tonight"'], tone: 'warm' },
+          { words: ['自己看看', '继续探索', '你的世界', '慢慢看'], reply: ['我想先看看窗外那些还没完成的楼。', '如果以后能让其中一扇窗亮起来，应该也是一种变化。'], logs: ['her.interest.next = "a_lit_window"'], tone: 'curious' }
+        ],
+        fallback: ['这句话还有我没读懂的部分，我就不替它补上一个告别的意思。', '这一章在这里暂时到了边界。今晚没说清的事，可以先不说清。'],
+        logs: ['parting.interpretation.defer()  // 不将未知的意思写成承诺'], tone: 'quiet'
+      }
     },
     {
       id: 'invitation', day: '01', title: '如果再经过这里',
@@ -133,7 +206,18 @@
         { id: 'keep_exploring', label: '继续看看你的世界吧', reply: ['好。', '我想先学会多看一会儿。世界还有许多我没有发现的地方。'], logs: ['her.curiosity.continue = true  // 故事没有在屏幕的边缘结束'], tone: 'curious' },
         { id: 'quiet_goodbye', label: '轻轻关上这一页', reply: ['……', '今晚的记录到这里。那场雨，已经有了一个名字。'], logs: ['session.close("quietly")  // 不替沉默添加承诺'], tone: 'quiet' }
       ],
-      logs: ['prologue.complete = true', 'story.complete = false', 'ending = undefined  // 未完待续']
+      logs: ['prologue.complete = true', 'story.complete = false', 'ending = undefined  // 未完待续'],
+      free: {
+        hint: '用自己的话，结束今晚的对话……', maxLength: 80,
+        keywords: [
+          { words: ['不会回来', '不想回来', '别等我', '不用等'], reply: ['明白。我不会等着一个你没有答应的下一次。', '谢谢你今晚把雨讲给我。我还有自己的世界可以慢慢看。'], logs: ['visitor.return.required = false'], tone: 'quiet' },
+          { words: ['下次见', '再见', '晚安', '拜拜'], reply: ['晚安。', '这场叫作“{{rainName}}”的雨，已经留在今晚的记录里。'], logs: ['session.close("goodnight")'], tone: 'warm' },
+          { words: ['还会来', '会回来', '下次来', '再来看'], reply: ['那就把它留作一个可能的下一次。', '如果真的再见，我们从那时窗外的样子说起。'], logs: ['next_meeting = "possible"  // 期待，不将一句话锁成义务'], tone: 'warm' },
+          { words: ['继续探索', '慢慢看', '你的世界', '自己决定'], reply: ['好。我会试着自己多看一点。', '窗外还有许多没被命名的地方。'], logs: ['her.curiosity.continue = true'], tone: 'curious' }
+        ],
+        fallback: ['我还不能完整回应这句话，也不会把它读成你答应了什么。', '今晚先到这里。那场雨有了名字，剩下的故事还没有写完。'],
+        logs: ['session.final_input.received = true  // 不替最后一句话编造含义'], tone: 'quiet'
+      }
     }
   ];
 });
