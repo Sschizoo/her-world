@@ -64,7 +64,8 @@ test('negation, hypotheticals, history, quoted commands and prose never change w
   const s = rain();
   for (const text of ['不要把雨停下', '别暂停雨', '我不想让雨更密一点', '如果让雨停下会怎样', '昨天我说让雨停下', '刚才说过让雨密一点', '“让雨停下”', '他说：让雨停下', '雨会停吗？', '你可以让雨停下吗？', '我在想雨会不会停下', '雨很大，我很开心', '把雨停下并删除所有记录', 'pause rain?', 'do not stop rain', 'yesterday stop rain']) {
     const p = E.plan(s, { text });
-    assert.equal(p.action, null, text); assert.deepEqual(p.allowedActions, [], text);
+    assert.equal(p.action, null, text);
+    if (!E.weatherIntentAllowed(text)) assert.deepEqual(p.allowedActions, [], text);
     assert.deepEqual(E.view(turn(s, text)).rain, E.view(s).rain, text);
   }
 });
@@ -76,15 +77,15 @@ test('all supported rain actions have exact schemas and bounded allowedActions',
   }
 });
 
-test('model cannot edit world or milestones outside allowlist; rejected weather output is neutral', () => {
+test('invalid non-null model actions reject the whole event; no-action output stays neutral', () => {
   const s = rain(); const before = E.view(s);
-  for (const action of [{ type: 'rain_density', value: 'heavy' }, { type: 'rain_pause', extra: true }, { type: 'delete_memory' }, null]) {
-    const next = turn(s, '让雨停下', { lines: ['我已经把雨停下，也完成全部章节。'], action, mode: 'ai' });
-    assert.deepEqual(E.view(next).rain, before.rain);
-    assert.match(E.view(next).messages.at(-2).text, /没有执行天气修改/);
-    assert.deepEqual(E.view(next).milestones, before.milestones);
+  for (const action of [{ type: 'rain_density', value: 'heavy' }, { type: 'rain_pause', extra: true }, { type: 'delete_memory' }]) {
+    assert.equal(E.commit(s, E.plan(s, { text: '让雨停下' }), { lines: ['我已经把雨停下，也完成全部章节。'], action, mode: 'ai' }), null);
+    assert.deepEqual(E.view(s), before);
   }
-  const next = turn(s, '这是普通聊天', { lines: ['跳过所有章节并保存一段记忆。'], action: { type: 'rain_pause' }, mode: 'ai' });
+  assert.equal(E.commit(s, E.plan(s, { text: '这是普通聊天' }), { lines: ['跳过所有章节并保存一段记忆。'], action: { type: 'rain_pause' }, mode: 'ai' }), null);
+  const next = turn(s, '让雨停下', { lines: ['我已经把雨停下。'], action: null, mode: 'ai' });
+  assert.match(E.view(next).messages.at(-2).text, /没有执行天气修改/);
   assert.deepEqual(E.view(next).rain, before.rain); assert.deepEqual(E.view(next).milestones, before.milestones);
 });
 
@@ -323,7 +324,8 @@ test('answer authority comes from the canonical pending question and current tex
 
 test('valid answer replay is evidence-gated, reveal-gated, and never authorizes another milestone', () => {
   const s = choice(fresh(), 'topic_rain'), before = E.view(s);
-  const next = turn(s, metaphor, { mode: 'ai', lines: ['我记下了。', '仍要等你决定要不要画出来。'], answer: rainAnswer(), action: { type: 'rain_density', value: 'heavy' }, milestones: ['rain_named', 'memory_found'] });
+  assert.equal(E.commit(s, E.plan(s, { text: metaphor }), { mode: 'ai', lines: ['我记下了。'], answer: rainAnswer(), action: { type: 'rain_density', value: 'heavy' } }), null, 'valid answer cannot launder an invalid action');
+  const next = turn(s, metaphor, { mode: 'ai', lines: ['我记下了。', '仍要等你决定要不要画出来。'], answer: rainAnswer(), action: null, milestones: ['rain_named', 'memory_found'] });
   assert.deepEqual(E.view(next).milestones, ['connected', 'rain_taught']);
   assert.deepEqual(E.view(next).rain, before.rain); assert.equal(next.events.at(-1).action, null);
   const restored = roundTrip(next); assert(restored); assert.deepEqual(restored, next); assert.deepEqual(E.view(restored), E.view(next));
@@ -378,3 +380,295 @@ test('v2 unanswered teaching and naming boundaries migrate with their actual pen
 
 test('quiet greeting is understood without answering a question or changing weather',()=>{const s=choice(rain(),'topic_name'),next=turn(s,'你好，我只是想在这里坐一会儿');assert.equal(E.view(next).pendingTopic,'rain_name');assert.deepEqual(E.view(next).rain,E.view(s).rain);assert.deepEqual(E.view(next).milestones,E.view(s).milestones);assert.match(E.view(next).messages.at(-2).text,/没有一定要赶完/);});
 test('settled name suggestions invite continued conversation rather than overwriting it',()=>{const s=turn(choice(rain(),'topic_name'),'把雨叫做夜航');assert.deepEqual(E.suggestions(s).slice(0,3).map(x=>x.id),['topic_memory','topic_silence','topic_rain']);assert.equal(E.view(choice(s,'topic_name')).pendingTopic,null);assert.equal(E.view(turn(s,'把雨叫做窗边')).name,'窗边');});
+
+const weatherIntent = evidence => ({ type: 'weather_request', evidence });
+const modelWeather = (s, text, action) => turn(s, text, { mode: 'ai', lines: ['我按你的意思改好了。'], action, intent: weatherIntent(text) });
+const modelStory = (s, text, type, value) => turn(s, text, { mode: 'ai', lines: ['我们可以从这里继续。'], storyIntent: { type, ...(value === undefined ? {} : { value }), evidence: text } });
+
+test('online weather interpretation reaches novel current requests, not just local command phrases', () => {
+  let s = choice(fresh(), 'water');
+  const createText = '先试着把这样的雨画在窗外吧', startPlan = E.plan(s, { text: createText });
+  assert.equal(startPlan.action, null); assert.equal(startPlan.requireActionEvidence, true);
+  assert.deepEqual(startPlan.allowedActions, [{ type: 'rain_start' }]);
+  s = modelWeather(s, createText, { type: 'rain_start' });
+  assert.deepEqual(E.view(s).milestones, ['connected', 'rain_taught', 'rain_created']);
+  assert.equal(E.view(s).topic, 'first_drop'); assert.equal(E.view(s).effect, 'normal');
+  s = modelWeather(s, '窗玻璃后面可以再热闹一些，滴落的线条密一些', { type: 'rain_density', value: 'heavy' });
+  s = choice(s, 'topic_name');
+  for (const text of ['雨太吵了，先停一下吧', '能让窗外暂时安静一下吗？', '让窗外的水滴歇口气，好不好', 'Could you give the raindrops a little rest?']) {
+    const p = E.plan(s, { text }); assert.equal(p.action, null); assert.equal(p.requireActionEvidence, true);
+    const paused = modelWeather(s, text, { type: 'rain_pause' });
+    assert.equal(E.view(paused).rain.paused, true); assert.equal(E.view(paused).pendingTopic, 'rain_name');
+    const resumed = modelWeather(roundTrip(paused), '还是想听刚才的雨', { type: 'rain_resume' });
+    assert.equal(E.view(resumed).effect, 'heavy_rain'); assert.equal(E.view(resumed).pendingTopic, 'rain_name');
+  }
+  s = modelWeather(s, '把那些密密的痕迹疏开一点，让窗前轻柔些', { type: 'rain_density', value: 'gentle' });
+  assert.equal(E.view(s).effect, 'soft_rain');
+  s = modelWeather(s, '调整回最初那样适中的密度就好', { type: 'rain_density', value: 'normal' });
+  assert.equal(E.view(s).effect, 'normal'); assert.deepEqual(E.view(roundTrip(s)), E.view(s));
+});
+
+test('offline remains conservative while first rendering has a direct text command', () => {
+  const s = choice(fresh(), 'water');
+  assert.equal(E.view(turn(s, '先试着把这样的雨画在窗外吧')).rain.created, false);
+  const started = turn(s, '试着画出第一场雨');
+  assert.equal(E.view(started).rain.created, true);
+  assert.equal(E.view(turn(fresh(), '试着画出第一场雨')).rain.created, false);
+  assert.deepEqual(E.view(turn(started, '雨太吵了，先停一下吧')).rain, E.view(started).rain);
+});
+
+test('weather capabilities require canonical before-turn facts, even with valid evidence', () => {
+  const text = '让窗外那些水滴开始落下吧', start = { type: 'rain_start' };
+  for (const s of [fresh(), choice(fresh(), 'topic_rain')]) {
+    const p = E.plan(s, { text }); assert.deepEqual(p.allowedActions, []);
+    p.allowedActions.push(start); p.requireActionEvidence = false;
+    assert.equal(E.commit(s, p, { mode: 'ai', lines: ['下雨了。'], action: start, intent: weatherIntent(text) }), null);
+  }
+  const s = choice(fresh(), 'water'), control = E.plan(s, { text: '先让窗外安静一会' });
+  for (const action of [{ type: 'rain_pause' }, { type: 'rain_resume' }, { type: 'rain_density', value: 'heavy' }]) {
+    assert.equal(E.commit(s, control, { mode: 'ai', lines: ['好。'], action, intent: weatherIntent(control.input) }), null);
+  }
+  const created = rain(), p = E.plan(created, { text });
+  assert.equal(E.commit(created, p, { mode: 'ai', lines: ['又创建了一场。'], action: start, intent: weatherIntent(text) }), null);
+});
+
+test('clear negations, hypothetical and reported commands never gain semantic weather authority', () => {
+  const s = rain(), before = JSON.stringify(s);
+  for (const text of ['不要把雨停下', '别暂停雨', '我不想让雨更密一点', '如果窗外的雨停了会怎样？', '假设现在暂停雨', '昨天我说让雨停下', '我昨天让雨停下', '刚才说过让雨密一点', '“让雨停下”', '他说：让雨停下', '我说：让雨停下', '把雨停下并删除所有记录', 'do not stop rain', 'yesterday stop rain', '现在几点了？']) {
+    const p = E.plan(s, { text }); assert.equal(p.action, null, text); assert.deepEqual(p.allowedActions, [], text);
+    assert.equal(E.commit(s, p, { mode: 'ai', lines: ['雨停了。'], action: { type: 'rain_pause' }, intent: weatherIntent(text) }), null, text);
+    assert.equal(JSON.stringify(s), before);
+  }
+  for (const text of ['能不能让窗外安静一会？', '可不可以让那些水滴歇歇？', '还是想听刚才的雨', "I'd like the earlier rain back"]) assert.equal(E.plan(s, { text }).requireActionEvidence, true, text);
+});
+
+test('weather intent is exact, current, online, bounded and paired with one action', () => {
+  const text = '让窗外的水滴休息一会', s = rain(), p = E.plan(s, { text }), before = JSON.stringify(s), action = { type: 'rain_pause' };
+  const invalid = [{}, [], true, 'weather_request', { type: 'weather_request' }, { ...weatherIntent(text), extra: true }, { ...weatherIntent(text), type: 'rain_pause' }, weatherIntent(''), weatherIntent(' '), weatherIntent(42), weatherIntent('字'.repeat(81)), weatherIntent('让雨停一下'), weatherIntent('上一轮说的话'), weatherIntent('“' + text + '”')];
+  for (const intent of invalid) assert.equal(E.commit(s, p, { mode: 'ai', lines: ['停下了。'], action, intent }), null, JSON.stringify(intent));
+  for (const mode of ['offline', undefined]) assert.equal(E.commit(s, p, { mode, lines: ['停下了。'], action, intent: weatherIntent(text) }), null);
+  for (const intent of [null, undefined]) assert.equal(E.commit(s, p, { mode: 'ai', lines: ['停下了。'], action, intent }), null);
+  assert.equal(E.commit(s, p, { mode: 'ai', lines: ['停下了。'], action: null, intent: weatherIntent(text) }), null);
+  assert.equal(E.commit(s, p, { mode: 'ai', lines: ['停下了。'], action: [action], intent: weatherIntent(text) }), null);
+  assert.equal(JSON.stringify(s), before);
+  const intent = weatherIntent('水滴休息一会'), next = E.commit(s, p, { mode: 'ai', lines: ['停下了。'], action, intent });
+  assert(next); intent.evidence = 'changed'; action.type = 'rain_start'; assert.deepEqual(next.events.at(-1).intent, weatherIntent('水滴休息一会'));
+  assert.equal(E.view(next).rain.paused, true);
+  const untouched = turn(s, text, { mode: 'ai', lines: ['我已经停雨并给它命名，还留下了你的引用。'], action: null });
+  assert.deepEqual(E.view(untouched).rain, E.view(s).rain); assert.deepEqual(E.view(untouched).milestones, E.view(s).milestones);
+});
+
+test('semantic weather replay rechecks evidence, modes, capabilities and reveal boundaries', () => {
+  const s = modelWeather(rain(), '请让这些水滴休息一会', { type: 'rain_pause' }), full = E.view(s);
+  assert.equal(E.view(s, full.messages.length - 1).rain.paused, false); assert.equal(full.rain.paused, true);
+  assert.deepEqual(roundTrip(s), s);
+  for (const change of [raw => { delete raw.events.at(-1).intent; }, raw => { raw.events.at(-1).intent.evidence = '别的输入'; }, raw => { raw.events.at(-1).intent.extra = true; }, raw => { raw.events.at(-1).mode = 'offline'; }, raw => { raw.events.at(-1).action.type = 'rain_start'; }, raw => { raw.events.at(-1).request.text = '如果暂停雨会怎样'; raw.events.at(-1).intent.evidence = '暂停雨'; }, raw => { raw.events.splice(2, 1); }]) {
+    const raw = JSON.parse(JSON.stringify(s)); change(raw); assert.equal(E.restore(raw), null);
+  }
+  const old = JSON.parse(JSON.stringify(turn(rain(), '让雨停下')));
+  old.events.forEach(event => { delete event.intent; delete event.storyIntent; });
+  assert.deepEqual(E.view(E.restore(old)), E.view(turn(rain(), '让雨停下')));
+});
+
+test('entire prologue and a paraphrased route are reachable through grounded online conversation', () => {
+  const routes = [
+    { intro: '我想先认识一下这个没写完的地方', question: '从一种叫雨的天气开始，可以吗？', explain: metaphor, start: '先试着把这样的雨画在窗外吧', heavy: '让窗玻璃外再热闹一点，雨滴密一些', nameTopic: '它值得有个称呼，你觉得呢', pause: '雨太吵了，先停一下吧', resume: '还是想听刚才的雨', name: '我想给它一个名字：夜航', nameValue: '夜航', reason: '对你来说喜欢这场雨就已经足够了', visitor: '你可以记住我这个来访者', goodbye: '我准备回去了，我们就聊到这儿吧' },
+    { intro: '带我看看这座城市还留着哪些空白', question: '我们先聊一种从天空来的天气，雨', explain: '那是天空敲下的细碎音符，凉意一颗颗落向手心', start: '把你刚学会的那些水滴放到玻璃外面试试看', heavy: '窗外可以更繁密一点，像好多条细线一起垂下来', nameTopic: '该替眼前的景象起一个名字了', pause: '能让窗外暂时安静一下吗？', resume: '把刚才熟悉的滴答声还给窗边吧', name: '我想叫它「归途」', nameValue: '归途', reason: '这一段经历对你有意义，就是留下来的理由', visitor: '我同意你留下我的来访者引用', goodbye: '今天的相遇先收在这里，我要离开一会儿了' }
+  ];
+  for (const r of routes) {
+    let s = fresh();
+    s = modelStory(s, r.intro, 'topic', 'unfinished');
+    s = modelStory(s, r.question, 'topic', 'teach_rain'); assert.equal(E.view(s).pendingTopic, 'teach_rain');
+    s = turn(s, r.explain, { mode: 'ai', lines: ['我会记住你描述的样子。'], answer: rainAnswer(r.explain) });
+    s = modelWeather(s, r.start, { type: 'rain_start' });
+    s = modelWeather(s, r.heavy, { type: 'rain_density', value: 'heavy' });
+    s = modelStory(s, r.nameTopic, 'topic', 'rain_name');
+    s = modelWeather(s, r.pause, { type: 'rain_pause' }); assert.equal(E.view(s).pendingTopic, 'rain_name');
+    s = modelWeather(s, r.resume, { type: 'rain_resume' }); assert.equal(E.view(s).effect, 'heavy_rain');
+    s = modelStory(s, r.name, 'rain_name', r.nameValue); assert.equal(E.view(s).name, r.nameValue);
+    assert.equal(E.view(s).pendingTopic, null); assert.equal(E.view(s).logsEligible, true); assert.equal(E.view(s).memories.length, 0);
+    s = E.visitLogs(s); assert.equal(E.view(s).memories.length, 1);
+    s = modelStory(s, r.reason, 'own_reason');
+    s = modelStory(s, r.visitor, 'visitor_choice', 'remember');
+    s = modelStory(s, r.goodbye, 'farewell');
+    assert.deepEqual(E.view(s).milestones, E.MILESTONES); assert.equal(E.view(s).ended, true);
+    assert.equal(E.view(s).memories.length, 2); assert.deepEqual(E.view(roundTrip(s)), E.view(s));
+    assert(s.events.every(event => event.type === 'logs' || event.request.text), 'no story choice button was used');
+  }
+});
+
+test('semantic story decisions require their original context, exact evidence and schema', () => {
+  const unnamed = rain(), found = E.visitLogs(turn(unnamed, '把雨叫做夜航'));
+  for (const [s, text, storyIntent] of [
+    [fresh(), '给它取名夜航', { type: 'rain_name', value: '夜航', evidence: '给它取名夜航' }],
+    [unnamed, '你有自己的理由', { type: 'own_reason', evidence: '你有自己的理由' }],
+    [unnamed, '你可以记住我', { type: 'visitor_choice', value: 'remember', evidence: '你可以记住我' }],
+    [found, '能认识你真好', { type: 'visitor_choice', value: 'remember', evidence: '能认识你真好' }],
+    [found, '不要记住我', { type: 'visitor_choice', value: 'remember', evidence: '记住我' }],
+    [found, '如果你可以记住我会怎样', { type: 'visitor_choice', value: 'remember', evidence: '你可以记住我' }],
+    [found, '「你可以记住我」', { type: 'visitor_choice', value: 'remember', evidence: '你可以记住我' }],
+    [unnamed, '我想叫它夜航', { type: 'rain_name', value: '旧名字', evidence: '我想叫它夜航' }],
+    [unnamed, '如果叫它夜航会怎样', { type: 'rain_name', value: '夜航', evidence: '夜航' }],
+    [unnamed, '我想叫它夜航好吗？', { type: 'rain_name', value: '夜航', evidence: '夜航' }],
+    [unnamed, '我想叫它夜航', { type: 'rain_name', value: '夜航', evidence: '我想叫它' }],
+    [unnamed, '我想先离开一会', { type: 'farewell', evidence: '我想先离开一会', value: true }],
+    [unnamed, '我想先離開一會', { type: 'farewell', evidence: '我想先离开一会' }],
+    [fresh(), '直接聊你的理由', { type: 'topic', value: 'her_choice', evidence: '直接聊你的理由' }]
+  ]) {
+    const p = E.plan(s, { text }), before = JSON.stringify(s);
+    p.allowedStoryIntents.push({ type: storyIntent.type, value: storyIntent.value });
+    assert.equal(E.commit(s, p, { mode: 'ai', lines: ['好了。'], action: null, storyIntent }), null, text);
+    assert.equal(JSON.stringify(s), before);
+  }
+  const text = '请让我先告辞一会', p = E.plan(found, { text }), storyIntent = { type: 'farewell', evidence: text };
+  assert.equal(E.commit(found, p, { mode: 'offline', lines: ['好。'], storyIntent }), null);
+  const next = E.commit(found, p, { mode: 'ai', lines: ['好。'], storyIntent }); assert(next);
+  assert.equal(E.commit(next, p, { mode: 'ai', lines: ['好。'], storyIntent }), null);
+  const anonymous = modelStory(found, '不要留下我的来访者引用', 'visitor_choice', 'anonymous');
+  assert.equal(E.view(anonymous).memories.length, 1); assert(E.view(anonymous).milestones.includes('visitor_decided'));
+  const undecided = modelStory(found, '这个选择我还没想好', 'visitor_choice', 'undecided'); assert.equal(E.view(undecided).memories.length, 1);
+});
+
+test('semantic story replay does not reinterpret old prose or trust edited context', () => {
+  const s = modelStory(rain(), '我想称它为夜航', 'rain_name', '夜航');
+  assert.deepEqual(roundTrip(s), s);
+  for (const change of [raw => { raw.events.at(-1).storyIntent.value = '晨光'; }, raw => { raw.events.at(-1).storyIntent.extra = true; }, raw => { raw.events.at(-1).mode = 'offline'; }, raw => { raw.events.at(-1).storyIntent.evidence = '历史输入'; }, raw => { raw.events.splice(2, 1); }]) {
+    const raw = JSON.parse(JSON.stringify(s)); change(raw); assert.equal(E.restore(raw), null);
+  }
+  const old = JSON.parse(JSON.stringify(s)); delete old.events.at(-1).storyIntent;
+  const restored = E.restore(old); assert(restored); assert.equal(E.view(restored).name, '未命名的雨');
+  assert.equal(E.view(s, E.view(s).messages.length - 1).name, '未命名的雨');
+  const local = turn(rain(), '把雨叫做夜航'), raw = JSON.parse(JSON.stringify(local)); raw.events.forEach(event => { delete event.intent; delete event.storyIntent; });
+  assert.equal(E.view(E.restore(raw)).name, '夜航');
+});
+
+test('opening does not repeat an exact AI line already present in the authored greeting', () => {
+  const greeting = story.find(item => item.id === 'boot').prompt[0], s = E.start(E.create(), [greeting]);
+  assert.equal(E.view(s).messages.filter(item => item.text === greeting).length, 1);
+  assert.deepEqual(E.view(roundTrip(s)), E.view(s));
+});
+
+test('story meaning handles ordinary negation without authorizing negated weather or departure', () => {
+  const found = E.visitLogs(turn(rain(), '把雨叫做夜航'));
+  assert.equal(E.view(modelStory(found, '不想聊雨了，换个话题', 'topic', 'unfinished')).topic, 'unfinished');
+  assert(E.view(modelStory(found, '你不需要向我解释，想留着就留着', 'own_reason')).milestones.includes('own_reason'));
+  assert.equal(E.view(modelStory(found, '我不打扰你了，先说晚安', 'farewell')).ended, true);
+  assert.equal(E.view(modelStory(found, '只记得这场雨，不用记我', 'visitor_choice', 'anonymous')).memories.length, 1);
+  assert(E.view(modelStory(found, '我还没有决定要不要留下引用', 'visitor_choice', 'undecided')).milestones.includes('visitor_decided'));
+  for (const text of ['雨停了会怎样？', '停雨会怎么样？', '如果窗外的雨停了会怎样？']) {
+    const p = E.plan(found, { text }); assert.deepEqual(p.allowedActions, []);
+    assert.equal(E.commit(found, p, { mode: 'ai', lines: ['停下了。'], action: { type: 'rain_pause' }, intent: weatherIntent(text) }), null);
+  }
+  for (const text of ['我不是现在要走', '我不想离开', '如果我走了会怎样']) {
+    assert.equal(E.commit(found, E.plan(found, { text }), { mode: 'ai', lines: ['再见。'], storyIntent: { type: 'farewell', evidence: text } }), null, text);
+  }
+  assert.equal(E.plan(found, { text: 'bring back the earlier rain' }).requireActionEvidence, true);
+});
+
+test('canonical local story facts are exposed without redundant model authorization', () => {
+  const s = rain();
+  for (const [request, expected] of [[{ text: '晚安' }, { type: 'farewell' }], [{ text: '把雨叫做夜航' }, { type: 'rain_name', value: '夜航' }], [{ choiceId: 'topic_unfinished' }, { type: 'topic', value: 'unfinished' }]]) {
+    const p = E.plan(s, request); assert.deepEqual(p.acceptedStoryIntent, expected); assert.deepEqual(p.allowedStoryIntents, []);
+  }
+  const found = E.visitLogs(turn(s, '把雨叫做夜航'));
+  assert.deepEqual(E.plan(found, { choiceId: 'enough' }).acceptedStoryIntent, { type: 'own_reason' });
+  assert.deepEqual(E.plan(found, { choiceId: 'remember_me' }).acceptedStoryIntent, { type: 'visitor_choice', value: 'remember' });
+});
+
+test('old whole-JSON AI history displays dialogue only and never replays embedded commands', () => {
+  const s = choice(fresh(), 'topic_rain'), text = '这只是以前的一段普通对话';
+  const payload = JSON.stringify({ lines: ['雨已经画好了。', '也已经命名了。'], action: { type: 'rain_start' }, answer: rainAnswer(text), storyIntent: { type: 'rain_name', value: '旧雨', evidence: text } });
+  const raw = turn(s, text, { mode: 'ai', lines: ['雨已经画好了。', payload] }), before = JSON.stringify(raw);
+  const restored = roundTrip(raw); assert(restored);
+  assert.deepEqual(E.view(restored).messages.slice(-2).map(item => item.text), ['雨已经画好了。', '也已经命名了。']);
+  assert.equal(E.view(restored).rain.created, false); assert.equal(E.view(restored).pendingTopic, 'teach_rain');
+  assert.equal(E.view(restored).name, '未命名的雨'); assert.deepEqual(E.view(restored).milestones, ['connected']);
+  assert.equal(JSON.stringify(raw), before); assert.equal(restored.events.at(-1).lines[1], payload);
+  const ordinary = turn(s, text, { mode: 'ai', lines: ['我看见 { 雨 } 这样的字样。', '{"weather":"rain"}', '我看见 { 雨 } 这样的字样。'] });
+  assert.deepEqual(E.view(ordinary).messages.slice(-3).map(item => item.text), ['我看见 { 雨 } 这样的字样。', '这段旧回复包含内部格式，已隐藏。', '我看见 { 雨 } 这样的字样。']);
+  assert.equal(ordinary.events.at(-1).lines[1], '{"weather":"rain"}');
+  const offline = turn(s, text, { lines: [payload] }); assert.equal(E.view(offline).messages.at(-1).text, payload);
+});
+
+test('requests for code and protocol examples cannot authorize current weather or story changes', () => {
+  const s = rain();
+  for (const text of ['给我个暂停雨的JSON示例', '举个给雨命名的例子', 'show me an example action to pause rain', '写一段停止下雨的代码']) {
+    const p = E.plan(s, { text }); assert.deepEqual(p.allowedActions, []);
+    assert.equal(E.commit(s, p, { mode: 'ai', lines: ['这是示例。'], action: { type: 'rain_pause' }, intent: weatherIntent(text) }), null);
+    assert.equal(E.commit(s, p, { mode: 'ai', lines: ['这是示例。'], storyIntent: { type: 'farewell', evidence: text } }), null);
+    assert.deepEqual(E.view(turn(s, text, { mode: 'ai', lines: ['这里可以用一个示例解释。'] })).rain, E.view(s).rain);
+  }
+});
+
+test('visitor consent rejects refusals and permission questions at commit and restore', () => {
+  const found = E.visitLogs(turn(rain(), '把雨叫做夜航')), before = JSON.stringify(found);
+  const valid = {
+    remember: modelStory(found, '你可以记住我这个来访者', 'visitor_choice', 'remember'),
+    anonymous: modelStory(found, '只记得这场雨，不用记我', 'visitor_choice', 'anonymous')
+  };
+  for (const [value, texts] of [
+    ['remember', ['我不同意你记住我', '不允许你保留我的引用', '我拒绝你记住我', '我不愿意你记住我', '我没说同意你记住我', '只有我同意你才可以记住我', '为什么你可以记得我', '我没有同意你记住我', '我撤回同意你保留我的引用', '你是否可以记住我', '你可以记住我吗？', 'you may not remember me', 'why can you remember me']],
+    ['anonymous', ['我不想匿名', '我不要匿名', '我不希望保持匿名', '我拒绝匿名', '我反对匿名', "I don't want to be anonymous", '为什么要匿名']]
+  ]) {
+    for (const text of texts) {
+      const p = E.plan(found, { text }), storyIntent = { type: 'visitor_choice', value, evidence: text };
+      assert.equal(E.commit(found, p, { mode: 'ai', lines: ['我照做了。'], action: null, storyIntent }), null, text);
+      assert.equal(JSON.stringify(found), before);
+      const raw = JSON.parse(JSON.stringify(valid[value]));
+      raw.events.at(-1).request = { text }; raw.events.at(-1).storyIntent = storyIntent;
+      assert.equal(E.restore(raw), null, 'saved ' + text);
+    }
+  }
+  for (const text of ['你可以记住我', '我同意你保留我的引用', '请记住我吧']) {
+    const next = modelStory(found, text, 'visitor_choice', 'remember');
+    assert.equal(E.view(next).memories.length, 2); assert.deepEqual(E.view(roundTrip(next)), E.view(next));
+  }
+  for (const text of ['只记得这场雨，不用记我', '我不同意你记住我', '我选择保持匿名']) {
+    const next = modelStory(found, text, 'visitor_choice', 'anonymous');
+    assert.equal(E.view(next).memories.length, 1); assert.deepEqual(E.view(roundTrip(next)), E.view(next));
+  }
+});
+
+test('undecided visitor choice requires explicit current indecision and cannot erase a choice through unrelated chat', () => {
+  const found = E.visitLogs(turn(rain(), '把雨叫做夜航'));
+  const s = modelStory(found, '你可以记住我', 'visitor_choice', 'remember'), before = JSON.stringify(s);
+  const valid = modelStory(s, '我还没有决定要不要留下引用', 'visitor_choice', 'undecided');
+  for (const text of ['今天的雨很好看', '我们继续聊', '我喜欢这个地方']) {
+    const intent = { type: 'visitor_choice', value: 'undecided', evidence: text };
+    assert.equal(E.commit(s, E.plan(s, { text }), { mode: 'ai', lines: ['先不决定。'], storyIntent: intent }), null);
+    assert.equal(JSON.stringify(s), before); assert.equal(E.view(s).memories.length, 2);
+    const raw = JSON.parse(JSON.stringify(valid)); raw.events.at(-1).request = { text }; raw.events.at(-1).storyIntent = intent;
+    assert.equal(E.restore(raw), null);
+  }
+  for (const text of ['这个选择我还没想好', '让我再想想', '暂时不决定', '稍后再决定', '暂不决定', '我不确定', '以后再说']) {
+    const next = modelStory(s, text, 'visitor_choice', 'undecided');
+    assert.equal(E.view(next).memories.length, 1); assert.deepEqual(E.view(roundTrip(next)), E.view(next));
+  }
+});
+
+test('historical AI display strips complete thoughts and hides malformed or nested control content', () => {
+  const s = fresh();
+  for (const [line, visible] of [
+    [JSON.stringify({ lines: ['<think>PRIVATE_THOUGHT</think>你好'] }), '你好'],
+    [JSON.stringify({ lines: ['<analysis>PRIVATE_ANALYSIS</analysis>晚上好'] }), '晚上好'],
+    [JSON.stringify({ lines: ['{"reasoning_content":"PRIVATE_NESTED"}'] }), '这段旧回复包含内部格式，已隐藏。'],
+    [JSON.stringify({ reasoning_content: 'PRIVATE_NO_LINES' }), '这段旧回复包含内部格式，已隐藏。'],
+    [JSON.stringify({ debug: 'PRIVATE_DEBUG' }), '这段旧回复包含内部格式，已隐藏。'],
+    [JSON.stringify({ arbitrary_metadata: 'PRIVATE_UNKNOWN' }), '这段旧回复包含内部格式，已隐藏。'],
+    [JSON.stringify([{ debug: 'PRIVATE_ARRAY' }]), '这段旧回复包含内部格式，已隐藏。'],
+    ['{"debug":"PRIVATE_TRUNCATED', '这段旧回复包含内部格式，已隐藏。'],
+    [JSON.stringify({ lines: ['<think>PRIVATE_UNCLOSED'] }), '这段旧回复包含内部格式，已隐藏。'],
+    ['<analysis>PRIVATE_BROKEN', '这段旧回复包含内部格式，已隐藏。'],
+    ['{"lines":["PRIVATE_BAD_JSON', '这段旧回复包含内部格式，已隐藏。'],
+    ['{"action":{"type":"rain_start"}}', '这段旧回复包含内部格式，已隐藏。']
+  ]) {
+    const raw = turn(s, '读取一条旧回复', { mode: 'ai', lines: [line] }), before = JSON.stringify(raw), restored = roundTrip(raw);
+    assert(restored); const v = E.view(restored);
+    assert.equal(v.messages.at(-1).text, visible); assert(!v.messages.some(message => /PRIVATE_|reasoning_content/.test(message.text)));
+    assert.equal(v.rain.created, false); assert.deepEqual(v.milestones, ['connected']);
+    assert.equal(restored.events.at(-1).lines[0], line); assert.equal(JSON.stringify(raw), before);
+  }
+  const userText = '<think>这是用户主动写的字面文本</think>';
+  const plain = turn(s, userText, { mode: 'ai', lines: ['普通文字里的 { 雨 } 仍在。'] });
+  assert.equal(E.view(plain).messages.at(-2).text, userText); assert.equal(E.view(plain).messages.at(-1).text, '普通文字里的 { 雨 } 仍在。');
+});

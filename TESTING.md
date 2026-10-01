@@ -31,7 +31,7 @@ Checklist: introductory screen; connect disclosure dialog; full offline path; ra
 
 After the user reported a network failure, one intentionally invalid, accountless test string was manually submitted through the published app in the cloud browser. The page received a readable authentication rejection (401/403 classification), and no DMXAPI CORS error appeared in the filtered browser console. It did not reproduce the user’s network error. The test string was then disconnected and cleared. No valid credential or model-generation request was used; this does not establish the user’s browser/network, account, or model availability.
 
-## Not verified
+## Limits of the earlier offline-only passes
 
 - Real DMXAPI Key, user quota or model availability (the implementation/test workflow never receives or enters a real key)
 - Real provider CORS from the published Pages origin
@@ -46,11 +46,22 @@ Local aggregate checks currently pass: 29 application integration checks, 34 eng
 
 Covered: the exact reported “rain definition → what time is it?” regression in offline and mocked AI mode; no automatic first rain or question completion; density → naming topic → stop → unrelated topic → resume preserving density; negated, hypothetical and recalled commands; explicit names and recall; compounds; explicit log discovery; farewell/reopening; v2 migration across every old boundary; caps and invalid saves; error/cancel/disconnect/reset with pending response; no key persistence; slow reveal/skip/save/refresh; evidence-only focus, normalized stable scores, decay and no future transcript leakage.
 
-No valid credentials, paid requests or provider generation used. Existing real-user HTTP401 cause remains unresolved and is not claimed fixed by this iteration. Browser visual verification of v0.3.0 must follow parent-coordinated publication; v0.2.2 live screenshot evidence is not a v0.3.0 verification.
+No valid credentials, paid requests or provider generation used. The user subsequently reported that the HTTP401 problem was resolved. We did not use a valid credential or independently verify that resolution, and this iteration does not claim an authentication fix. Browser visual verification of v0.3.0 must follow parent-coordinated publication; v0.2.2 live screenshot evidence is not a v0.3.0 verification.
 
 
 ## v0.3.0 public desktop loop and v0.3.1 polish
 
 Actual cloud desktop playthrough on the published v0.3.0 completed all nine milestones and remained open afterward. Checked the exact clock-question regression, deliberate first rendering, density/pause/resume across topics, hypothetical no-op, naming-question rejection, compound name+resume, log discovery/focus proportions, anonymous memory, farewell/reopening/name recall, refresh with paused rain/name preserved, cancel reconnect, and explicit offline resume. Drawer-open and closed layouts were visually checked; the original UI palette and monochrome ASCII world remain intact. No live provider/key use.
 
-Playtest led to a small v0.3.1 improvement: settled-name hints now suggest continued conversation instead of three replacements; a quiet greeting is understood in offline mode without advancing or changing weather; unconnected input guidance accurately asks for mode choice. All affected behavior has added regressions; final aggregate is 140 checks (30 app,36 engine,20 focus,5 world,49 transport). v0.3.1 publication/replay remains pending at this note's writing.
+Playtest led to a small v0.3.1 improvement: settled-name hints now suggest continued conversation instead of three replacements; a quiet greeting is understood in offline mode without advancing or changing weather; unconnected input guidance accurately asks for mode choice. All affected behavior has added regressions; final aggregate is 140 checks (30 app,36 engine,20 focus,5 world,49 transport). v0.3.1 was then verified on live Pages and replayed through all nine milestones in the cloud desktop browser. The improved greeting, settled-name suggestions and unconnected guidance were visibly confirmed. The second route used the other visitor-memory choice (two memories), then reopened after farewell, resumed the remembered heavy rain, and refreshed with the exact name and rain state intact. The first full pass used normal paced presentation; the replay also exercised animation pause/reduced-motion presentation. No material issue remained in the tested offline flows.
+
+
+## v0.3.1 bounded live model check (user-established session)
+
+The user personally connected the published app. The test continued that existing session without reading, copying, filling or inspecting credentials, request headers or credential storage. Five ordinary conversation requests were initiated, including one manual retry of a status-unknown network failure. One request failed; its single retry and the other three requests produced readable model replies. The clock question preserved pending rain learning and did not create weather.
+
+Actual defects observed: the opening duplicated the authored startup line; a provider reply containing prose followed by a JSON answer object printed the protocol object; and a natural first-rain request after learning was denied because only the hint choice had a local action allowance. Paid requests stopped at that point. The connected tab was preserved without reload; loading a repaired build clears the volatile credential and requires the player to reconnect personally.
+
+## v0.3.2 dialogue-driven repair (not yet live-verified)
+
+Adds bounded semantic weather and story intents with exact current-input evidence, state-specific capabilities, replay validation, explicit consent boundaries and optional text-fill weather hints. A visible invitation leads to actual log discovery. Mixed prose/JSON control extraction is bounded and schema-validated; protocol objects are never executed merely because they appeared in a story example. Exact duplicate startup lines are suppressed. Full natural-input and paraphrased routes run through the real transport parser, application and state engine using only mocks; no story-option buttons are used. Final check counts and post-publication results will be recorded below.

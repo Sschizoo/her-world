@@ -175,7 +175,7 @@
     $('free-form').hidden = locked; $('input-note').hidden = locked; $('response-area').classList.toggle('has-free', true);
     $('scene-title').textContent = view.ended ? '今晚先到这里 · 仍可继续聊天' : view.status || STORY[view.sceneIndex]?.title || '在这里，慢慢说';
     $('turn-count').textContent = view.pendingTopic === 'rain_name' ? 'NAME / 还没决定' : view.pendingTopic === 'teach_rain' ? 'RAIN / 等一个描述' : `${view.index} 个片刻已留下`;
-    $('topic-nav').hidden = locked;
+    $('topic-nav').hidden = locked; $('memory-invitation').hidden = locked || !view.logsEligible;
     if (locked) {
       target.append(element('div', 'response-wait', busy ? '话已经送出。等她慢慢回应。' : pending ? '这次回应还在等待你的选择。' : '先听她说完，再留下你的回应。'));
     } else {
@@ -191,12 +191,16 @@
     }
     document.querySelectorAll('[data-topic]').forEach(button => { button.disabled = locked; button.setAttribute('aria-pressed', String(button.dataset.topic === view.topic)); });
     const skills = $('weather-controls'); skills.replaceChildren();
-    const enabled = state.started && view.rain.created && !locked;
-    for (const [id, label] of [['rain_gentle', '疏'], ['rain_normal', '常'], ['rain_heavy', '密'], [view.rain.paused ? 'rain_resume' : 'rain_pause', view.rain.paused ? '再下起来' : '停一会儿']]) {
+    const enabled = state.started && view.milestones.includes('rain_taught') && !locked;
+    const hints = view.rain.created
+      ? [['rain_gentle', '轻一点', '让雨轻一点'], ['rain_normal', '普通', '把雨恢复正常雨量'], ['rain_heavy', '密一点', '让雨更密一点'], view.rain.paused ? ['rain_resume', '再下起来', '再下起来'] : ['rain_pause', '停一会儿', '让雨停下']]
+      : [['rain_start', '让雨落下', '试着画出第一场雨']];
+    for (const [id, label, sentence] of hints) {
       const button = element('button', 'weather-skill', label); button.disabled = !enabled; button.dataset.skill = id;
-      button.setAttribute('aria-label', `雨的能力：${label}`); button.addEventListener('click', () => respond({ choiceId: id })); skills.append(button);
+      button.setAttribute('aria-label', `填入一句对话：${sentence}`); button.title = '只填入对话；发送后才会请求改变天气';
+      button.addEventListener('click', () => { $('free-input').value = sentence; $('free-input').focus({ preventScroll: true }); toast('已填入对话，发送后才会请求改变天气。'); }); skills.append(button);
     }
-    $('weather-skill-status').textContent = !view.rain.created ? 'RAIN / 尚未学会' : view.rain.paused ? 'RAIN / 已停 · 密度仍记得' : `RAIN / ${ { gentle: '疏', normal: '常', heavy: '密' }[view.rain.density] || '常' }`;
+    $('weather-skill-status').textContent = !view.rain.created ? (view.milestones.includes('rain_taught') ? 'RAIN / 已理解 · 等你开口' : 'RAIN / 尚未学会') : view.rain.paused ? 'RAIN / 已停 · 密度仍记得' : `RAIN / ${ { gentle: '疏', normal: '常', heavy: '密' }[view.rain.density] || '常' }`;
   }
   function softText(id, text) {
     const node = $(id); if (node.textContent === text) return;
@@ -206,7 +210,7 @@
   function renderPresentation() {
     const view = snapshot(revealedCount), progress = view.index / view.maxMilestones;
     softText('connection-label', state.started ? 'PROCESS / STILL LEARNING' : 'WAITING FOR YOU');
-    softText('progress-label', state.started ? 'PROLOGUE v0.3.1 / 不必赶路' : 'PROLOGUE v0.3.1 / 初次相遇');
+    softText('progress-label', state.started ? 'PROLOGUE v0.3.2 / 不必赶路' : 'PROLOGUE v0.3.2 / 初次相遇');
     softText('world-caption', view.name !== '未命名的雨' ? `「${view.name}」` : view.rain.created ? '第一次一起看雨' : '一扇尚未被命名的窗');
     softText('world-status', view.rain.created ? `rain.${view.rain.paused ? 'paused' : view.rain.density} / persistent` : 'world.build = incomplete');
     softText('world-code', view.memories.length ? 'gc.retain("first_rain");' : view.rain.created ? 'skills.rain = reusable;' : 'const world = await you;');
@@ -257,17 +261,18 @@
     let result;
     if (mode === 'offline') { result = { lines: proposal.reply, action: proposal.action, mode: 'offline' }; await new Promise(resolve => setTimeout(resolve, paused ? 80 : 260)); }
     else {
-      try { result = await HerAI.request({ scene: STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
+      try { result = await HerAI.request({ scene: STORY.find(scene => scene.id === proposal.topic) || STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion, requireActionEvidence: proposal.requireActionEvidence, allowedStoryIntents: proposal.allowedStoryIntents, acceptedStoryIntent: proposal.acceptedStoryIntent }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
       catch (error) { if (version !== operation) return; busy = false; mode = 'error'; render(); showError(error); return; }
     }
     if (version !== operation) return;
     const next = ENGINE.commit(state, proposal, result);
     busy = false; pending = null;
-    if (!next) { render(); toast('这次回应已过期，当前世界没有变化。'); return; }
+    if (!next) { render(); toast('这次回应没有改变故事或天气。请换一种说法再试，或继续聊别的。'); return; }
     state = next; $('free-input').value = ''; save(); render();
     if (panel === 'logs') setPanel('logs');
     if (!revealing()) $('free-input').focus({ preventScroll: true });
   }
+  $('memory-invitation').addEventListener('click', () => setPanel('logs'));
   $('start-button').addEventListener('click', start);
   $('ai-status-button').addEventListener('click', chooseMode);
   $('connect-form').addEventListener('submit', async event => {

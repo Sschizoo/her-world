@@ -32,3 +32,5 @@
 .focus-meter{width:20ch;max-width:100%;letter-spacing:0;font:12px/1 var(--mono)}.focus-row{grid-template-columns:48px minmax(70px,1fr) 32px}.focus-meter{justify-self:center}.focus-fill{will-change:width}
 
 .response-wait{grid-column:1 / -1}
+
+.memory-invitation{order:3;text-align:left;font-size:11px;line-height:1.8;padding:7px 9px;margin:0 0 8px;border:1px solid #80633f;background:#e3a55209;color:var(--amber)}.response-area .choices{order:4}.response-area .topic-nav{order:5}.response-area .request-error{order:6}
