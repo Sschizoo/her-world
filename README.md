@@ -1,2 +1,9 @@
-# her-world
-她的世界 · A terminal-inspired narrative companionship game prototype.
+# 她的世界
+
+面向电脑浏览器的陪伴叙事游戏序章原型。
+
+静态网页，AI 可由玩家自行输入 DMXAPI Key 启用。密钥仅存在当前页面内存；刷新后清空。API 请求依赖服务商 CORS 支持。剧情预览不调用模型。
+
+模型：glm-5.3-flash。部署：GitHub Pages。
+
+开发中；真实模型调用尚未验证。

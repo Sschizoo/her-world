@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a151b">
+  <meta name="description" content="她的世界：一段关于雨、记忆与被保留的引用的互动叙事。">
+  <title>她的世界 · HER WORLD</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./story.js" defer></script>
+  <script src="./ai.js" defer></script>
+  <script src="./world.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#choices">跳到当前选择</a>
+  <main class="app" id="app">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="她的世界首页"><span class="status-light" aria-hidden="true"></span><span>她的世界</span><span class="brand-divider">/</span><span class="brand-en">HER WORLD</span></a>
+      <div class="top-actions"><span class="day" id="day">DAY 01</span><button class="icon-button" id="motion-toggle" title="暂停场景动画" aria-label="暂停场景动画" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6v12M16 6v12"/></svg></button><button class="icon-button" id="about-button" title="关于这段故事" aria-label="关于这段故事"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 11v6m0-10v1"/></svg></button></div>
+    </header>
+
+    <div class="workspace">
+      <section class="conversation" aria-label="与她对话">
+        <div class="section-label"><span><i aria-hidden="true"></i> <span id="connection-label">WAITING FOR YOU</span></span><span id="progress-label">PROLOGUE / 约 5 分钟</span></div>
+        <div class="intro" id="intro">
+          <div class="eyebrow">序章 · 第一场雨</div>
+          <h1>世界很大。<br>她先看见了你<span class="cursor">_</span></h1>
+          <p class="intro-copy">一个被搁置的程序，在你的终端里重新醒来。<br>和她一起造一场雨，给它一个只有你们知道的名字。</p>
+          <div class="boot-lines" aria-hidden="true"><span>&gt; world.init()</span><span>&gt; searching for a point of reference<span class="blink">...</span></span><span class="amber">&gt; you are here.</span></div>
+          <button class="start-button" id="start-button">建立连接 <span aria-hidden="true">↗</span></button>
+          <p class="intro-note">序章约 5–10 分钟 · 你来输入 Key，或先离线试玩</p>
+        </div>
+        <div class="transcript" id="transcript" role="log" aria-live="polite" aria-relevant="additions" aria-label="故事对话" tabindex="0" hidden></div>
+        <div class="response-area" id="response-area" hidden>
+          <div class="response-label"><span id="scene-title">她正在等待你的回应</span><span id="turn-count"></span></div>
+          <div class="choices" id="choices" tabindex="-1"></div>
+          <form class="free-form" id="free-form" hidden>
+            <label class="sr-only" for="free-input">用自己的话回应她，最多 80 个字</label>
+            <input id="free-input" type="text" maxlength="80" autocomplete="off" placeholder="或是，告诉她你眼中的世界…">
+            <button id="free-send" type="submit" aria-label="发送自己的回应"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 3-6 18-4-8-8-4 18-6Zm0 0L11 13"/></svg></button>
+          </form>
+          <p class="input-note" id="input-note" hidden></p>
+          <div class="request-error" id="request-error" role="alert" hidden><p id="request-error-text"></p><div><button id="retry-button">手动重试</button><button id="fallback-button">改用离线文本继续</button><button id="cancel-request-button">取消这次回应</button></div></div>
+        </div>
+      </section>
+
+      <section class="world" aria-label="她正在理解的世界：一座雨夜的城市，一扇逐渐亮起的窗">
+        <div class="world-title"><h2>她正在理解的世界</h2><span>// A WORLD SHE IS LEARNING</span></div>
+        <div class="world-art"><canvas id="world-canvas" aria-hidden="true"></canvas><div class="world-grain" aria-hidden="true"></div><div class="world-vignette" aria-hidden="true"></div><span class="world-index">WORLD / 001<br><span id="world-status">awaiting connection</span></span><div class="world-caption"><span id="world-caption">一扇尚未被命名的窗</span><span class="caption-line"></span></div></div>
+        <div class="world-footer"><span id="world-code">const world = await you;</span><span class="coordinate">31°14′ N · 121°28′ E <span title="虚构场景">FICTION</span></span></div>
+      </section>
+    </div>
+
+    <section class="inspector" aria-label="故事记录">
+      <div class="tabbar" role="tablist" aria-label="故事面板">
+        <button class="tab active" id="tab-dialogue" role="tab" aria-selected="true" aria-controls="inspector-panel" data-panel="dialogue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H8l-4 2 1-6a8 8 0 1 1 15-4Z"/><path d="M8 10h1m3 0h1m3 0h1"/></svg>对话</button>
+        <button class="tab" id="tab-memory" role="tab" aria-selected="false" aria-controls="inspector-panel" data-panel="memory" tabindex="-1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6V3Zm9 0v5h4M9 12h7m-7 4h7"/></svg>记忆<span class="tab-count" id="memory-count">00</span></button>
+        <button class="tab" id="tab-logs" role="tab" aria-selected="false" aria-controls="inspector-panel" data-panel="logs" tabindex="-1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 5 7 7-7 7m9 0h7"/></svg>运行日志<span class="unread-dot" id="log-dot" hidden></span></button>
+        <button class="drawer-toggle" id="drawer-toggle" aria-label="打开运行日志" aria-expanded="false" aria-controls="inspector-panel"><span id="drawer-hint">有些话，藏在这里</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"/></svg></button>
+      </div>
+      <div class="inspector-panel" id="inspector-panel" role="tabpanel" aria-labelledby="tab-logs" hidden>
+        <div class="logs-layout" id="logs-panel"><div class="log-list" id="log-list" tabindex="0" aria-label="运行日志"></div><div class="attention"><div class="trace-title"><span aria-hidden="true">▸</span> attention trace <span class="trace-note">叙事可视化</span></div><svg class="trace-svg" viewBox="0 0 510 160" role="img" aria-label="雨、窗和世界的联系，逐渐汇向你"><defs><filter id="glow"><feGaussianBlur stdDeviation="3"/></filter></defs><g class="trace-labels"><text x="72" y="29">rain</text><text x="72" y="65">window</text><text x="72" y="101">world</text><text x="72" y="137">you</text></g><g class="trace-paths"><path d="M98 24C288 24 298 105 427 105"/><path d="M98 60C265 60 257 105 427 105"/><path d="M98 96C205 96 300 105 427 105"/><path d="M98 132C261 132 290 105 427 105"/></g><g class="trace-dots"><circle cx="98" cy="24" r="3"/><circle cx="98" cy="60" r="3"/><circle cx="98" cy="96" r="3"/><circle cx="98" cy="132" r="3"/><circle class="you-glow" cx="427" cy="105" r="9" filter="url(#glow)"/><circle cx="427" cy="105" r="4"/></g><text class="you-label" x="451" y="111">you</text></svg><p id="attention-caption">有一个坐标，暂时还没有名字。</p></div></div>
+        <div class="memory-panel" id="memory-panel" hidden></div>
+      </div>
+    </section>
+    <footer class="statusbar"><button class="chapter-status" id="ai-status-button" title="连接模式与 Key 设置">未连接 · 选择试玩模式</button><div><button id="reset-button" hidden>重新开始</button><span class="save-status" id="save-status"><i aria-hidden="true"></i> LOCAL SAVE · 本地保存</span></div></footer>
+  </main>
+  <dialog id="about-dialog" aria-labelledby="about-title"><button class="dialog-close" data-close="about-dialog" aria-label="关闭">×</button><div class="eyebrow">HER WORLD / PROLOGUE 0.2</div><h2 id="about-title">有些东西，值得留着。</h2><p>这是一段约 5–10 分钟的原创互动序章。你将唤醒一个未完成的程序，和她一起理解、修改并命名一场雨。</p><p>打开底部的「运行日志」，看看语言之外发生了什么。你可以随时停下，下次从同一浏览器继续。</p><p class="muted">AI 模式由你自己的 DMXAPI Key 提供实时回应；故事进度由本地程序控制。离线模式使用作者编写的分支文本。注意力轨迹和运行日志是虚构叙事，不是模型的真实思维过程。故事结局尚未确定。</p><button class="start-button" data-close="about-dialog">回到窗边 <span aria-hidden="true">↗</span></button></dialog>
+  <dialog id="connect-dialog" aria-labelledby="connect-title"><button class="dialog-close" data-close="connect-dialog" aria-label="关闭连接设置">×</button><div class="eyebrow">CONNECTION / 连接方式</div><h2 id="connect-title">让她回应，或者先听一场雨。</h2><p>AI 模式会把你输入的 Key 和本局近期对话直接发送至 <span class="endpoint">https://www.dmxapi.cn/v1/chat/completions</span>，模型固定为 glm-5.3-flash。可能产生服务商费用，每次连接开场或回应发起一次请求，不自动重试。</p><form id="connect-form" autocomplete="off"><label for="api-key">DMXAPI Key</label><input id="api-key" name="her-world-volatile-key" type="password" autocomplete="off" spellcheck="false" maxlength="500" placeholder="仅在此页面内存中使用" aria-describedby="key-note"><p class="muted" id="key-note">Key 不写入本地存储、网址或日志。刷新、离开页面或点击断开后需重新输入。浏览器扩展与此页面脚本仍可读取运行时信息，请使用低额度的专用 Key。服务商若禁止跨域访问，仍需要转发服务。</p><button type="submit" class="start-button" id="connect-button">连接并继续 <span aria-hidden="true">↗</span></button></form><p id="connection-error" class="connection-error" role="alert" hidden></p><div class="connect-alternatives"><button class="secondary-button" id="offline-button">先玩离线版本</button><button class="secondary-button" id="disconnect-button" hidden>断开并清除 Key</button></div><p class="muted">AI 输出与游戏选择会随进度保存在此浏览器。页面限额只是使用提醒；真实额度以服务商设置为准。</p></dialog>
+  <dialog id="reset-dialog" aria-labelledby="reset-title"><div class="eyebrow">RESET / REPLAY</div><h2 id="reset-title">再认识她一次？</h2><p>这会清除这段故事在此浏览器保存的对话、选择和记忆。从第一天重新开始。</p><div class="dialog-actions"><button class="secondary-button" data-close="reset-dialog">留在这里</button><button class="start-button" id="confirm-reset">重新开始</button></div></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <noscript><p class="no-script">这段互动故事需要 JavaScript。请开启 JavaScript 后重新载入。</p></noscript>
+</body>
+</html>
