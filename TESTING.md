@@ -132,3 +132,11 @@ Actual desktop checks confirmed creation, gradual movement to the window, scalin
 The playtest found an offline extraction defect: “在这里放一张能坐两个人的长椅” used the entire utterance as its object label. v0.4.1 fixes leading location phrases while retaining the exact original input as provenance. A single-object drawer now uses the available width to show appearance, player meaning and character interpretation together. This does not alter scene authority or history.
 
 v0.4.1 pre-publication aggregate: 299 checks pass (45 application, 86 engine, 16 scene validator, 22 focus, 13 renderer, 117 transport). Actual refresh/replay and the follow-up layout are verified separately after deployment.
+
+Further v0.4.0 desktop checks confirmed independent interpretation clearing, exact recall of original input and current annotations, and correctly teaching rain with “雨是落在长椅上的水滴” while the object exists. Rain creation, density and naming remained independent, and actual log viewing discovered first_rain without removing the object or its meaning.
+
+## v0.4.2 — explicit label contract
+
+The model prompt now states the existing validator requirement that created/renamed labels be continuous exact excerpts of the current player input, at most 40 Unicode codepoints. For “在这里放一张能坐两个人的长椅”, 长椅 is valid; the paraphrased 双人长椅 is not. Glyph generation remains open within the same bounds. No validator or capability was loosened.
+
+Final aggregate: 300 checks pass (182 application/core/focus/renderer runner checks and 118 mocked transport groups), plus seven syntax checks. This prompt alignment has no live-provider verification. The final desktop replay is an offline UI check, not evidence of real-model artwork quality.

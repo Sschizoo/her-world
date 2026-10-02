@@ -600,5 +600,16 @@ const sceneInput=(text,scene=Scene.empty(),extra={})=>({...turnInput,input:text,
   const {api:redirect}=runtime(async()=>jsonResponse({lines:['我把长椅移到左边了。'],focusedTarget:'obj_1',sceneEdits:[edit]}));redirect.connect(fakeKey);await assert.rejects(redirect.request(sceneInput(text,two)),e=>e.code==='scene_edit');
   const currentEdit={...edit,target:'obj_2'},{api:focused}=runtime(async()=>jsonResponse({lines:['我把灯笼移到左边了。'],sceneEdits:[currentEdit]}));focused.connect(fakeKey);assert.deepEqual(plain((await focused.request(sceneInput(text,two))).sceneEdits),[currentEdit]);
  });
+ await check('create and rename labels are literal current-input excerpts while novel glyphs remain generated',async()=>{
+  const text='在这里放一张能坐两个人的长椅',glyphs=' [______________] \n  |            |  ';let body;
+  const edit=createEdit(text,{...benchObject,glyphs,label:'长椅'}),{api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return jsonResponse({lines:['我画出能坐两个人的轮廓了。'],sceneEdits:[edit]})});api.connect(fakeKey);
+  assert.deepEqual(plain((await api.request(sceneInput(text))).sceneEdits),[edit]);
+  const system=body.messages[0].content;for(const instruction of ['label不超过40个Unicode码点','创建物体和改名时，label都必须是当前playerSaid中连续逐字出现的原文片段','不能同义改写或添加玩家没说的名称词语','可以用长椅作为label，不能改写成双人长椅','glyphs仍可依据玩家愿望生成原创字形'])assert(system.includes(instruction),instruction);
+  const {api:paraphrased}=runtime(async()=>jsonResponse({lines:['长椅画好了。'],sceneEdits:[createEdit(text,{...benchObject,glyphs,label:'双人长椅'})]}));paraphrased.connect(fakeKey);await assert.rejects(paraphrased.request(sceneInput(text)),e=>e.code==='scene_edit');
+  const renameText='把长椅的名称改为等候席';for(const label of ['等候席','等待座位']){
+   const rename={type:'update',target:'obj_1',changes:{label},evidence:renameText},{api:renamer}=runtime(async()=>jsonResponse({lines:['名称改好了。'],sceneEdits:[rename]}));renamer.connect(fakeKey);const result=renamer.request(sceneInput(renameText,benchScene()));
+   if(label==='等候席')assert.deepEqual(plain((await result).sceneEdits),[rename]);else await assert.rejects(result,e=>e.code==='scene_edit');
+  }
+ });
  console.log(`${checks} mock-only transport checks passed; no network used.`)
 })().catch(e=>{console.error(e);process.exit(1)});
