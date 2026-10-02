@@ -34,3 +34,4 @@
 .response-wait{grid-column:1 / -1}
 
 .memory-invitation{order:3;text-align:left;font-size:11px;line-height:1.8;padding:7px 9px;margin:0 0 8px;border:1px solid #80633f;background:#e3a55209;color:var(--amber)}.response-area .choices{order:4}.response-area .topic-nav{order:5}.response-area .request-error{order:6}
+.story-invitation{order:0;animation:arrive .6s ease-out;display:grid;grid-template-columns:auto 1fr;column-gap:11px;row-gap:3px;border-left:1px solid #80633f;padding:1px 0 2px 10px;margin:0 0 12px}.invitation-label{font-size:9px;letter-spacing:.1em;color:var(--amber);line-height:2}.story-invitation p{margin:0;font-size:12px;line-height:1.8;color:#c4d0cd}.invitation-note{grid-column:2;font-size:9px;color:#7f979f;line-height:1.6}.story-invitation[hidden]{display:none}@media(max-height:790px) and (min-width:761px){.story-invitation{margin-bottom:8px;row-gap:1px}.story-invitation p{font-size:11px}.invitation-note{font-size:8px}}

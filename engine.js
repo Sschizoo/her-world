@@ -9,6 +9,18 @@
   const MILESTONES = ['connected', 'rain_taught', 'rain_created', 'rain_changed', 'rain_named', 'memory_found', 'own_reason', 'visitor_decided', 'farewell'];
   const TOPICS = ['boot', 'unfinished', 'teach_rain', 'first_drop', 'modify_rain', 'rain_name', 'shared_silence', 'memory_discovery', 'her_choice', 'visitor_reference', 'parting', 'invitation'];
   const DENSITIES = ['gentle', 'normal', 'heavy'];
+  // Invitations are authored, visible conversation context. They never perform
+  // an action or complete a milestone, and model prose cannot issue one.
+  const INVITATIONS = {
+    rain_description: { question: '我还不知道雨是什么样子。你愿意讲讲你见过的一场雨吗？', context: '窗外还没有雨。描述它的样子、声音或感觉，都可以。', choiceId: 'topic_rain' },
+    rain_create: { question: '我记住你描述的雨了。要不要试着让第一场雨落在窗外？', context: '雨的描述已经留下；只有你开口让它落下，天气才会改变。', choiceId: 'render_rain' },
+    rain_change: { question: '这就是第一场雨。想让它轻一点、密一点，还是直接给它起个名字？', context: '可以调整或暂停雨，也可以跳过调整，先给它命名。', choiceId: 'topic_name' },
+    rain_name: { question: '这场雨还没有名字。你想怎么叫它？', context: '决定后可以说“把雨叫做……”；也可以先聊别的。', choiceId: 'topic_name' },
+    logs: { question: '运行记录里，好像有一小段没有被清掉。你愿意打开看看吗？', context: '雨已经有了名字。实际打开运行日志，才能看见被留下的那一段。', choiceId: null },
+    own_reason: { question: '我想记得第一场雨是什么样子。这个理由，你怎么看？', context: '你已经在运行日志里发现了那场雨，可以聊聊她为什么想留下它。', choiceId: 'topic_choice' },
+    visitor_choice: { question: '关于一起看雨的人，你希望我记得你、只写来访者，还是先不决定？', context: '这部分由你决定。没有明确同意，就不会保存指向你的引用。', choiceId: 'topic_visitor' },
+    farewell: { question: '今晚可以先到这里，也可以再聊一会儿。你想怎么继续？', context: '这一晚已经留下了变化。告别需要你自己开口，继续聊天也随时可以。', choiceId: 'topic_goodbye' }
+  };
   const plans = new WeakMap();
   const clean = value => typeof value === 'string' ? value.normalize('NFC').replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, '').trim() : '';
   const count = value => [...value].length;
@@ -47,8 +59,41 @@
       /^(?:你是谁|你是什么|你能做什么|你叫什么|你叫什么名字)$/u.test(compact) ||
       /^(?:what(?:'s| is) (?:the )?(?:time|date)|what time is it|what day is (?:it|today)|who are you|what(?:'s| is) your (?:name|version)|what version are you)(?: now| today)?$/iu.test(plain);
   }
+  function invitationClean(value) {
+    return object(value) && Object.keys(value).join(',') === 'id' && typeof value.id === 'string' && Object.prototype.hasOwnProperty.call(INVITATIONS, value.id) ? { id: value.id } : null;
+  }
+  function invitationDetails(value) {
+    const invitation = invitationClean(value);
+    return invitation ? { id: invitation.id, ...INVITATIONS[invitation.id] } : null;
+  }
+  function pendingQuestion(state) {
+    if (state.pendingTopic) return state.pendingTopic;
+    if (state.invitation?.id === 'rain_description' && !state.milestones.includes('rain_taught')) return 'teach_rain';
+    if (state.invitation?.id === 'rain_name' && !state.milestones.includes('rain_named')) return 'rain_name';
+    return null;
+  }
+  function nextInvitation(state, resume = false) {
+    const has = id => state.milestones.includes(id);
+    if (state.ended || (has('farewell') && !state.invitation && !resume)) return null;
+    let id;
+    if (!has('rain_taught')) id = 'rain_description';
+    else if (!state.created) id = 'rain_create';
+    else if (!has('rain_named')) id = has('rain_changed') || state.topic === 'rain_name' || state.invitation?.id === 'rain_name' ? 'rain_name' : 'rain_change';
+    else if (!has('memory_found')) id = 'logs';
+    else if (!has('own_reason')) id = 'own_reason';
+    else if (!has('visitor_decided')) id = 'visitor_choice';
+    else if (!has('farewell')) id = 'farewell';
+    return id ? { id } : null;
+  }
+  function directionRequest(text) {
+    return typeof text === 'string' && /^(?:(?:那|所以)[，,]?)?(?:接下来(?:呢|可以做什么|做什么|怎么办)?|怎么继续|我们从哪里开始|从哪里开始|不知道怎么继续|我不知道怎么继续|下一步(?:呢|是什么|做什么)?)[？?。！!]*$/u.test(text);
+  }
+  function ambiguousAnswer(text) {
+    return /^(?:嗯+|哦+|噢+|好(?:啊|呀|吧|的)?|可以|行|都行|随便|随意|(?:我)?(?:也|还)?不知道|(?:我)?(?:还)?没想好|还没决定|(?:你|随你)(?:来)?决定(?:吧)?|听你的|再想想|先不决定|明白|知道了|ok|okay|yes)(?:吧|啊|呀|呢|啦|了)?$/iu.test(clean(text).replace(/[。！？!?.,，；;…～~]+$/u, '').trim());
+  }
   function answerQuestion(state, request) {
-    return state.pendingTopic === 'teach_rain' && typeof request.text === 'string' && !unrelatedQuestion(request.text) ? 'teach_rain' : null;
+    return pendingQuestion(state) === 'teach_rain' && typeof request.text === 'string' && !unrelatedQuestion(request.text) && !directionRequest(request.text) &&
+      !ambiguousAnswer(request.text) ? 'teach_rain' : null;
   }
   function answerClean(value, state, request, mode) {
     if (mode !== 'ai' || !object(value) || Object.keys(value).sort().join(',') !== 'evidence,question,type' ||
@@ -107,6 +152,9 @@
     if (!object(intent) || typeof text !== 'string') return false;
     let subject = text;
     if (intent.type === 'rain_name') {
+      // A tentative acknowledgment to the naming invitation is not a literal
+      // name. Explicit commands or quoted names still preserve these words.
+      if (ambiguousAnswer(text)) return false;
       // Quotes delimit a literal name, but never authorize a quoted command.
       if (typeof intent.value !== 'string' || intent.value !== clean(intent.value) || !intent.value || count(intent.value) > 20 ||
         /[，,；;？?\n]/u.test(intent.value) || !text.includes(intent.value) || /[？?]|吗|么|如何|怎么样|会怎样|是否|可不可以|能不能/u.test(text)) return false;
@@ -140,10 +188,10 @@
   function start(state, opening = []) {
     if (!state || state.version !== 3 || !validLines(opening)) return null;
     if (state.started) return state;
-    return { version: 3, started: true, opening: opening.map(clean), events: [] };
+    return { version: 3, started: true, opening: opening.map(clean), openingInvitation: { id: 'rain_description' }, events: [] };
   }
   function base() {
-    return { name: '未命名的雨', density: 'normal', paused: true, created: false, milestones: [], memories: [], topic: 'boot', previousTopic: null, pendingTopic: null, ended: false, visitor: 'undecided' };
+    return { name: '未命名的雨', density: 'normal', paused: true, created: false, milestones: [], memories: [], topic: 'boot', previousTopic: null, pendingTopic: null, invitation: null, ended: false, visitor: 'undecided' };
   }
   function mark(state, id) { if (!state.milestones.includes(id)) state.milestones.push(id); }
   function addMemory(state, value) { const i = state.memories.findIndex(item => item.id === value.id); if (i < 0) state.memories.push(value); else state.memories[i] = value; }
@@ -195,6 +243,7 @@
     }
     if (description.goodbye) { state.ended = true; mark(state, 'farewell'); logs.push('session.close("for_now")  // 仍可回来继续聊'); }
     if (!wasEligible && eligible(state)) logs.push(...retentionLogs(state));
+    if (Object.prototype.hasOwnProperty.call(event, 'invitation')) state.invitation = event.invitation ? copy(event.invitation) : null;
     if (!logs.length && description.navigation) logs.push(`conversation.topic = ${JSON.stringify(description.topic)}`);
     return logs;
   }
@@ -207,13 +256,19 @@
   function initial(state) {
     const value = state.legacy ? copy(state.legacy.state) : base();
     if (state.started) mark(value, 'connected');
+    if (state.openingInvitation) value.invitation = copy(state.openingInvitation);
     return value;
+  }
+  function applyResumeInvitation(value, state, after) {
+    if (state.resumeInvitation?.after === after) value.invitation = { id: state.resumeInvitation.id };
   }
   function derive(state) {
     const value = initial(state);
-    for (const event of state.events) {
-      if (event.type === 'logs') discover(value);
+    applyResumeInvitation(value, state, 0);
+    for (const [index, event] of state.events.entries()) {
+      if (event.type === 'logs') { discover(value); if (Object.prototype.hasOwnProperty.call(event, 'invitation')) value.invitation = event.invitation ? copy(event.invitation) : null; }
       else applyTurn(value, describe(value, event.request), event);
+      applyResumeInvitation(value, state, index + 1);
     }
     return value;
   }
@@ -300,6 +355,10 @@
       if (id === 'inspect_result') reply = [`当前雨量是${{ gentle: '轻雨', normal: '普通', heavy: '大雨' }[state.density]}，${state.paused ? '暂时停着' : '正在落下'}。`, '没做完的地方还在，我们也不必马上补完。'];
       return description(topic, reply, { teach: topic === 'teach_rain', reason: topic === 'her_choice' });
     }
+    if (directionRequest(text)) {
+      const invitation = invitationDetails(state.invitation);
+      return description(state.topic, invitation ? [invitation.question, invitation.context] : ['我们可以继续聊你想聊的事。', '如果想回到雨或刚才的记忆，也可以直接告诉我。']);
+    }
     if (/^(?:回到|再聊)(?:刚才|上个|上一个|前一个)(?:的)?话题[。！!]*$/u.test(text) && state.previousTopic) {
       const target = { boot: 'boot', unfinished: 'topic_unfinished', teach_rain: 'topic_rain', first_drop: 'topic_rain', modify_rain: 'topic_rain', rain_name: 'topic_name', shared_silence: 'topic_silence', memory_discovery: 'topic_memory', her_choice: 'topic_choice', visitor_reference: 'topic_visitor', parting: 'topic_goodbye', invitation: 'topic_goodbye' }[state.previousTopic];
       return target === 'boot' ? description('boot', ['我们刚才在聊这次相遇。', '你不用接手没写完的工作，也可以只看看这里。'], { navigation: true }) : describe(state, { choiceId: target });
@@ -308,13 +367,13 @@
     if (/^(?:(?:我们)?继续|再)?聊聊?名字[。！!]*$/u.test(text)) return describe(state, { choiceId: 'topic_name' });
     const parts = text.split(/[，,；;](?:同时|然后|并且)?|同时|并且/u).map(value => value.trim()).filter(Boolean);
     if (parts.length === 2) {
-      const namePart = parts.map(part => rainName(part, state.pendingTopic === 'rain_name' || state.topic === 'rain_name'));
+      const namePart = parts.map(part => rainName(part, pendingQuestion(state) === 'rain_name' || state.topic === 'rain_name'));
       const actionPart = parts.map(command);
       const compoundName = namePart[0] && actionPart[1] ? namePart[0] : namePart[1] && actionPart[0] ? namePart[1] : null;
       const compoundAction = namePart[0] && actionPart[1] ? actionPart[1] : namePart[1] && actionPart[0] ? actionPart[0] : null;
       if (state.created && compoundName && compoundAction && compoundAction.type !== 'rain_start') return description('rain_name', [`名字记成了“${compoundName}”。`, ...weatherReply(state, compoundAction).slice(0, 2)], { name: compoundName, action: compoundAction });
     }
-    const name = rainName(text, state.pendingTopic === 'rain_name' || state.topic === 'rain_name');
+    const name = rainName(text, pendingQuestion(state) === 'rain_name' || state.topic === 'rain_name');
     if (name) return state.created ? description('rain_name', [name + '。', '我按你说的名字记下了。'], { name }) : description('teach_rain', ['先把这句话留在对话里。窗外还没有一场雨。', '等它真的落下来，再给它命名吧。']);
     if (/^(?:请)?(?:把|给)(?:这场|第一场|这里的)?雨(?:改名为|取名|命名|叫)/u.test(text)) return description(state.topic, ['我还不能确定这就是你要给雨的名字，先不修改。', '如果已经决定，可以说“把雨叫做夜航”。名字最多 20 个字；复杂名字可以加引号。'], { notices: ['雨的名字最多 20 个字；本次没有修改。'] });
     const action = command(text);
@@ -323,7 +382,7 @@
       return state.milestones.includes('rain_taught') ? description('first_drop', weatherReply(state, action), { action }) : description('teach_rain', ['我还不知道这里的雨应该是什么样子。', '可以先讲讲你认识的雨。']);
     }
     if (action) return state.created ? description('modify_rain', weatherReply(state, action), { action }) : description('teach_rain', ['窗外还没有一场已经画出的雨。', '可以先告诉我雨是什么，再说“试着画出第一场雨”。']);
-    const definitionContext = state.pendingTopic === 'teach_rain' || /^(?:雨(?:就是|是|指)|我来(?:告诉你|讲讲)雨)/u.test(text);
+    const definitionContext = pendingQuestion(state) === 'teach_rain' || /^(?:雨(?:就是|是|指)|我来(?:告诉你|讲讲)雨)/u.test(text);
     const groundedDefinition = !/(?:贴纸|玩具|积木|图片|画纸|纸片|桌子|桌下)/u.test(text) && /(?:水滴|雨滴|水珠|小水滴|颗颗水).*(?:落|掉|下)|(?:落|掉).*(?:水滴|雨滴|水珠)|(?:天空|天上|空中|云).*(?:落|掉|降).*(?:水|雨)|(?:水|雨).*(?:从|在).*(?:天空|天上|空中|云).*(?:落|掉|降)|(?:水汽|水蒸气).*(?:凝结|冷凝|凝聚).*(?:降水|雨|水滴)|(?:屋顶|屋檐|地面|路面).*(?:声音|滴答|淅沥|沙沙)|(?:滴答|淅沥|沙沙|声音).*(?:屋顶|屋檐|地面|路面)|(?:雨|水).*(?:淋湿|躲|避雨)|(?:伞|屋檐).*(?:躲|湿)/u.test(text);
     if (definitionContext && groundedDefinition && !/[？?“”"「」]|不是|不懂|不知道|如果|假如|假设|以前|昨天|刚才|说过|记得|什么|怎么|为什么|几点|是否|吗|么|呢/u.test(text)) return description('teach_rain', ['我先把这份描述记下来。', state.created ? '这让已经落下来的雨，多了一点可以继续理解的东西。' : '如果愿意，可以按“试着画出第一场雨”，看看这里能画出什么。'], { teach: true });
     if (/^(?:晚安|再见|拜拜|下次见|我先走了|我先走|今天先到这里|今晚先到这里|先聊到这里|goodbye|good night|bye)[。！!～~]*$/iu.test(text)) return description('parting', ['那就先停在这里。', '刚才发生过的事已经在记录里。以后是否再来，由你决定。'], { goodbye: true });
@@ -334,7 +393,7 @@
     if (/^(?:再)?(?:聊聊|说说|看看)(?:这场)?雨[。！!]*$/u.test(text)) return describe(state, { choiceId: 'topic_rain' });
     if (/^(?:聊聊|看看)(?:你的)?(?:记忆|日志)[。！!]*$/u.test(text)) return describe(state, { choiceId: 'topic_memory' });
     if (/^(?:继续聊|再聊一会儿|还不想走|不想结束)[。！!]*$/u.test(text)) return describe(state, { choiceId: 'continue_chat' });
-    if (state.pendingTopic === 'rain_name' && /^[\p{L}\p{N}]{1,10}$/u.test(text) && !/怎么|什么|几[点时]|为什么|你好|不要|不想|继续|世界|今天|天气/u.test(text)) return description(state.topic, ['这是想给雨起的名字吗？我还不能确定。', `如果是，可以说“把雨叫做${text}”。`]);
+    if (pendingQuestion(state) === 'rain_name' && /^[\p{L}\p{N}]{1,10}$/u.test(text) && !/怎么|什么|几[点时]|为什么|你好|不要|不想|继续|世界|今天|天气/u.test(text)) return description(state.topic, ['这是想给雨起的名字吗？我还不能确定。', `如果是，可以说“把雨叫做${text}”。`]);
     return description(state.topic, ['这句话里，还有我没读懂的部分。离线版本只认得少数说法，我先不替你补上意思。', '你可以继续说。窗外的天气和已经留下的记录都不会因此自动改变。']);
   }
   const LABELS = {
@@ -356,7 +415,7 @@
     const request = requestClean(input); if (!request) return null;
     const current = derive(state), result = describe(current, request); if (!result) return null;
     const allowedActions = availableActions(current, request, result);
-    const proposal = { input: request.text || label(request.choiceId), reply: result.reply.map(line => interpolate(line, current.name)), action: result.action ? copy(result.action) : null, allowedActions, requireActionEvidence: !result.action && allowedActions.length > 0, allowedStoryIntents: storyCapabilities(current, request, result), acceptedStoryIntent: acceptedStoryIntent(result), topic: result.topic, pendingTopic: current.pendingTopic || null, answerQuestion: answerQuestion(current, request), acceptedAnswer: result.name ? { type: 'rain_name', value: result.name } : result.teach ? { type: 'rain_definition' } : null, notices: result.notices.slice(), request: copy(request), revision: state.events.length };
+    const proposal = { input: request.text || label(request.choiceId), reply: result.reply.map(line => interpolate(line, current.name)), action: result.action ? copy(result.action) : null, allowedActions, requireActionEvidence: !result.action && allowedActions.length > 0, allowedStoryIntents: storyCapabilities(current, request, result), acceptedStoryIntent: acceptedStoryIntent(result), topic: result.topic, guidance: invitationDetails(current.invitation), pendingTopic: pendingQuestion(current), answerQuestion: answerQuestion(current, request), acceptedAnswer: result.name ? { type: 'rain_name', value: result.name } : result.teach ? { type: 'rain_definition' } : null, notices: result.notices.slice(), request: copy(request), revision: state.events.length };
     plans.set(proposal, { state, request, result, current });
     return proposal;
   }
@@ -375,15 +434,38 @@
     let lines = outcome.lines.map(clean);
     if (result.action && !action) lines = [result.name ? `名字记成了“${result.name}”。这次没有执行天气修改。` : '这次没有执行天气修改。', '窗外保持原样。你可以再试一次，或继续聊别的。'];
     const event = { type: 'turn', request: copy(original.request), lines, action, answer, intent, storyIntent, mode };
+    const after = copy(original.current);
+    applyTurn(after, result, event);
+    const invitation = nextInvitation(after, !!result.navigation || storyIntent?.type === 'topic');
+    if (original.replay) {
+      if (original.hasInvitation) {
+        const stored = original.invitation === null ? null : invitationClean(original.invitation);
+        if ((original.invitation !== null && !stored) || stored?.id !== invitation?.id) return null;
+        event.invitation = stored;
+      }
+    } else event.invitation = invitation;
     const next = { version: 3, started: true, opening: state.opening.slice(), events: [...state.events, event] };
+    if (state.openingInvitation) next.openingInvitation = copy(state.openingInvitation);
+    if (state.resumeInvitation) next.resumeInvitation = copy(state.resumeInvitation);
     if (state.legacy) next.legacy = copy(state.legacy);
     return next;
   }
-  function visitLogs(state) {
-    if (!state || !state.started || !eligible(derive(state))) return state;
-    if (state.events.length >= MAX_EVENTS) return state;
-    return { ...state, events: [...state.events, { type: 'logs' }] };
+  function appendLogVisit(state, historical) {
+    if (!state || !state.started || state.events.length >= MAX_EVENTS) return state;
+    const current = derive(state);
+    if (!eligible(current)) return state;
+    discover(current);
+    const invitation = nextInvitation(current), event = { type: 'logs' };
+    if (historical) {
+      if (Object.prototype.hasOwnProperty.call(historical, 'invitation')) {
+        const stored = historical.invitation === null ? null : invitationClean(historical.invitation);
+        if ((historical.invitation !== null && !stored) || stored?.id !== invitation?.id) return null;
+        event.invitation = stored;
+      }
+    } else event.invitation = invitation;
+    return { ...state, events: [...state.events, event] };
   }
+  function visitLogs(state) { return appendLogVisit(state); }
   function safeHistoricalLine(line, depth = 0) {
     const hidden = ['这段旧回复包含内部格式，已隐藏。'];
     if (depth > 3) return hidden;
@@ -410,7 +492,8 @@
   }
   function view(state, through = Infinity) {
     const messages = [], logs = [], current = initial(state), max = Number.isFinite(through) ? Math.max(0, Math.floor(through)) : Infinity;
-    let neutralHints = false, visible = { ...copy(current), neutralHints };
+    let neutralHints = false, visible = { ...copy(current), invitation: null, neutralHints };
+    applyResumeInvitation(current, state, 0);
     const capture = () => { if (messages.length <= max) visible = { ...copy(current), neutralHints, logs: copy(logs) }; };
     const add = (role, text, index) => messages.push({ role, text, index });
     if (state.started) {
@@ -423,18 +506,22 @@
       }
       state.events.forEach((event, eventIndex) => {
         const index = eventIndex + 1;
-        if (event.type === 'logs') { discover(current).forEach(text => logs.push({ text, index })); capture(); return; }
+        if (event.type === 'logs') { discover(current).forEach(text => logs.push({ text, index })); if (Object.prototype.hasOwnProperty.call(event, 'invitation')) current.invitation = event.invitation ? copy(event.invitation) : null; applyResumeInvitation(current, state, index); capture(); return; }
         const result = describe(current, event.request);
         add('user', event.request.text || label(event.request.choiceId), index);
         visibleReply(event).forEach(text => add('her', text, index));
         // Free AI dialogue may have moved on without asserting a new topic.
         // Keep that uncertainty in presentation; never infer story state from prose.
         neutralHints = event.mode === 'ai' && !event.request.choiceId && !acceptedStoryIntent(result) && !result.teach && !result.action && result.topic === current.topic && !event.storyIntent && !event.answer && !event.action;
-        applyTurn(current, result, event).forEach(text => logs.push({ text, index })); capture();
+        applyTurn(current, result, event).forEach(text => logs.push({ text, index })); applyResumeInvitation(current, state, index); capture();
       });
     }
     const rain = { name: visible.name, density: visible.density, paused: visible.paused, created: visible.created };
-    return { messages, logs: visible.logs || [], memories: visible.memories, name: visible.name, effect: !visible.created || visible.paused ? 'pause_rain' : { gentle: 'soft_rain', normal: 'normal', heavy: 'heavy_rain' }[visible.density], rain, index: visible.milestones.length, sceneIndex: TOPICS.indexOf(visible.topic), milestones: visible.milestones, maxMilestones: MILESTONES.length, topic: visible.topic, pendingTopic: visible.pendingTopic || null, ended: visible.ended, neutralHints: visible.neutralHints, logsEligible: eligible(visible), tone: 'quiet', status: !state.started ? '等待连接' : visible.ended ? '暂别 · 随时可以继续聊' : visible.created ? `雨${visible.paused ? '暂时停着' : '正在落下'} · 可以自由交谈` : '第一次相遇 · 不必急着往下走' };
+    return { messages, logs: visible.logs || [], memories: visible.memories, name: visible.name, effect: !visible.created || visible.paused ? 'pause_rain' : { gentle: 'soft_rain', normal: 'normal', heavy: 'heavy_rain' }[visible.density], rain, index: visible.milestones.length, sceneIndex: TOPICS.indexOf(visible.topic), milestones: visible.milestones, maxMilestones: MILESTONES.length, topic: visible.topic, pendingTopic: pendingQuestion(visible), invitation: invitationDetails(visible.invitation), ended: visible.ended, neutralHints: visible.neutralHints, logsEligible: eligible(visible), tone: 'quiet', status: !state.started ? '等待连接' : visible.ended ? '暂别 · 随时可以继续聊' : visible.created ? `雨${visible.paused ? '暂时停着' : '正在落下'} · 可以自由交谈` : '第一次相遇 · 不必急着往下走' };
+  }
+  function guidance(state) {
+    if (!state || state.version !== 3) return null;
+    return state.started ? invitationDetails(derive(state).invitation) : invitationDetails({ id: 'rain_description' });
   }
   function suggestions(state) {
     if (!state?.started || state.events.length >= MAX_EVENTS) return [];
@@ -451,6 +538,17 @@
     else if (current.topic === 'parting' || current.topic === 'invitation') ids = ['goodbye', 'continue_chat'];
     else if (current.topic === 'shared_silence') ids = ['stay', 'inspect_result', 'your_time', 'topic_memory', 'topic_rain'];
     else ids = current.created ? ['rain_gentle', 'rain_normal', 'rain_heavy', current.paused ? 'rain_resume' : 'rain_pause', 'topic_name', 'topic_silence', 'topic_memory'] : ['topic_rain', 'topic_unfinished'];
+    // Keep one optional next route inside the three choices rendered by the UI.
+    // Neutral/off-topic dialogue retains neutral suggestions; the persistent
+    // invitation beside the input remains available without repeating a question.
+    const invitation = invitationDetails(current.invitation);
+    if (!view(state).neutralHints && invitation?.choiceId && !(
+      (invitation.id === 'rain_description' && current.topic === 'teach_rain') ||
+      (invitation.id === 'rain_name' && current.topic === 'rain_name') ||
+      (invitation.id === 'visitor_choice' && current.topic === 'visitor_reference') ||
+      (invitation.id === 'own_reason' && current.topic === 'her_choice') ||
+      (invitation.id === 'farewell' && ['parting', 'invitation'].includes(current.topic))
+    )) ids = [invitation.choiceId, ...ids.filter(id => id !== invitation.choiceId)];
     return ids.slice(0, 8).map(id => ({ id, label: label(id) }));
   }
   function legacyClean(value) {
@@ -520,21 +618,47 @@
   function restore(raw, legacyStory = STORY) {
     try {
       if (!object(raw)) return null;
-      if (raw.version === 2) return migrate(raw, legacyStory);
+      if (raw.version === 2) { const migrated = migrate(raw, legacyStory); return migrated ? restore(migrated, legacyStory) : null; }
       if (raw.version !== 3 || typeof raw.started !== 'boolean' || !validLines(raw.opening) || !Array.isArray(raw.events) || raw.events.length > MAX_EVENTS || (!raw.started && (raw.events.length || raw.opening.length || raw.legacy))) return null;
       let state = { version: 3, started: raw.started, opening: raw.opening.map(clean), events: [] };
+      if (raw.openingInvitation !== undefined) {
+        const invitation = invitationClean(raw.openingInvitation);
+        if (!raw.started || raw.legacy || invitation?.id !== 'rain_description') return null;
+        state.openingInvitation = invitation;
+      }
       if (raw.legacy !== undefined) { const legacy = legacyClean(raw.legacy); if (!legacy) return null; state.legacy = legacy; }
+      let resume = null;
+      if (raw.resumeInvitation !== undefined) {
+        const value = raw.resumeInvitation;
+        if (!raw.started || raw.openingInvitation || !object(value) || Object.keys(value).sort().join(',') !== 'after,id' ||
+          !Number.isInteger(value.after) || value.after < 0 || value.after > raw.events.length || !invitationClean({ id: value.id })) return null;
+        resume = { id: value.id, after: value.after };
+      }
+      const restoreResume = () => {
+        if (!resume || resume.after !== state.events.length) return true;
+        if (resume.id !== nextInvitation(derive(state))?.id) return false;
+        state.resumeInvitation = copy(resume);
+        return true;
+      };
+      if (!restoreResume()) return null;
       for (const event of raw.events) {
         if (!object(event)) return null;
-        if (event.type === 'logs') { const next = visitLogs(state); if (next === state) return null; state = next; continue; }
+        if (event.type === 'logs') { const next = appendLogVisit(state, event); if (!next || next === state) return null; state = next; if (!restoreResume()) return null; continue; }
         if (event.type !== 'turn' || !validLines(event.lines, false) || !['ai', 'offline'].includes(event.mode) || !(event.action === null || actionClean(event.action))) return null;
         const proposal = plan(state, event.request); if (!proposal) return null;
+        Object.assign(plans.get(proposal), { replay: true, hasInvitation: Object.prototype.hasOwnProperty.call(event, 'invitation'), invitation: event.invitation });
         if (event.action !== null && !proposal.allowedActions.some(action => actionEqual(action, event.action))) return null;
         state = commit(state, proposal, { lines: event.lines, action: event.action, answer: event.answer, intent: event.intent, storyIntent: event.storyIntent, mode: event.mode });
-        if (!state) return null;
+        if (!state || !restoreResume()) return null;
+      }
+      // Only after all historical events were checked under their original
+      // permissions, expose a current invitation to the returning player.
+      if (state.started && !state.openingInvitation && !state.resumeInvitation && !raw.events.some(event => Object.prototype.hasOwnProperty.call(event, 'invitation'))) {
+        const invitation = nextInvitation(derive(state));
+        if (invitation) state.resumeInvitation = { ...invitation, after: state.events.length };
       }
       return state;
     } catch { return null; }
   }
-  return Object.freeze({ create, restore, start, plan, commit, visitLogs, view, suggestions, weatherIntentAllowed, storyIntentAllowed, MAX_EVENTS, MAX_INPUT, MILESTONES: Object.freeze(MILESTONES.slice()) });
+  return Object.freeze({ create, restore, start, plan, commit, visitLogs, view, guidance, suggestions, weatherIntentAllowed, storyIntentAllowed, MAX_EVENTS, MAX_INPUT, MILESTONES: Object.freeze(MILESTONES.slice()) });
 });

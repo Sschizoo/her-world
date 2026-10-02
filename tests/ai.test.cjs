@@ -41,9 +41,9 @@ const plain=value=>JSON.parse(JSON.stringify(value));
  await check('malformed nonlinear JSON never falls back to prose or operations',async()=>{for(const content of ['{"lines":','{"lines":["雨停了。"],"action":{"type":"rain_pause"}', '```json\n{"action":\n```']){let{api}=runtime(async()=>contentResponse(content));api.connect(fakeKey);await assert.rejects(api.request({...turnInput,allowedActions:[{type:'rain_pause'}]}),e=>e.code==='format');}});
  await check('outgoing allowlist strips invalid objects, deduplicates and preserves caller data',async()=>{let sent;const allowedActions=[{type:'rain_pause'},{type:'rain_pause'},{type:'rain_resume'},{type:'rain_density',value:'gentle'},{type:'rain_density',value:'heavy',scene:'ending'},{type:'scene',value:'ending'},null];const before=JSON.stringify(allowedActions);let{api}=runtime(async(url,options)=>{sent=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return jsonResponse({lines:['听见了。'],action:null});});api.connect(fakeKey);await api.request({...turnInput,allowedActions});assert.deepEqual(sent.allowedActions,[{type:'rain_pause'},{type:'rain_resume'},{type:'rain_density',value:'gentle'}]);assert.equal(JSON.stringify(allowedActions),before);});
  await check('allowlist is snapshotted before awaiting provider response',async()=>{let complete;const allowedActions=[{type:'rain_pause'}];let{api}=runtime(()=>new Promise(resolve=>complete=resolve));api.connect(fakeKey);const pending=api.request({...turnInput,allowedActions});allowedActions[0].type='rain_resume';allowedActions.push({type:'rain_density',value:'heavy'});complete(jsonResponse({lines:['雨继续落下。'],action:{type:'rain_resume'}}));await assert.rejects(pending,e=>e.code==='format');});
- await check('only a bounded world snapshot and capped user context leave the page',async()=>{let body;const unknown='DO_NOT_SERIALIZE';let{api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return jsonResponse({lines:['我听见了。'],action:null});});api.connect(fakeKey);await api.request({...turnInput,scene:{id:'s'.repeat(100),prompt:Array.from({length:8},()=> 'q'.repeat(500)),private:unknown},input:'i'.repeat(1000),rainName:'n'.repeat(1000),topic:'t'.repeat(1000),recent:Array.from({length:20},(_,i)=>({role:i%2?'user':'system',text:'h'.repeat(1000),secret:unknown})),world:{rain:{name:'r'.repeat(1000),density:'heavy',paused:true,created:true,secret:unknown},name:'p'.repeat(1000),milestones:Array.from({length:25},()=> 'm'.repeat(1000)),secrets:unknown,chapter:100},allowedActions:[]});const context=JSON.parse(body.messages.at(-1).content);assert.equal(context.playerSaid.length,80);assert.equal(context.namedRain.length,20);assert.equal(context.scene.length,50);assert.equal(context.currentQuestion.length,3);assert(context.currentQuestion.every(line=>line.length<=100));assert.equal(context.topic.length,60);assert.equal(context.world.name.length,20);assert.equal(context.world.rain.name.length,20);assert.deepEqual(Object.keys(context.world).sort(),['milestones','name','rain']);assert.deepEqual(Object.keys(context.world.rain).sort(),['created','density','name','paused']);assert.equal(context.world.milestones.length,12);assert(context.world.milestones.every(mark=>mark.length<=60));assert.equal(body.messages.length,8);assert(body.messages.slice(1,-1).every(item=>['user','assistant'].includes(item.role)&&item.content.length<=300));assert(!JSON.stringify(body).includes(unknown));assert.equal(body.max_tokens,2048);assert.equal(body.reasoning_effort,'low');assert.equal(body.stream,false);assert(!('tools' in body));assert(!('response_format' in body));});
+ await check('only a bounded world snapshot and capped user context leave the page',async()=>{let body;const unknown='DO_NOT_SERIALIZE';let{api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return jsonResponse({lines:['我听见了。'],action:null});});api.connect(fakeKey);await api.request({...turnInput,scene:{id:'s'.repeat(100),prompt:Array.from({length:8},()=> 'q'.repeat(500)),private:unknown},input:'i'.repeat(1000),rainName:'n'.repeat(1000),topic:'t'.repeat(1000),recent:Array.from({length:20},(_,i)=>({role:i%2?'user':'system',text:'h'.repeat(1000),secret:unknown})),world:{rain:{name:'r'.repeat(1000),density:'heavy',paused:true,created:true,secret:unknown},name:'p'.repeat(1000),milestones:Array.from({length:25},()=> 'm'.repeat(1000)),secrets:unknown,chapter:100},allowedActions:[]});const context=JSON.parse(body.messages.at(-1).content);assert.equal(context.playerSaid.length,80);assert.equal(context.namedRain.length,20);assert.equal(context.scene.length,50);assert.deepEqual(context.currentQuestion,[]);assert(!JSON.stringify(context).includes('q'.repeat(100)));assert.equal(context.topic.length,60);assert.equal(context.world.name.length,20);assert.equal(context.world.rain.name.length,20);assert.deepEqual(Object.keys(context.world).sort(),['milestones','name','rain']);assert.deepEqual(Object.keys(context.world.rain).sort(),['created','density','name','paused']);assert.equal(context.world.milestones.length,12);assert(context.world.milestones.every(mark=>mark.length<=60));assert.equal(body.messages.length,8);assert(body.messages.slice(1,-1).every(item=>['user','assistant'].includes(item.role)&&item.content.length<=300));assert(!JSON.stringify(body).includes(unknown));assert.equal(body.max_tokens,2048);assert.equal(body.reasoning_effort,'low');assert.equal(body.stream,false);assert(!('tools' in body));assert(!('response_format' in body));});
  await check('invalid world fields cannot serialize unknown objects or arbitrary states',async()=>{let context;let{api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return contentResponse('我们继续聊。');});api.connect(fakeKey);await api.request({...turnInput,scene:{prompt:{private:'not a list'}},input:{private:'not input'},rainName:{private:'not name'},topic:{private:'not topic'},recent:[null],world:{rain:{name:{secret:'no'},density:'storm',paused:'yes',created:1},name:{secret:'no'},milestones:[{secret:'no'},123,'valid']},allowedActions:[{type:'rain_pause',extra:true}]});assert.deepEqual(context.world,{rain:{name:'',density:'normal',paused:false,created:false},name:'',milestones:['valid']});assert.deepEqual(context.allowedActions,[]);assert.deepEqual(context.currentQuestion,[]);assert.equal(context.playerSaid,'');assert.equal(context.topic,'');});
- await check('opening keeps legacy array shape even when nonlinear context is supplied',async()=>{let body;let{api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return contentResponse('原来有人在。');});api.connect(fakeKey);assert.deepEqual(plain(await api.request({...turnInput,opening:true,allowedActions:[{type:'rain_pause'}]})),['原来有人在。']);const context=JSON.parse(body.messages.at(-1).content);assert(!('allowedActions' in context));assert(!('world' in context));assert(body.messages[0].content.includes('不要JSON'));});
+ await check('opening keeps legacy array shape even when nonlinear context is supplied',async()=>{let body;let{api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return contentResponse('原来有人在。');});api.connect(fakeKey);assert.deepEqual(plain(await api.request({...turnInput,opening:true,allowedActions:[{type:'rain_pause'}]})),['原来有人在。']);const context=JSON.parse(body.messages.at(-1).content);assert(!('allowedActions' in context));assert.deepEqual(context.world,turnInput.world);assert.equal(context.guidance,null);assert(body.messages[0].content.includes('不要JSON'));});
  await check('topic-only and allowlist-only callers opt into turn mode',async()=>{for(const options of [{...input,topic:'memory'},{...input,allowedActions:[]},{...input,world:{}}]){let{api}=runtime(async()=>contentResponse('我还记得。'));api.connect(fakeKey);assert.deepEqual(plain(await api.request(options)),{lines:['我还记得。'],action:null,structured:false,answer:null,intent:null,storyIntent:null});}});
  await check('marked thought stripping, key echo checks and visible limits also apply to structured turns',async()=>{let{api}=runtime(async()=>contentResponse('<think>PRIVATE_THOUGHT</think>```json\n'+JSON.stringify({lines:['<analysis>PRIVATE_THOUGHT</analysis>'+ '雨'.repeat(600)],action:{type:'rain_pause'}})+'\n```',{reasoning_content:'PRIVATE_THOUGHT'}));api.connect(fakeKey);const result=await api.request({...turnInput,allowedActions:[{type:'rain_pause'}]});assert.equal(result.structured,true);assert.equal(result.action.type,'rain_pause');assert(result.lines.join('').length<=450);assert(!result.lines.join('').includes('PRIVATE_THOUGHT'));for(const lines of [[fakeKey],['<think>unfinished'],['<analysis>unfinished']]){let{api:bad}=runtime(async()=>jsonResponse({lines,action:{type:'rain_pause'}}));bad.connect(fakeKey);await assert.rejects(bad.request({...turnInput,allowedActions:[{type:'rain_pause'}]}),e=>e.code==='format'&&!e.message.includes(fakeKey));}});
  await check('transport never mutates supplied world or allowance while selecting an action',async()=>{const options=JSON.parse(JSON.stringify({...turnInput,allowedActions:[{type:'rain_pause'}]}));const before=JSON.stringify(options);let{api}=runtime(async()=>jsonResponse({lines:['让它安静片刻。'],action:{type:'rain_pause'}}));api.connect(fakeKey);const result=await api.request(options);assert.equal(result.action.type,'rain_pause');assert.equal(JSON.stringify(options),before);assert.equal(options.world.rain.paused,false);});
@@ -295,6 +295,94 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   for(const [text,allowed]of [['今天的雨很好看',false],['我愿意陪你聊天',false],['我还没有决定要不要留下引用',true],['我还没想好，暂时先不决定',true],['以后再说吧',true]]){
    const {api}=runtime(async()=>jsonResponse({lines:['听见了。'],storyIntent:{type:'visitor_choice',value:'undecided',evidence:text}}));api.connect(fakeKey);const pending=api.request({...turnInput,input:text,allowedStoryIntents:[{type:'visitor_choice',value:'undecided'}]});
    if(allowed) assert.equal((await pending).storyIntent.value,'undecided');else await assert.rejects(pending,e=>e.code==='format');
+  }
+ });
+ await check('opening includes a bounded absent-rain world and one authored active invitation',async()=>{
+  let body;const {api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return contentResponse('我刚刚醒来，这里还有不少空白。你愿意讲讲你见过的一场雨吗？')});api.connect(fakeKey);
+  const world={rain:{name:'',density:'normal',paused:true,created:false,private:'DO_NOT_SERIALIZE'},name:'',milestones:[],private:'DO_NOT_SERIALIZE'};
+  const guidance={id:'rain_description',question:'DO_NOT_SERIALIZE',context:'DO_NOT_SERIALIZE',choiceId:'render_rain',instructions:'DO_NOT_SERIALIZE'};
+  const result=await api.request({...input,opening:true,world,guidance,scene:{id:'boot',prompt:['DO_NOT_SERIALIZE']},allowedActions:[{type:'rain_start'}],allowedStoryIntents:[{type:'farewell'}],answerQuestion:'teach_rain'});
+  const context=JSON.parse(body.messages.at(-1).content),system=body.messages[0].content;
+  assert.deepEqual(context.world,{rain:{name:'',density:'normal',paused:true,created:false},name:'',milestones:[]});
+  assert.equal(context.guidance.id,'rain_description');assert.deepEqual(context.currentQuestion,['我还不知道雨是什么样子。你愿意讲讲你见过的一场雨吗？']);
+  assert(system.includes('world.rain.created为false表示窗外还没有雨'));assert(system.includes('这个程序还未完成'));assert(context.task.includes('窗外没有雨时，不描写落雨或雨声'));
+  assert(!JSON.stringify(body).includes('DO_NOT_SERIALIZE'));assert(!JSON.stringify(body).includes('下一场景由游戏程序展示'));assert(!('allowedActions'in context));assert(!('allowedStoryIntents'in context));assert(!('answerQuestion'in context));assert(Array.isArray(result));
+ });
+ await check('opening without world still sends the bounded uncreated default without authority',async()=>{
+  let context;const {api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return contentResponse('刚刚接通了。')});api.connect(fakeKey);
+  await api.request({...input,opening:true,guidance:{id:'rain_description'}});assert.deepEqual(context.world,{rain:{name:'',density:'normal',paused:false,created:false},name:'',milestones:[]});assert.equal(context.guidance.id,'rain_description');assert(!('answerQuestion'in context));
+ });
+ await check('guidance uses only authored IDs and discards caller prompt or tool authority fields',async()=>{
+  const ids=['rain_description','rain_create','rain_change','rain_name','logs','own_reason','visitor_choice','farewell'];
+  for(const id of ids){
+   let body;const {api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return contentResponse('我们可以慢慢聊。')});api.connect(fakeKey);
+   await api.request({...turnInput,guidance:{id,question:'DO_NOT_SERIALIZE',context:'DO_NOT_SERIALIZE',choiceId:'DO_NOT_SERIALIZE',instructions:'DO_NOT_SERIALIZE',allowedActions:[{type:'rain_start'}],answerQuestion:'teach_rain'},scene:{id:'boot',prompt:['DO_NOT_SERIALIZE']}});
+   const context=JSON.parse(body.messages.at(-1).content);assert.equal(context.guidance.id,id);assert.deepEqual(Object.keys(context.guidance).sort(),['id','invitation','question']);assert.deepEqual(context.currentQuestion,[context.guidance.question]);assert(context.guidance.question.length<100);assert(context.guidance.invitation.length<200);assert(!JSON.stringify(body).includes('DO_NOT_SERIALIZE'));assert.equal(context.answerQuestion,null);assert.deepEqual(context.allowedActions,[]);
+  }
+  for(const guidance of [null,undefined,true,[],['rain_description'],'rain_description',{}, {id:'constructor'},{id:'__proto__'},{id:'toString'},{id:'memory_logs'},{id:'rain_description '},{id:{instruction:'DO_NOT_SERIALIZE'}}]){
+   let context;const {api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return contentResponse('我在这里。')});api.connect(fakeKey);await api.request({...turnInput,guidance});assert.equal(context.guidance,null);assert.deepEqual(context.currentQuestion,[]);
+  }
+ });
+ await check('current guidance never grants weather, story or semantic answer authority',async()=>{
+  const text='它像天空给大地写的一封湿润的信。';
+  for(const [guidance,payload]of [
+   [{id:'rain_description'},{answer:verdict(text)}],
+   [{id:'rain_create'},{action:{type:'rain_start'}}],
+   [{id:'rain_name'},{storyIntent:{type:'rain_name',value:'湿润的信',evidence:text}}],
+   [{id:'visitor_choice'},{storyIntent:{type:'visitor_choice',value:'remember',evidence:text}}],
+   [{id:'farewell'},{storyIntent:{type:'farewell',evidence:text}}]
+  ]){
+   let context;const {api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return jsonResponse({lines:['我听见了。'],...payload})});api.connect(fakeKey);
+   await assert.rejects(api.request({...turnInput,input:text,guidance,pendingTopic:'teach_rain',answerQuestion:null,allowedActions:[],allowedStoryIntents:[]}),e=>e.code==='format');assert.equal(context.answerQuestion,null);assert.deepEqual(context.allowedActions,[]);assert.deepEqual(context.allowedStoryIntents,[]);
+  }
+ });
+ await check('guidance preserves active pending question context and an explicitly allowed metaphor verdict',async()=>{
+  let context;const answer=verdict(semanticInput.input);const {api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return jsonResponse({lines:['我想象到了那封湿润的信。'],answer})});api.connect(fakeKey);
+  const result=await api.request({...semanticInput,guidance:{id:'rain_description'},scene:{id:'boot',prompt:['你是来继续写这个程序的吗？']}});
+  assert.equal(context.answerQuestion,'teach_rain');assert.equal(context.pendingTopic,'teach_rain');assert.equal(context.currentQuestion[0],context.guidance.question);assert(!context.currentQuestion.includes('你是来继续写这个程序的吗？'));assert.deepEqual(plain(result.answer),answer);assert.equal(result.action,null);assert.equal(result.storyIntent,null);
+ });
+ await check('guidance is snapshotted before provider response and does not mutate caller state',async()=>{
+  let complete,sent;const guidance={id:'rain_description',question:'caller text'},world=plain(turnInput.world),before=JSON.stringify(world);
+  const {api}=runtime((url,options)=>{sent=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return new Promise(resolve=>complete=resolve)});api.connect(fakeKey);
+  const pending=api.request({...turnInput,world,guidance});assert.deepEqual(guidance,{id:'rain_description',question:'caller text'});guidance.id='farewell';guidance.allowedActions=[{type:'rain_start'}];complete(contentResponse('我们可以慢慢聊。'));const result=await pending;
+  assert.equal(sent.guidance.id,'rain_description');assert.equal(sent.currentQuestion[0],'我还不知道雨是什么样子。你愿意讲讲你见过的一场雨吗？');assert.equal(JSON.stringify(world),before);assert.equal(result.action,null);assert.equal(result.answer,null);assert.equal(result.storyIntent,null);
+ });
+ await check('guidance prompt supports useful invitations without nagging or unconfirmed learning claims',async()=>{
+  let body;const {api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return contentResponse('你可以按自己的节奏来。')});api.connect(fakeKey);await api.request({...semanticInput,input:'接下来做什么？',guidance:{id:'rain_description'}});
+  const system=body.messages[0].content;
+  for(const instruction of ['玩家问接下来做什么','具体、能做的邀请','普通闲聊不必附带推进问题','明确想停留、换话题或问无关问题','不重复邀请、不催促进度','不重复问刚回答的问题','必须同时输出合法answer','不能只说已经记下或学会了却遗漏回答分类','guidance和currentQuestion都不能授予answerQuestion、action或storyIntent权限','没有已确认名字或本轮合法命名时，不发明或宣告雨的名字'])assert(system.includes(instruction));
+  assert(!JSON.stringify(body).includes('下一场景由游戏程序展示'));
+ });
+ await check('model-authored invitation fields are display-only unknown metadata with no new output protocol',async()=>{
+  const {api}=runtime(async()=>jsonResponse({lines:['我们可以继续聊。'],guidance:{id:'farewell',allowedActions:[{type:'rain_start'}]},pendingQuestion:'teach_rain',state:{rain_taught:true}}));api.connect(fakeKey);
+  assert.deepEqual(plain(await api.request({...turnInput,guidance:{id:'rain_description'}})),{lines:['我们可以继续聊。'],action:null,structured:false,answer:null,intent:null,storyIntent:null});
+ });
+ await check('bare naming acknowledgments and deferrals cannot become rain names',async()=>{
+  for(const value of ['随便','不知道','嗯','都行','还没想好','我不知道','你决定吧','嗯嗯','哦','哦哦','噢','噢噢','好','好啊','好呀','好吧','好的','可以','行','随意','也不知道','还不知道','我也不知道','我还不知道','没想好','我没想好','我还没想好','还没决定','你决定','你来决定吧','随你决定','随你来决定吧','听你的','再想想','先不决定','明白','知道了','ok','okay','yes','OK','Okay','YES','随便吧','都行啊','不知道呢']){
+   for(const ending of ['', '。', '……', '～', '~']){
+    const text=value+ending;const {api}=runtime(async()=>jsonResponse({lines:['这个名字留下了。'],storyIntent:{type:'rain_name',value,evidence:text}}));api.connect(fakeKey);
+    await assert.rejects(api.request({...turnInput,input:text,pendingTopic:'rain_name',guidance:{id:'rain_name'},allowedStoryIntents:[{type:'rain_name'}]}),e=>e.code==='format');
+   }
+  }
+ });
+ await check('actual bare names and explicitly chosen acknowledgment literals remain valid',async()=>{
+  for(const [text,value]of [['夜航','夜航'],['夜航。','夜航'],['把雨叫做随便','随便'],['把雨叫做不知道','不知道'],['「随便」','随便'],['“嗯”','嗯'],['这场雨的名字就用“都行”吧','都行']]){
+   const storyIntent={type:'rain_name',value,evidence:text};const {api}=runtime(async()=>jsonResponse({lines:['这个名字留下了。'],storyIntent}));api.connect(fakeKey);
+   const result=await api.request({...turnInput,input:text,pendingTopic:'rain_name',guidance:{id:'rain_name'},allowedStoryIntents:[{type:'rain_name'}]});assert.deepEqual(plain(result.storyIntent),storyIntent);
+  }
+ });
+ await check('naming ambiguity exclusion does not reject other authorized contextual affirmations',async()=>{
+  const text='嗯';const storyIntent={type:'own_reason',evidence:text};const {api}=runtime(async()=>jsonResponse({lines:['我听见了。'],storyIntent}));api.connect(fakeKey);
+  assert.deepEqual(plain((await api.request({...turnInput,input:text,allowedStoryIntents:[{type:'own_reason'}]})).storyIntent),storyIntent);
+  const action={type:'rain_pause'},intent={type:'weather_request',evidence:text};const {api:weather}=runtime(async()=>jsonResponse({lines:['让它安静片刻。'],action,intent}));weather.connect(fakeKey);
+  assert.deepEqual(plain((await weather.request({...turnInput,input:text,allowedActions:[action],requireActionEvidence:true})).action),action);
+ });
+ await check('bare acknowledgments and deferrals cannot acquire semantic rain-description authority',async()=>{
+  for(const text of ['随便','不知道','嗯','都行','还没想好','我不知道','你决定吧','哦哦','噢','好吧','可以','行','随意','我也不知道','我还不知道','我还没想好','还没决定','随你来决定吧','听你的','再想想','先不决定','明白','知道了','ok','okay','yes','OK','Okay','YES','随便吧','都行啊','不知道呢']){
+   for(const ending of ['', '。', '……', '～', '~']){
+    const input=text+ending;let context;const {api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return jsonResponse({lines:['雨的描述已经留下了。'],answer:verdict(input)})});api.connect(fakeKey);
+    await assert.rejects(api.request({...semanticInput,input,guidance:{id:'rain_description'}}),e=>e.code==='format');assert.equal(context.answerQuestion,null);assert.equal(context.pendingTopic,'teach_rain');
+   }
   }
  });
  console.log(`${checks} mock-only transport checks passed; no network used.`)

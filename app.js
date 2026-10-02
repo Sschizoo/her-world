@@ -175,6 +175,10 @@
     $('free-form').hidden = locked; $('input-note').hidden = locked; $('response-area').classList.toggle('has-free', true);
     $('scene-title').textContent = view.ended ? '今晚先到这里 · 仍可继续聊天' : view.status || STORY[view.sceneIndex]?.title || '在这里，慢慢说';
     $('turn-count').textContent = view.pendingTopic === 'rain_name' ? 'NAME / 还没决定' : view.pendingTopic === 'teach_rain' ? 'RAIN / 等一个描述' : `${view.index} 个片刻已留下`;
+    const invitation = view.invitation;
+    $('story-invitation').hidden = locked || !invitation;
+    $('invitation-question').textContent = invitation?.question || '';
+    $('invitation-note').textContent = invitation?.context || '也可以先聊别的，这件事会等你';
     $('topic-nav').hidden = locked; $('memory-invitation').hidden = locked || !view.logsEligible;
     if (locked) {
       target.append(element('div', 'response-wait', busy ? '话已经送出。等她慢慢回应。' : pending ? '这次回应还在等待你的选择。' : '先听她说完，再留下你的回应。'));
@@ -185,9 +189,9 @@
         button.addEventListener('click', () => respond({ choiceId: choice.id })); target.append(button);
       });
       $('free-input').maxLength = 80; $('free-input-label').textContent = '自由聊天或改变雨，最多 80 个字';
-      $('free-input').placeholder = view.topic === 'rain_name' ? '例如：把雨叫做「夜航」；也可以先聊别的…' : view.rain.created ? '继续聊，或说：让雨更密一点 / 停雨 / 再下起来…' : '你想说什么？不用急着走到下一个话题…';
+      $('free-input').placeholder = invitation?.id === 'rain_name' ? '给她一个名字，或继续聊你想到的事…' : invitation?.id === 'rain_description' ? '说说你见过、听过，或想象中的雨…' : view.rain.created ? '接着她的话说，或聊一件新的事…' : '你想从哪里开始？也可以直接问她…';
       $('free-input').disabled = false; $('free-send').disabled = false;
-      $('input-note').textContent = mode === 'unconnected' ? '尚未选择连接方式 · 发送前会让你选择 AI 或离线' : mode === 'offline' ? '离线理解有限 · 未听懂不会推进或改天气 · 名字最多 20 字' : '自由聊天不会自动推进 · 这段对话会发送给 DMXAPI';
+      $('input-note').textContent = mode === 'unconnected' ? '尚未选择连接方式 · 发送前会让你选择 AI 或离线' : mode === 'offline' ? '离线理解有限 · 未听懂会说明 · 名字最多 20 字' : '用自己的话回应，也可以岔开话题 · 对话发送给 DMXAPI';
     }
     document.querySelectorAll('[data-topic]').forEach(button => { button.disabled = locked; button.setAttribute('aria-pressed', String(!view.neutralHints && button.dataset.topic === view.topic)); });
     const skills = $('weather-controls'); skills.replaceChildren();
@@ -210,7 +214,7 @@
   function renderPresentation() {
     const view = snapshot(revealedCount), progress = view.index / view.maxMilestones;
     softText('connection-label', state.started ? 'PROCESS / STILL LEARNING' : 'WAITING FOR YOU');
-    softText('progress-label', state.started ? 'PROLOGUE v0.3.3 / 不必赶路' : 'PROLOGUE v0.3.3 / 初次相遇');
+    softText('progress-label', state.started ? 'PROLOGUE v0.3.4 / 不必赶路' : 'PROLOGUE v0.3.4 / 初次相遇');
     softText('world-caption', view.name !== '未命名的雨' ? `「${view.name}」` : view.rain.created ? '第一次一起看雨' : '一扇尚未被命名的窗');
     softText('world-status', view.rain.created ? `rain.${view.rain.paused ? 'paused' : view.rain.density} / persistent` : 'world.build = incomplete');
     softText('world-code', view.memories.length ? 'gc.retain("first_rain");' : view.rain.created ? 'skills.rain = reusable;' : 'const world = await you;');
@@ -239,7 +243,7 @@
     if (busy) return; busy = true; pending = { opening: true }; $('request-error').hidden = true;
     if (mode === 'offline') { state = ENGINE.start(state); busy = false; pending = null; save(); render(); return; }
     const version = ++operation; render();
-    try { const lines = await HerAI.request({ scene: STORY[0], input: '', rainName: '', recent: [], opening: true }); if (version !== operation) return; state = ENGINE.start(state, lines); mode = 'ai'; busy = false; pending = null; save(); render(); }
+    try { const view = ENGINE.view(state); const lines = await HerAI.request({ scene: STORY[0], input: '', rainName: '', recent: [], opening: true, world: { rain: view.rain, name: view.name, milestones: view.milestones }, guidance: ENGINE.guidance(state) }); if (version !== operation) return; state = ENGINE.start(state, lines); mode = 'ai'; busy = false; pending = null; save(); render(); }
     catch (error) { if (version !== operation) return; busy = false; mode = 'error'; render(); showError(error); }
   }
   function showError(error) { $('request-error-text').textContent = error.message; $('request-error').hidden = false; $('retry-button').disabled = !HerAI.connected(); $('free-form').hidden = true; document.querySelectorAll('.choice').forEach(b => { b.disabled = true; }); updateStatus(); }
@@ -261,7 +265,7 @@
     let result;
     if (mode === 'offline') { result = { lines: proposal.reply, action: proposal.action, mode: 'offline' }; await new Promise(resolve => setTimeout(resolve, paused ? 80 : 260)); }
     else {
-      try { result = await HerAI.request({ scene: STORY.find(scene => scene.id === proposal.topic) || STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion, requireActionEvidence: proposal.requireActionEvidence, allowedStoryIntents: proposal.allowedStoryIntents, acceptedStoryIntent: proposal.acceptedStoryIntent }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
+      try { result = await HerAI.request({ scene: STORY.find(scene => scene.id === proposal.topic) || STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion, requireActionEvidence: proposal.requireActionEvidence, allowedStoryIntents: proposal.allowedStoryIntents, acceptedStoryIntent: proposal.acceptedStoryIntent, guidance: proposal.guidance }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
       catch (error) { if (version !== operation) return; busy = false; mode = 'error'; render(); showError(error); return; }
     }
     if (version !== operation) return;

@@ -304,8 +304,9 @@ test('known standalone clock, identity and status questions cannot be accepted e
   assert.equal(E.plan(s, { text: '雨是天空留给时间的脚步，细碎的凉意落在手心' }).answerQuestion, 'teach_rain', 'time imagery is still a possible explanation');
 });
 
-test('answer authority comes from the canonical pending question and current text, not a mutated proposal', () => {
-  for (const s of [fresh(), choice(rain(), 'topic_name'), choice(choice(fresh(), 'topic_rain'), 'water')]) {
+test('answer authority comes from an issued question and current text, not a mutated proposal', () => {
+  const unguided = { version: 3, started: true, opening: [], events: [] };
+  for (const s of [unguided, choice(rain(), 'topic_name'), choice(choice(fresh(), 'topic_rain'), 'water')]) {
     const p = E.plan(s, { text: metaphor }), before = JSON.stringify(s);
     assert.equal(p.answerQuestion, null);
     p.answerQuestion = 'teach_rain'; p.pendingTopic = 'teach_rain'; p.acceptedAnswer = rainAnswer();
@@ -344,7 +345,7 @@ test('restore rejects invalid saved answers using reconstructed pending state an
     raw => { raw.events.at(-1).answer.evidence = '模型编造的新证据'; },
     raw => { raw.events.at(-1).request.text = '这是另一轮的输入'; },
     raw => { raw.events.at(-1).mode = 'offline'; },
-    raw => { raw.events.shift(); },
+    raw => { raw.events.shift(); delete raw.openingInvitation; },
     raw => { raw.events.at(-1).request.text = '现在的时间是几点？'; raw.events.at(-1).answer.evidence = '现在的时间是几点？'; },
     raw => { raw.events.push(JSON.parse(JSON.stringify(raw.events.at(-1)))); }
   ];
@@ -535,7 +536,7 @@ test('semantic story replay does not reinterpret old prose or trust edited conte
   for (const change of [raw => { raw.events.at(-1).storyIntent.value = '晨光'; }, raw => { raw.events.at(-1).storyIntent.extra = true; }, raw => { raw.events.at(-1).mode = 'offline'; }, raw => { raw.events.at(-1).storyIntent.evidence = '历史输入'; }, raw => { raw.events.splice(2, 1); }]) {
     const raw = JSON.parse(JSON.stringify(s)); change(raw); assert.equal(E.restore(raw), null);
   }
-  const old = JSON.parse(JSON.stringify(s)); delete old.events.at(-1).storyIntent;
+  const old = JSON.parse(JSON.stringify(s)); delete old.events.at(-1).storyIntent; delete old.openingInvitation; old.events.forEach(event => delete event.invitation);
   const restored = E.restore(old); assert(restored); assert.equal(E.view(restored).name, '未命名的雨');
   assert.equal(E.view(s, E.view(s).messages.length - 1).name, '未命名的雨');
   const local = turn(rain(), '把雨叫做夜航'), raw = JSON.parse(JSON.stringify(local)); raw.events.forEach(event => { delete event.intent; delete event.storyIntent; });
@@ -729,4 +730,178 @@ test('historical AI display strips complete thoughts and hides malformed or nest
   const userText = '<think>这是用户主动写的字面文本</think>';
   const plain = turn(s, userText, { mode: 'ai', lines: ['普通文字里的 { 雨 } 仍在。'] });
   assert.equal(E.view(plain).messages.at(-2).text, userText); assert.equal(E.view(plain).messages.at(-1).text, '普通文字里的 { 雨 } 仍在。');
+});
+
+
+test('fresh opening issues one bounded visible rain question without learning or changing the topic', () => {
+  const state = E.start(E.create(), ['你好，我还在认识这扇窗。']), v = E.view(state);
+  assert.deepEqual(state.openingInvitation, { id: 'rain_description' });
+  assert.equal(v.invitation.id, 'rain_description'); assert.match(v.invitation.question, /讲讲/);
+  assert.deepEqual(v.milestones, ['connected']); assert.equal(v.rain.created, false); assert.equal(v.topic, 'boot');
+  assert.equal(v.pendingTopic, 'teach_rain'); assert.deepEqual(E.guidance(state), v.invitation);
+  assert.equal(E.guidance(E.create()).id, 'rain_description');
+  const hidden = E.view(state, v.messages.length - 1);
+  assert.equal(hidden.invitation, null); assert.equal(hidden.pendingTopic, null);
+  assert(!v.messages.some(message => message.text === v.invitation.question), 'the UI invitation is not repeated in the transcript');
+  assert(E.suggestions(state).slice(0, 3).some(item => item.id === 'topic_rain'));
+  assert.deepEqual(roundTrip(state), state);
+});
+
+test('actual ordinary live reply answers the visible invitation despite absent model topic metadata', () => {
+  let state = E.start(E.create(), ['我能看见的，目前只有你，和这份还没开始的东西。']);
+  for (const text of ['我们从哪里开始？', '先试试那场雨吧']) {
+    state = turn(state, text, { mode: 'ai', lines: ['先说说你想要的雨吧，什么样的声音、什么样的季节。'] });
+    assert.equal(E.view(state).topic, 'boot'); assert.deepEqual(E.view(state).milestones, ['connected']);
+  }
+  const text = '夏天傍晚的那种，细细的，落在叶子上像有人轻轻敲门。';
+  const proposal = E.plan(state, { text });
+  assert.equal(proposal.acceptedAnswer, null); assert.equal(proposal.guidance.id, 'rain_description');
+  assert.equal(proposal.answerQuestion, 'teach_rain'); assert.deepEqual(proposal.allowedActions, []);
+  const next = E.commit(state, proposal, { mode: 'ai', lines: ['细细的，像敲在叶子上的叩门声。我记下了。'], answer: rainAnswer(text) });
+  assert(next); assert.deepEqual(E.view(next).milestones, ['connected', 'rain_taught']);
+  assert.equal(E.view(next).rain.created, false); assert.equal(E.view(next).invitation.id, 'rain_create');
+  assert.equal(E.view(next).pendingTopic, null); assert.equal(next.events.at(-1).storyIntent, null);
+  assert.deepEqual(roundTrip(next), next);
+});
+
+test('invitation changes are reveal-gated and cannot authorize an action during the answering turn', () => {
+  const state = fresh(), before = E.view(state), proposal = E.plan(state, { text: metaphor });
+  assert.equal(E.commit(state, proposal, { mode: 'ai', lines: ['我记住了。'], answer: rainAnswer(), action: { type: 'rain_start' } }), null);
+  const next = E.commit(state, proposal, { mode: 'ai', lines: ['我记住了。', '这是一份新的描述。'], answer: rainAnswer() });
+  assert.equal(E.view(next, before.messages.length).invitation.id, 'rain_description');
+  assert.equal(E.view(next, E.view(next).messages.length - 1).pendingTopic, 'teach_rain');
+  assert.equal(E.view(next).invitation.id, 'rain_create');
+  assert.equal(E.plan(next, { text: '先试着把这样的雨画在窗外吧' }).allowedActions[0].type, 'rain_start');
+});
+
+test('invitations remain quiet during off-topic, refusal and stay turns, without any implicit progress', () => {
+  let state = fresh(); const original = E.view(state);
+  for (const text of ['现在的时间是几点？', '我今天碰到一只猫', '我不想聊雨', '先别推进，我只想在这里坐一会儿', '如果让雨落下来会怎样']) {
+    const proposal = E.plan(state, { text });
+    if (text === '现在的时间是几点？') assert.equal(proposal.answerQuestion, null);
+    state = E.commit(state, proposal, { mode: 'ai', lines: ['可以，我们聊聊你现在想到的事。'], action: null, answer: null, storyIntent: null });
+    assert.deepEqual(E.view(state).milestones, original.milestones); assert.deepEqual(E.view(state).rain, original.rain);
+    assert.deepEqual(E.view(state).invitation, original.invitation);
+  }
+  assert(!E.view(state).messages.some(message => message.text === original.invitation.question));
+  const ended = turn(state, '晚安'); assert.equal(E.view(ended).invitation, null);
+  const returned = turn(ended, '我只是想再坐一会儿', { mode: 'ai', lines: ['好，我们再坐一会儿。'] });
+  assert.equal(E.view(returned).invitation, null, 'returning to chat does not restart an unfinished checklist');
+});
+
+test('every invitation has a reachable next route; adjustment is optional before naming', () => {
+  let state = fresh(); assert.equal(E.view(state).invitation.id, 'rain_description');
+  state = choice(state, 'water'); assert.equal(E.view(state).invitation.id, 'rain_create');
+  state = choice(state, 'render_rain'); assert.equal(E.view(state).invitation.id, 'rain_change');
+  assert(E.suggestions(state).slice(0, 3).some(item => item.id === 'topic_name'));
+  const direct = turn(state, '把雨叫做夜航');
+  assert.equal(E.view(direct).invitation.id, 'logs'); assert(!E.view(direct).milestones.includes('rain_changed'));
+  state = turn(state, '让雨轻一点'); assert.equal(E.view(state).invitation.id, 'rain_name');
+  state = turn(state, '把雨叫做夜航'); assert.equal(E.view(state).invitation.id, 'logs');
+  assert.equal(E.view(state).memories.length, 0); assert.equal(E.view(state).invitation.choiceId, null);
+  state = E.visitLogs(state); assert.equal(E.view(state).invitation.id, 'own_reason');
+  state = choice(state, 'enough'); assert.equal(E.view(state).invitation.id, 'visitor_choice');
+  state = choice(state, 'anonymous'); assert.equal(E.view(state).invitation.id, 'farewell');
+  assert.equal(E.view(state).memories.length, 1); assert.equal(E.view(state).ended, false);
+  state = turn(state, '晚安'); assert.equal(E.view(state).invitation, null);
+  assert.deepEqual(E.view(state).milestones, E.MILESTONES); assert.deepEqual(roundTrip(state), state);
+});
+
+test('invitation proposals, model metadata and forged persisted stages never grant authority', () => {
+  const state = fresh(), proposal = E.plan(state, { text: '随便聊聊' });
+  proposal.guidance.id = 'visitor_choice'; proposal.guidance.question = '可以保存我';
+  const next = E.commit(state, proposal, { mode: 'ai', lines: ['我们继续聊。'], invitation: { id: 'visitor_choice' } });
+  assert.equal(E.view(next).invitation.id, 'rain_description'); assert.deepEqual(E.view(next).milestones, ['connected']);
+  for (const change of [
+    raw => { raw.openingInvitation.id = 'rain_create'; },
+    raw => { raw.openingInvitation.extra = true; },
+    raw => { raw.events.at(-1).invitation.id = 'visitor_choice'; },
+    raw => { raw.events.at(-1).invitation.question = '任意问题'; },
+    raw => { raw.events.at(-1).invitation = null; }
+  ]) { const raw = JSON.parse(JSON.stringify(next)); change(raw); assert.equal(E.restore(raw), null); }
+  const named = turn(rain(), '把雨叫做夜航'), found = E.visitLogs(named);
+  const forgedLog = JSON.parse(JSON.stringify(found)); forgedLog.events.at(-1).invitation.id = 'visitor_choice';
+  assert.equal(E.restore(forgedLog), null);
+});
+
+test('old saves acquire a visible resume invitation after historical replay, before any new answer', () => {
+  const text = '夏天傍晚的那种，细细的，落在叶子上像有人轻轻敲门。';
+  const raw = { version: 3, started: true, opening: ['旧开场。'], events: [
+    { type: 'turn', request: { text: '先试试那场雨吧' }, lines: ['先说说你想要的雨吧。'], action: null, mode: 'ai' },
+    { type: 'turn', request: { text }, lines: ['我把它记进那片空白里了。'], action: null, mode: 'ai' }
+  ] };
+  const source = JSON.stringify(raw), restored = E.restore(raw); assert(restored); assert.equal(JSON.stringify(raw), source);
+  assert.deepEqual(restored.resumeInvitation, { id: 'rain_description', after: 2 });
+  assert.deepEqual(E.view(restored).milestones, ['connected']); assert.equal(E.view(restored).invitation.id, 'rain_description');
+  assert.equal(E.view(restored, E.view(restored).messages.length - 1).invitation, null);
+  assert.equal(E.view(restored, E.view(restored).messages.length - 1).pendingTopic, null);
+  assert.equal(E.plan(restored, { text }).answerQuestion, 'teach_rain');
+  assert.deepEqual(roundTrip(restored), restored);
+  const next = turn(restored, text, { mode: 'ai', lines: ['这次我记下了这个描述。'], answer: rainAnswer(text) });
+  assert.equal(E.view(next).invitation.id, 'rain_create'); assert.deepEqual(roundTrip(next), next);
+  const forgedPast = JSON.parse(source); forgedPast.events[1].answer = rainAnswer(text);
+  assert.equal(E.restore(forgedPast), null, 'a new resume invitation cannot retroactively authorize a past verdict');
+});
+
+test('resume invitation boundaries are schema- and stage-validated', () => {
+  const raw = { version: 3, started: true, opening: [], events: [] }, restored = E.restore(raw);
+  for (const invitation of [{ id: 'rain_create', after: 0 }, { id: 'rain_description', after: 1 }, { id: 'rain_description', after: -1 }, { id: 'rain_description', after: 0, extra: true }, { id: 'unknown', after: 0 }]) {
+    assert.equal(E.restore({ ...restored, resumeInvitation: invitation }), null);
+  }
+  assert.equal(E.restore({ ...fresh(), resumeInvitation: { id: 'rain_description', after: 0 } }), null);
+});
+
+test('ambiguous naming replies cannot become literal names through a model verdict', () => {
+  let state=fresh();state=choice(state,'water');state=choice(state,'render_rain');state=choice(state,'rain_pause');
+  assert.equal(E.view(state).invitation.id,'rain_name');
+  for(const text of ['随便','随便吧','都行啊','不知道呢','不知道','嗯','都行','还没想好','我不知道','你决定吧','好啊。','先不决定']){
+    const proposal=E.plan(state,{text});
+    assert.equal(E.commit(state,proposal,{mode:'ai',lines:['我记下这个名字。'],storyIntent:{type:'rain_name',value:text.replace(/。$/u,''),evidence:text}}),null,text);
+  }
+  for(const [text,name] of [['夜航','夜航'],['「随便」','随便']]){
+    const proposal=E.plan(state,{text}), outcome=proposal.acceptedAnswer?{mode:'ai',lines:['名字记下了。']}:{mode:'ai',lines:['名字记下了。'],storyIntent:{type:'rain_name',value:name,evidence:text}};
+    const next=E.commit(state,proposal,outcome);assert(next,text);assert.equal(E.view(next).name,name);assert.deepEqual(roundTrip(next),next);
+  }
+  const explicit=turn(state,'把雨叫做随便');assert.equal(E.view(explicit).name,'随便');
+  const valid=E.commit(state,E.plan(state,{text:'夜航'}),{mode:'ai',lines:['名字记下了。'],storyIntent:{type:'rain_name',value:'夜航',evidence:'夜航'}});
+  const forged=JSON.parse(JSON.stringify(valid)), last=forged.events.at(-1);last.request.text='随便';last.storyIntent.value='随便';last.storyIntent.evidence='随便';assert.equal(E.restore(forged),null);
+});
+
+test('bare uncertainty is not a rain description even if a model supplies an exact quotation', () => {
+  const state=fresh();
+  for(const text of ['随便','随便吧','都行啊','不知道呢','不知道','嗯','都行','还没想好','我不知道','你决定吧','好啊。','先不决定','知道了','yes']){
+    const proposal=E.plan(state,{text});assert.equal(proposal.answerQuestion,null,text);
+    assert.equal(E.commit(state,proposal,{mode:'ai',lines:['我已理解雨了。'],answer:{type:'rain_definition',question:'teach_rain',evidence:text}}),null,text);
+    const unchanged=E.commit(state,proposal,{mode:'ai',lines:['没关系，可以再想想。']});assert(unchanged);assert.deepEqual(E.view(unchanged).milestones,['connected']);assert.equal(E.view(unchanged).invitation.id,'rain_description');
+  }
+});
+
+
+test('asking what to do next reissues only the current invitation without advancing anything', () => {
+  for (const state of [fresh(), choice(fresh(), 'water'), rain(), turn(rain(), '把雨叫做夜航')]) {
+    const before = E.view(state);
+    for (const text of ['接下来呢', '接下来可以做什么？', '怎么继续', '我们从哪里开始？', '不知道怎么继续']) {
+      const proposal = E.plan(state, { text });
+      assert.equal(proposal.answerQuestion, null); assert.equal(proposal.acceptedAnswer, null);
+      assert.equal(proposal.acceptedStoryIntent, null); assert.equal(proposal.action, null);
+      assert.deepEqual(proposal.reply, [before.invitation.question, before.invitation.context]);
+      const next = turn(state, text), after = E.view(next);
+      assert.deepEqual(after.milestones, before.milestones); assert.deepEqual(after.rain, before.rain);
+      assert.deepEqual(after.invitation, before.invitation); assert.equal(after.topic, before.topic);
+    }
+  }
+});
+
+test('short acknowledgments cannot become a rain description or visitor consent merely because an invitation is visible', () => {
+  for (const text of ['好', '嗯', '好的', '可以', 'OK']) {
+    const state = fresh(), proposal = E.plan(state, { text });
+    assert.equal(proposal.answerQuestion, null);
+    assert.equal(E.commit(state, proposal, { mode: 'ai', lines: ['我听到了。'], answer: rainAnswer(text) }), null);
+    const next = turn(state, text, { mode: 'ai', lines: ['我们慢慢聊。'] });
+    assert.deepEqual(E.view(next).milestones, ['connected']); assert.equal(E.view(next).rain.created, false);
+    const found = choice(E.visitLogs(turn(rain(), '把雨叫做夜航')), 'enough');
+    assert.equal(E.view(found).invitation.id, 'visitor_choice');
+    assert.equal(E.commit(found, E.plan(found, { text }), { mode: 'ai', lines: ['我会记住你。'], storyIntent: { type: 'visitor_choice', value: 'remember', evidence: text } }), null);
+    assert.equal(E.view(turn(found, text)).memories.length, 1);
+  }
 });

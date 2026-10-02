@@ -82,3 +82,15 @@ Two non-blocking presentation issues remained: a combined AI opening overlapped 
 
 
 Final v0.3.3 validation: 190 checks pass (33 application, 57 engine, 20 focus, 5 world, 75 transport), plus all six script syntax checks. Neutral hints are gated to fully revealed replies and do not rewrite canonical topics, pending questions, memories, weather, milestones or intent permissions. A live AI opening is the sole opening dialogue; offline authored text remains unchanged. This display-only patch awaits key-free deployment verification; the 15-request authenticated proof above is specifically v0.3.2.
+
+## v0.3.4 — discoverable, state-bound invitations
+
+The user reconnected v0.3.3 and asked for a first-time-player test because progression was unclear. Four conversational requests reproduced a concrete blocker without using topic or progression buttons. The opening claimed rain existed while the world was unlearned. After correction and a request for where to begin, she invited a description of rain's sound/season. The player answered “夏天傍晚的那种，细细的，落在叶子上像有人轻轻敲门。” She acknowledged it, but the engine remained at one milestone: her organic question had not established a pending question. Requests stopped at that confirmed failure. The authenticated tab was preserved; no credential field, value, storage or headers were inspected.
+
+The repair keeps a single optional invitation beside the input, matching an explicit, validated invitation record. It covers learning, first rendering, changing/naming, actual log discovery, retained-memory reasoning, visitor consent and parting. Guidance cannot perform an action or grant consent. It changes only after the corresponding response is fully revealed and does not repeat as extra dialogue on every side conversation. Model opening receives canonical empty-world state. Current guidance replaces stale scene questions in the request context.
+
+New mocked application coverage includes the exact observed organic-question/metaphorical-answer failure, a complete route following only visible invitations and ordinary free-text answers, side conversation without repeated prompts, reload, and reveal boundaries. Migration validates historical events before making an invitation available at the newly resumed boundary; old answers are not reinterpreted.
+
+This iteration's automated tests use mocks only. The four live requests above verified the v0.3.3 defect, not the repaired v0.3.4 model experience. Publication and an explicitly reconnected live session are needed for that subsequent check.
+
+Pre-publication aggregate: 218 checks pass (37 application, 69 engine, 20 focus, 5 world, 87 transport), plus syntax checks for all six scripts. The complete invitation-driven mock route additionally checks that every question sent to the model exactly matches the one visible to the player. Direct offline help requests return the current invitation without completing it; ambiguous acknowledgments or deferrals do not count as learning rain, literal names, or consenting to a visitor reference. Explicit and quoted literal names remain valid, including words such as 随便 when deliberately named.

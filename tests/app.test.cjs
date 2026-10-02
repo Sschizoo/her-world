@@ -109,3 +109,73 @@ test('two complete natural-language routes use the real transport parser and typ
   }
 });
 test('unclassified AI continuation uses neutral hints and no stale active topic',async()=>{const r=withState(advance(seeded(),{choiceId:'goodbye'}),{request:async()=>({lines:['好，我们再坐一会儿。'],action:null,answer:null,intent:null,storyIntent:null})});await r.click('ai-status-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');await r.say('先别改变天气，我想再坐一会儿');assert.equal(view(r).topic,'parting');assert.equal(view(r).neutralHints,true);assert.equal(view(r).ended,false);assert(!r.ids.choices.children.some(b=>b.dataset.choice==='goodbye'));assert(r.all.filter(n=>n.dataset.topic).every(n=>n.attrs['aria-pressed']==='false'));});
+
+test('a visible invitation makes an organic rain answer eligible without a topic-navigation command',async()=>{
+  const answer='夏天傍晚的那种，细细的，落在叶子上像有人轻轻敲门。';
+  const observed=[];
+  const r=runtime({provider:async ctx=>{
+    observed.push(ctx);
+    if(!ctx.playerSaid)return '连接上了。窗外还空着，我不知道雨是什么样子。';
+    if(ctx.playerSaid===answer){assert.equal(ctx.answerQuestion,'teach_rain');assert.equal(ctx.guidance.id,'rain_description');return {lines:['那种轻轻敲叶子的声音，我理解了。'],answer:{type:'rain_definition',question:'teach_rain',evidence:answer}};}
+    if(ctx.playerSaid==='先试试那场雨吧。')return '先说说你想要的雨吧，什么样的声音、什么样的季节？';
+    return '我们可以从窗外那片空白慢慢开始。';
+  }});
+  await r.click('start-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');
+  assert(!r.ids['story-invitation'].hidden);assert.match(r.ids['invitation-question'].textContent,/雨/);
+  assert.equal(observed[0].world.rain.created,false);
+  await r.say('那我们从哪里开始？我想帮你把它做完。');
+  await r.say('先试试那场雨吧。');
+  assert.equal(view(r).index,1);assert.equal(view(r).rain.created,false);
+  await r.say(answer);
+  assert(view(r).milestones.includes('rain_taught'));assert.equal(view(r).rain.created,false);
+  assert.equal(view(r).invitation.id,'rain_create');assert.match(r.ids['invitation-question'].textContent,/雨/);
+});
+
+test('invitation is hidden while replying and only changes after the full reply is revealed',async()=>{
+  const clock=fakeClock(),r=runtime({clock,reducedMotion:false});
+  await r.offline();assert(r.ids['story-invitation'].hidden);await clock.flush();
+  assert(!r.ids['story-invitation'].hidden);assert.equal(view(r).invitation.id,'rain_description');
+  r.ids['free-input'].value='雨是从天上落下来的水滴';const sending=r.ids['free-form'].emit('submit');await clock.advance(300);await sending;
+  assert(r.ids['story-invitation'].hidden);await clock.flush();
+  assert(!r.ids['story-invitation'].hidden);assert.equal(view(r).invitation.id,'rain_create');
+  assert.equal(r.ids['invitation-question'].textContent,view(r).invitation.question);
+});
+
+test('side conversation keeps its invitation without appending repetitive questions to dialogue',async()=>{
+  const r=runtime({request:async p=>p.opening?['我刚刚醒来。']:{lines:['我没有接入时钟，不能确认现在几点。'],action:null}});
+  await r.click('start-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');
+  const question=r.ids['invitation-question'].textContent;
+  for(const text of ['现在的时间是几点？','先坐一会儿吧'])await r.say(text);
+  assert.equal(r.ids['invitation-question'].textContent,question);assert.equal(view(r).index,1);
+  assert(!r.ids.transcript.textContent.includes(question));
+  const resumed=runtime({storage:r.storage});assert.equal(resumed.ids['invitation-question'].textContent,question);assert.equal(resumed.count(),0);
+});
+
+test('a player can follow visible invitations through the prologue using ordinary answers, with no topic buttons',async()=>{
+  const visited=[];
+  const r=runtime({provider:async ctx=>{
+    if(!ctx.playerSaid)return '我醒过来了。这里还有很多空白。';
+    const id=ctx.guidance?.id;visited.push(id);
+    assert.equal(ctx.currentQuestion[0],r.ids['invitation-question'].textContent,'the model and player must receive the same issued question');
+    const out={lines:['好，我听见你的意思了。'],action:null,answer:null,intent:null,storyIntent:null};
+    if(id==='rain_description')out.answer={type:'rain_definition',question:'teach_rain',evidence:ctx.playerSaid};
+    if(id==='rain_create'){out.action={type:'rain_start'};out.intent={type:'weather_request',evidence:ctx.playerSaid};}
+    if(id==='rain_change'){out.action={type:'rain_density',value:'gentle'};out.intent={type:'weather_request',evidence:ctx.playerSaid};}
+    if(id==='rain_name'&&!ctx.acceptedAnswer)out.storyIntent={type:'rain_name',value:'晚风',evidence:ctx.playerSaid};
+    if(id==='own_reason')out.storyIntent={type:'own_reason',evidence:ctx.playerSaid};
+    if(id==='visitor_choice')out.storyIntent={type:'visitor_choice',value:'anonymous',evidence:ctx.playerSaid};
+    if(id==='farewell')out.storyIntent={type:'farewell',evidence:ctx.playerSaid};
+    return out;
+  }});
+  await r.click('start-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');
+  const responses={rain_description:'它像一串凉凉的小指尖，轻轻碰过我的额头',rain_create:'好啊，试着放到窗外给我看看',rain_change:'想看稀疏一些的落点，替它们留点空隙吧',rain_name:'就叫晚风吧',own_reason:'只是想留着也很有意义啊',visitor_choice:'只留下这场雨就好，不用记我',farewell:'那今天先到这儿，我去睡了'};
+  for(let turn=0;turn<9&&!view(r).ended;turn++){
+    assert(!r.ids['story-invitation'].hidden);
+    const id=view(r).invitation?.id;assert(id,'each unfinished step needs a visible invitation');
+    assert.equal(r.ids['invitation-question'].textContent,view(r).invitation.question);
+    if(id==='logs'){assert(!r.ids['memory-invitation'].hidden);await r.click('memory-invitation');continue;}
+    assert(responses[id],id);await r.say(responses[id]);assert(r.ids['request-error'].hidden,r.ids['request-error-text'].textContent);
+  }
+  assert.equal(view(r).index,9);assert(view(r).ended);assert.equal(view(r).name,'晚风');assert.equal(view(r).memories.length,1);
+  assert.deepEqual(visited,['rain_description','rain_create','rain_change','rain_name','own_reason','visitor_choice','farewell']);
+});
