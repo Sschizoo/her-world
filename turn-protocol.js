@@ -18,6 +18,19 @@
   const unsafeOutput = v => typeof v === 'string' ? protocolText(v) : v && typeof v === 'object' ? Object.values(v).some(unsafeOutput) : false;
   const freeze = v => { if (v && typeof v === 'object') { Object.values(v).forEach(freeze); Object.freeze(v); } return v; };
   const noteId = v => typeof v === 'string' && /^note_[a-z0-9_]{1,32}$/u.test(v);
+  // Diagnostics are selected from these fixed pairs only. Never include model
+  // text, player input, object/note IDs, unexpected keys, or exception messages.
+  const DIAGNOSTICS = freeze(Object.fromEntries([
+    ['CONTEXT_INVALID', 'context'], ['INPUT_INVALID', 'input'],
+    ['ROOT_INVALID', '$'], ['PROTOCOL_TEXT', '$'], ['SCHEMA_INVALID', 'schema'], ['ROOT_FIELDS', '$'],
+    ['LINES_INVALID', 'lines'], ['TIMELINE_INVALID', 'applyAfterLine'], ['PANEL_INVALID', 'panel'],
+    ['ANSWER_INVALID', 'answer'], ['ANSWER_PREREQUISITE', 'answer'],
+    ['ACTION_INVALID', 'action'], ['ACTION_PREREQUISITE', 'action'],
+    ['STORY_INVALID', 'storyIntent'], ['STORY_PREREQUISITE', 'storyIntent'], ['VISITOR_CONSENT', 'storyIntent.evidence'],
+    ['SCENE_EDITS_INVALID', 'sceneEdits'], ['MEMORY_EDITS_INVALID', 'memoryEdits'],
+    ['MEMORY_CAPACITY', 'memoryEdits'], ['MEMORY_TARGET', 'memoryEdits'], ['LOG_ENTRIES_INVALID', 'logEntries']
+  ].map(([code, path]) => [code, { code, path }])));
+  const rejected = code => ({ value: null, diagnostic: DIAGNOSTICS[code] });
   function snapshot(value) {
     if (!object(value) || !keys(value.rain, 'name,density,paused,created') || !safeText(value.rain.name, 20) || !DENSITIES.includes(value.rain.density) || typeof value.rain.paused !== 'boolean' || typeof value.rain.created !== 'boolean' || !TOPICS.includes(value.topic) || !Array.isArray(value.milestones) || value.milestones.length > 9 || !value.milestones.every(id => MILESTONES.includes(id)) || !['remember', 'anonymous', 'undecided'].includes(value.visitor) || !Array.isArray(value.memories) || value.memories.length > 14 || !object(value.memoryContext)) return null;
     const ctx = value.sceneContext, scene = ctx && SCENE.context({ grid: ctx.grid, nextId: ctx.nextId, objects: ctx.objects, annotations: ctx.annotations, focusedTarget: ctx.focusedTarget }, { firstRainAvailable: ctx.firstRainAvailable, firstRainSource: ctx.firstRainSource });
@@ -53,53 +66,72 @@
     const positive = text => /(?:你可以|可以|允许|同意|愿意|希望你|请你?|让你).{0,12}(?:记住|记得|保留|留下|保存).{0,10}(?:我|来访者)|(?:记住|记得)我(?:吧|。|！|!|$)|(?:我的引用|来访者的引用).{0,8}(?:可以|允许|同意|愿意).{0,8}(?:留下|保留|保存)|\b(?:you may|you can|I consent|I agree|please|I want you to)\b.{0,30}\b(?:remember me|keep my reference|save my reference)\b/iu.test(text);
     return positive(input) && positive(evidence);
   }
-  function validate(value, context, input) {
+  function inspect(value, context, input) {
     const ctx = snapshot(context);
     const fields = ['schema', 'lines', 'applyAfterLine', 'action', 'answer', 'storyIntent', 'sceneEdits', 'memoryEdits', 'logEntries', 'panel'];
-    if (!ctx || !safeText(input, 80) || !object(value) || unsafeOutput(value) || value.schema !== SCHEMA || !Object.keys(value).every(key => fields.includes(key)) || !Array.isArray(value.lines) || value.lines.length < 1 || value.lines.length > 3 || !value.lines.every(line => safeText(line, 500))) return null;
+    if (!ctx) return rejected('CONTEXT_INVALID');
+    if (!safeText(input, 80)) return rejected('INPUT_INVALID');
+    if (!object(value)) return rejected('ROOT_INVALID');
+    if (unsafeOutput(value)) return rejected('PROTOCOL_TEXT');
+    if (value.schema !== SCHEMA) return rejected('SCHEMA_INVALID');
+    if (!Object.keys(value).every(key => fields.includes(key))) return rejected('ROOT_FIELDS');
+    if (!Array.isArray(value.lines) || value.lines.length < 1 || value.lines.length > 3 || !value.lines.every(line => safeText(line, 500))) return rejected('LINES_INVALID');
     const result = { schema: SCHEMA, lines: value.lines.slice(), applyAfterLine: value.applyAfterLine === undefined ? 0 : value.applyAfterLine, action: value.action ?? null, answer: value.answer ?? null, storyIntent: value.storyIntent ?? null, sceneEdits: value.sceneEdits ?? [], memoryEdits: value.memoryEdits ?? [], logEntries: value.logEntries ?? [], panel: value.panel ?? null };
-    if (!Number.isInteger(result.applyAfterLine) || result.applyAfterLine < 0 || result.applyAfterLine >= result.lines.length || !(result.panel === null || ['logs', 'memory', 'world'].includes(result.panel))) return null;
+    if (!Number.isInteger(result.applyAfterLine) || result.applyAfterLine < 0 || result.applyAfterLine >= result.lines.length) return rejected('TIMELINE_INVALID');
+    if (!(result.panel === null || ['logs', 'memory', 'world'].includes(result.panel))) return rejected('PANEL_INVALID');
     const has = id => ctx.milestones.includes(id);
-    if (result.answer !== null && (!keys(result.answer, 'type') || result.answer.type !== 'rain_definition' || !has('connected'))) return null;
+    if (result.answer !== null) {
+      if (!keys(result.answer, 'type') || result.answer.type !== 'rain_definition') return rejected('ANSWER_INVALID');
+      if (!has('connected')) return rejected('ANSWER_PREREQUISITE');
+    }
     if (result.action !== null) {
       const action = result.action;
-      if (!object(action) || !(keys(action, 'type,value') && action.type === 'rain_density' && DENSITIES.includes(action.value) || keys(action, 'type') && ['rain_start', 'rain_pause', 'rain_resume'].includes(action.type))) return null;
-      if (action.type === 'rain_start' ? ctx.rain.created || !(has('rain_taught') || result.answer) : !ctx.rain.created) return null;
+      if (!object(action) || !(keys(action, 'type,value') && action.type === 'rain_density' && DENSITIES.includes(action.value) || keys(action, 'type') && ['rain_start', 'rain_pause', 'rain_resume'].includes(action.type))) return rejected('ACTION_INVALID');
+      if (action.type === 'rain_start' ? ctx.rain.created || !(has('rain_taught') || result.answer) : !ctx.rain.created) return rejected('ACTION_PREREQUISITE');
     }
     const created = ctx.rain.created || result.action?.type === 'rain_start';
     if (result.storyIntent !== null) {
       const intent = result.storyIntent;
-      if (!object(intent)) return null;
+      if (!object(intent)) return rejected('STORY_INVALID');
       if (intent.type === 'topic') {
-        if (!keys(intent, 'type,value') || !TOPICS.includes(intent.value)) return null;
-        if (['first_drop', 'modify_rain', 'rain_name', 'shared_silence', 'memory_discovery'].includes(intent.value) && !created) return null;
-        if (['her_choice', 'visitor_reference'].includes(intent.value) && !has('memory_found')) return null;
+        if (!keys(intent, 'type,value') || !TOPICS.includes(intent.value)) return rejected('STORY_INVALID');
+        if (['first_drop', 'modify_rain', 'rain_name', 'shared_silence', 'memory_discovery'].includes(intent.value) && !created) return rejected('STORY_PREREQUISITE');
+        if (['her_choice', 'visitor_reference'].includes(intent.value) && !has('memory_found')) return rejected('STORY_PREREQUISITE');
       } else if (intent.type === 'rain_name') {
-        if (!keys(intent, 'type,value') || !safeText(intent.value, 20) || !created) return null;
+        if (!keys(intent, 'type,value') || !safeText(intent.value, 20)) return rejected('STORY_INVALID');
+        if (!created) return rejected('STORY_PREREQUISITE');
       } else if (intent.type === 'own_reason') {
-        if (!keys(intent, 'type') || !has('memory_found')) return null;
+        if (!keys(intent, 'type')) return rejected('STORY_INVALID');
+        if (!has('memory_found')) return rejected('STORY_PREREQUISITE');
       } else if (intent.type === 'visitor_choice') {
-        if (!has('memory_found') || !['remember', 'anonymous', 'undecided'].includes(intent.value)) return null;
-        if (intent.value === 'remember') { if (!keys(intent, 'type,value,evidence') || !visitorConsent(input, intent.evidence)) return null; }
-        else if (!keys(intent, 'type,value')) return null;
-      } else if (intent.type === 'farewell') { if (!keys(intent, 'type')) return null; }
-      else return null;
+        if (!has('memory_found')) return rejected('STORY_PREREQUISITE');
+        if (!['remember', 'anonymous', 'undecided'].includes(intent.value)) return rejected('STORY_INVALID');
+        if (intent.value === 'remember') {
+          if (!keys(intent, 'type,value,evidence')) return rejected('STORY_INVALID');
+          if (!visitorConsent(input, intent.evidence)) return rejected('VISITOR_CONSENT');
+        } else if (!keys(intent, 'type,value')) return rejected('STORY_INVALID');
+      } else if (intent.type === 'farewell') { if (!keys(intent, 'type')) return rejected('STORY_INVALID'); }
+      else return rejected('STORY_INVALID');
     }
     const scene = SCENE.validateSemanticEdits(result.sceneEdits, { ...copy(ctx.sceneContext), firstRainAvailable: created }, input);
-    if (!scene) return null;
+    if (!scene) return rejected('SCENE_EDITS_INVALID');
     result.sceneEdits = scene;
-    if (!Array.isArray(result.memoryEdits) || result.memoryEdits.length > 3) return null;
+    if (!Array.isArray(result.memoryEdits) || result.memoryEdits.length > 3) return rejected('MEMORY_EDITS_INVALID');
     const notes = new Set(ctx.memories.filter(memory => noteId(memory.id)).map(memory => memory.id));
     for (const edit of result.memoryEdits) {
-      if (!object(edit) || !noteId(edit.id)) return null;
+      if (!object(edit) || !noteId(edit.id)) return rejected('MEMORY_EDITS_INVALID');
       if (edit.type === 'upsert') {
-        if (!keys(edit, 'type,id,title,body') || !safeText(edit.title, 40) || !safeText(edit.body, 240)) return null;
-        notes.add(edit.id); if (notes.size > 12) return null;
-      } else if (edit.type === 'remove') { if (!keys(edit, 'type,id') || !notes.has(edit.id)) return null; notes.delete(edit.id); }
-      else return null;
+        if (!keys(edit, 'type,id,title,body') || !safeText(edit.title, 40) || !safeText(edit.body, 240)) return rejected('MEMORY_EDITS_INVALID');
+        notes.add(edit.id); if (notes.size > 12) return rejected('MEMORY_CAPACITY');
+      } else if (edit.type === 'remove') {
+        if (!keys(edit, 'type,id')) return rejected('MEMORY_EDITS_INVALID');
+        if (!notes.has(edit.id)) return rejected('MEMORY_TARGET');
+        notes.delete(edit.id);
+      } else return rejected('MEMORY_EDITS_INVALID');
     }
-    if (!Array.isArray(result.logEntries) || result.logEntries.length > 3 || !result.logEntries.every(entry => safeText(entry, 160))) return null;
-    return copy(result);
+    if (!Array.isArray(result.logEntries) || result.logEntries.length > 3 || !result.logEntries.every(entry => safeText(entry, 160))) return rejected('LOG_ENTRIES_INVALID');
+    return { value: copy(result), diagnostic: null };
   }
-  return Object.freeze({ SCHEMA, snapshot, validate, visitorConsent });
+  function validate(value, context, input) { return inspect(value, context, input).value; }
+  return Object.freeze({ SCHEMA, snapshot, validate, inspect, visitorConsent });
 });

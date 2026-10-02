@@ -24,7 +24,21 @@
     empty: '服务商返回了空的最终对白。没有展示推理内容；可以手动重试。',
     cancelled: '这次请求已取消。服务商仍可能计费，故事进度没有改变。'
   };
-  class SafeError extends Error { constructor(code, httpStatus) { super(`${Number.isInteger(httpStatus) && httpStatus > 0 ? `HTTP ${httpStatus} · ` : ''}${messages[code] || messages.upstream}`); this.code = code; if (Number.isInteger(httpStatus) && httpStatus > 0) this.httpStatus = httpStatus; } }
+  const diagnosticStages = new Set(['LOCAL_CONTEXT', 'REQUEST', 'HTTP', 'RESPONSE_READ', 'ENVELOPE', 'FINAL_CONTENT', 'JSON', 'TURN_FIELD', 'DISPLAY', 'NETWORK', 'CANCELLED']);
+  // Fixed paths only: a provider-controlled key, value or exception must never
+  // become diagnostic text. The dialogue/body and access password are not kept.
+  const diagnosticPaths = new Set(['context', 'input', 'request', 'response', 'content', 'root', '$', 'schema', 'lines', 'applyAfterLine', 'panel', 'action', 'answer', 'storyIntent', 'storyIntent.evidence', 'sceneEdits', 'memoryEdits', 'logEntries']);
+  const diagnosticCodes = new Set(['CONTEXT_INVALID', 'INPUT_INVALID', 'ROOT_INVALID', 'PROTOCOL_TEXT', 'SCHEMA_INVALID', 'ROOT_FIELDS', 'LINES_INVALID', 'TIMELINE_INVALID', 'PANEL_INVALID', 'ANSWER_INVALID', 'ANSWER_PREREQUISITE', 'ACTION_INVALID', 'ACTION_PREREQUISITE', 'STORY_INVALID', 'STORY_PREREQUISITE', 'VISITOR_CONSENT', 'SCENE_EDITS_INVALID', 'MEMORY_EDITS_INVALID', 'MEMORY_CAPACITY', 'MEMORY_TARGET', 'LOG_ENTRIES_INVALID', 'JSON_SYNTAX', 'JSON_DUPLICATE_KEY', 'PAYLOAD_REQUIRED', 'PAYLOAD_MIXED', 'OUTPUT_UNSAFE']);
+  class SafeError extends Error {
+    constructor(code, httpStatus, diagnostic) {
+      const safeStatus = Number.isInteger(httpStatus) && httpStatus > 0 ? httpStatus : null;
+      const safeDiagnostic = diagnosticStages.has(diagnostic?.stage) ? { stage: diagnostic.stage, ...(diagnosticCodes.has(diagnostic.code) ? { code: diagnostic.code } : {}), ...(diagnosticPaths.has(diagnostic.path) ? { path: diagnostic.path } : {}) } : null;
+      super(`${safeStatus ? `HTTP ${safeStatus} · ` : ''}${messages[code] || messages.upstream}${safeDiagnostic ? `（诊断：${safeDiagnostic.stage}${safeDiagnostic.code ? ` / ${safeDiagnostic.code}` : ''}${safeDiagnostic.path ? ` / ${safeDiagnostic.path}` : ''}）` : ''}`);
+      this.code = code;
+      if (safeStatus) this.httpStatus = safeStatus;
+      if (safeDiagnostic) this.diagnostic = Object.freeze(safeDiagnostic);
+    }
+  }
   function connect(value) {
     if (typeof value !== 'string' || value.trim().length < 8 || value.trim().length > 500 || /[\r\n\x00-\x1f\x7f]/.test(value)) return false;
     const candidate = value.trim();
@@ -259,7 +273,7 @@
   }
   function parsePayloadJSON(text) {
     let payload;
-    try { payload = JSON.parse(text); } catch { throw new SafeError('format'); }
+    try { payload = JSON.parse(text); } catch { throw new SafeError('format', null, { stage: 'JSON', code: 'JSON_SYNTAX', path: 'content' }); }
     // JSON.parse otherwise silently picks the last duplicate member. Reject
     // conflicting protocol members, including duplicate keys in nested actions.
     const stack = [];
@@ -279,7 +293,7 @@
         const members = stack[stack.length - 1];
         if (text[next] === ':' && members) {
           const name = JSON.parse(text.slice(start, index + 1));
-          if (members.has(name)) throw new SafeError('format');
+          if (members.has(name)) throw new SafeError('format', null, { stage: 'JSON', code: 'JSON_DUPLICATE_KEY', path: 'content' });
           members.add(name);
         }
       }
@@ -378,9 +392,9 @@ logEntries最多3个非空字符串，每条最多160字，是角色创作的虚
     if (used >= 20) throw new SafeError('limit');
     const unifiedMode = !opening && turnContext !== undefined;
     const turnSnapshot = unifiedMode && typeof window.HerTurn?.snapshot === 'function' ? window.HerTurn.snapshot(turnContext) : null;
-    if (unifiedMode && (!turnSnapshot || typeof window.HerTurn?.validate !== 'function')) throw new SafeError('format');
+    if (unifiedMode && (!turnSnapshot || typeof window.HerTurn?.validate !== 'function')) throw new SafeError('format', null, { stage: 'LOCAL_CONTEXT', code: 'CONTEXT_INVALID', path: 'context' });
     const requestKey = key;
-    const controller = new AbortController(); activeController = controller; let timedOut = false, responseStatus = null;
+    const controller = new AbortController(); activeController = controller; let timedOut = false, responseStatus = null, requestStage = 'REQUEST', diagnosticPath = 'request';
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 30000);
     const turnMode = !opening && (world !== undefined || allowedActions !== undefined || allowedStoryIntents !== undefined || sceneContext !== undefined || topic !== undefined);
     const playerSaid = unifiedMode ? [...boundedText(input, 160)].slice(0, 80).join('') : boundedText(input, 80);
@@ -407,18 +421,23 @@ logEntries最多3个非空字符串，每条最多160字，是角色创作的虚
     try {
       const body = JSON.stringify({ model: MODEL, messages: [{ role: 'system', content: system }, ...boundedRecent, { role: 'user', content: prompt }], reasoning_effort: 'low', max_tokens: 2048, stream: false });
       if (new TextEncoder().encode(body).length > MAX_REQUEST_BYTES) throw new SafeError('format');
+      requestStage = 'NETWORK'; diagnosticPath = 'response';
       const response = await fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${requestKey}` }, body, signal: controller.signal, cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' });
       responseStatus = Number.isInteger(response.status) && response.status > 0 ? response.status : null;
+      requestStage = 'HTTP';
       if (!response.ok) {
         const failure = new SafeError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 429 ? 'quota' : 'upstream', response.status);
         // Preserve a known HTTP status even if optional body cleanup fails.
         try { response.body?.cancel()?.catch(() => {}); } catch { /* cleanup must never reclassify an HTTP error */ }
         throw failure;
       }
+      requestStage = 'RESPONSE_READ';
       const raw = await readBounded(response);
       let envelope;
+      requestStage = 'ENVELOPE';
       try { envelope = JSON.parse(raw); } catch { throw new SafeError('format'); }
       const choice = envelope?.choices?.[0];
+      requestStage = 'FINAL_CONTENT'; diagnosticPath = 'content';
       if (choice?.finish_reason === 'length') throw new SafeError('truncated');
       let content = choice?.message?.content;
       // Only the final content channel is allowed. Never read reasoning_content.
@@ -430,14 +449,18 @@ logEntries最多3个非空字符串，每条最多160字，是角色创作的虚
       content = content.trim();
       while (/^<(think|analysis)\b[^>]*>[\s\S]*?<\/\1>/i.test(content)) content = content.replace(/^<(think|analysis)\b[^>]*>[\s\S]*?<\/\1>/i, '').trim();
       let dialogue, action = null, structured = false, answer = null, intent = null, storyIntent = null, sceneEdits = Object.freeze([]);
+      requestStage = 'JSON';
       const parsed = finalPayload(content);
       if (unifiedMode) {
-        if (!parsed || parsed.mixed || unsafeSceneText(parsed.payload, requestKey)) throw new SafeError('format');
-        const result = window.HerTurn.validate(parsed.payload, turnSnapshot, playerSaid);
-        if (!result) throw new SafeError('format');
+        if (!parsed || parsed.mixed || unsafeSceneText(parsed.payload, requestKey)) throw new SafeError('format', responseStatus, { stage: 'JSON', code: !parsed ? 'PAYLOAD_REQUIRED' : parsed.mixed ? 'PAYLOAD_MIXED' : 'OUTPUT_UNSAFE', path: 'content' });
+        requestStage = 'TURN_FIELD'; diagnosticPath = 'root';
+        const inspected = typeof window.HerTurn.inspect === 'function' ? window.HerTurn.inspect(parsed.payload, turnSnapshot, playerSaid) : null;
+        const result = inspected ? inspected.value : window.HerTurn.validate(parsed.payload, turnSnapshot, playerSaid);
+        if (!result) throw new SafeError('format', responseStatus, { stage: 'TURN_FIELD', code: inspected?.diagnostic?.code, path: inspected?.diagnostic?.path || 'root' });
         if (!key || controller.signal.aborted) throw new SafeError(timedOut ? 'timeout' : 'cancelled');
         return immutableData(result);
       }
+      requestStage = 'DISPLAY'; diagnosticPath = 'content';
       if (parsed) {
         const payload = parsed.payload;
         const validLines = Array.isArray(payload?.lines) && payload.lines.every(line => typeof line === 'string');
@@ -500,7 +523,13 @@ logEntries最多3个非空字符串，每条最多160字，是角色创作的虚
       if (!lines.length) throw new SafeError('empty');
       if (!key || controller.signal.aborted) throw new SafeError('cancelled');
       return turnMode ? { lines, action, structured, answer, intent, storyIntent, ...(sceneSnapshot ? { sceneEdits } : {}) } : lines;
-    } catch (error) { if (error instanceof SafeError) throw error; if (controller.signal.aborted) throw new SafeError(timedOut ? 'timeout' : 'cancelled'); if (responseStatus) throw new SafeError('response_read', responseStatus); throw new SafeError('network'); }
+    } catch (error) {
+      const diagnostic = { stage: requestStage, path: diagnosticPath };
+      if (error instanceof SafeError) throw new SafeError(error.code, error.httpStatus || responseStatus, error.diagnostic || diagnostic);
+      if (controller.signal.aborted) throw new SafeError(timedOut ? 'timeout' : 'cancelled', responseStatus, { stage: 'CANCELLED' });
+      if (responseStatus) throw new SafeError('response_read', responseStatus, diagnostic);
+      throw new SafeError('network', null, diagnostic);
+    }
     finally { clearTimeout(timeout); if (activeController === controller) activeController = null; }
   }
   window.HerAI = Object.freeze({ connect, disconnect, request, connected: () => Boolean(key), calls: () => used });
