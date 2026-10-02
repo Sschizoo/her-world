@@ -2,13 +2,20 @@
   'use strict';
   const STORY = window.HER_STORY, ENGINE = window.HerEngine, KEY = 'her-world.prologue.v3', LEGACY_KEY = 'her-world.prologue.v2';
   const $ = id => document.getElementById(id);
+  // A partially loaded build must not replace a valid saved story with a blank
+  // session. The extra scene module is required before any storage write.
+  if (!STORY || !ENGINE || !window.HerScene || !window.HerWorld || typeof HerAI === 'undefined') {
+    $('start-button').disabled = true;
+    const note = document.querySelector('.intro-note'); if (note) note.textContent = '页面组件尚未完整载入。请刷新后继续，已有存档不会在这里被改写。';
+    return;
+  }
   let state = ENGINE.create();
   let mode = 'unconnected', panel = 'dialogue', busy = false, pending = null, operation = 0, saveAvailable = true, storageNotice = '', previousMemoryCount = 0, toastTimer;
   const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
   let paused = motionPreference.matches;
   // Saved narrative is always complete. These cursors belong only to this viewing session.
   let renderedMessages = [], transcriptItems = [], revealedCount = 0, activeReveal = null, revealTimer;
-  let logItems = [], logSignatures = [], logDisplayed = 0, logTimer, memorySignature = '', focusSignature = '';
+  let logItems = [], logSignatures = [], logDisplayed = 0, logTimer, memorySignature = '', focusSignature = '', objectSignature = '';
   const instantMotion = () => paused || motionPreference.matches;
   const revealing = () => revealedCount < transcriptItems.length;
 
@@ -17,7 +24,7 @@
   try {
     const raw = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
     if (raw) {
-      if (raw.length > 400000) throw new Error('oversize');
+      if (raw.length > 1000000) throw new Error('oversize');
       const value = JSON.parse(raw), restored = ENGINE.restore(value, STORY);
       if (!restored) throw new Error('invalid');
       state = restored;
@@ -118,13 +125,49 @@
     refreshRevealControl(); scrollTranscript();
   }
   function renderMemory(view) {
-    const signature = JSON.stringify(view.memories); if (memorySignature === signature) return; memorySignature = signature;
+    const signature = JSON.stringify([view.memories, view.scene?.annotations, view.memoryContext]); if (memorySignature === signature) return; memorySignature = signature;
     const target = $('memory-panel'); target.replaceChildren();
     if (!view.memories.length) { const empty = element('div', 'empty-memory'); empty.append(document.createTextNode('还没有被留下的记忆。'), element('br'), element('code', '', 'memory = []  // 也许，一切才刚刚开始')); target.append(empty); }
-    for (const memory of view.memories) { const card = element('article', 'memory-card'); card.append(element('div', 'memory-id', `retained / ${memory.id}`), element('h3', '', memory.title), element('p', '', memory.body)); target.append(card); }
+    for (const memory of view.memories) {
+      const card = element('article', 'memory-card'); card.append(element('div', 'memory-id', `retained / ${memory.id}`), element('h3', '', memory.title), element('p', '', memory.body));
+      if (memory.id === 'first_rain') {
+        appendMeaning(card, view.scene?.annotations?.first_rain);
+        if (view.memoryContext?.rainDescription) card.append(element('p', 'source-evidence', `最初的原话：${view.memoryContext.rainDescription}`));
+      }
+      target.append(card);
+    }
     $('memory-count').textContent = String(view.memories.length).padStart(2, '0');
     if (view.memories.length > previousMemoryCount) $('log-dot').hidden = false;
     previousMemoryCount = view.memories.length;
+  }
+  function appendMeaning(target, annotation) {
+    for (const [field, title] of [['meaning', '你赋予的意义'], ['interpretation', '她目前的理解']]) {
+      const row = element('div', 'meaning-row'); row.append(element('span', 'meaning-label', title), element('p', '', annotation?.[field] || '还没有写下，可以继续聊。'));
+      if (annotation?.sources?.[field]) row.append(element('p', 'source-evidence', `来自这句话：${annotation.sources[field]}`));
+      target.append(row);
+    }
+  }
+  function renderObjects(view) {
+    const objects = view.scene?.objects || [], locked = busy || Boolean(pending) || revealing();
+    $('object-count').textContent = String(objects.length).padStart(2, '0');
+    $('object-example').disabled = locked || !state.started;
+    $('objects-help').textContent = `最多 8 件，每件最多 24×10 个字符。${mode === 'offline' ? '离线会先画可调整的字符框，联机可按描述生成新图案。' : '说出你想放进窗外的东西，再移动、改形状或重新解释它。'} 清除意义或理解时，原始对白仍保留。`;
+    const signature = JSON.stringify([view.scene, view.name, view.memoryContext, locked]); if (objectSignature === signature) return; objectSignature = signature;
+    const target = $('objects-list'); target.replaceChildren();
+    if (!objects.length) target.append(element('p', 'objects-empty', '窗外还没有你们添上的物件。可以说：“在窗边放一张能坐两个人的长椅。”'));
+    if (view.scene?.annotations?.first_rain) {
+      const rainCard = element('article', 'object-card'); rainCard.append(element('div', 'memory-id', 'first_rain · 当前注解'), element('h3', '', view.name)); appendMeaning(rainCard, view.scene.annotations.first_rain);
+      if (view.memoryContext?.rainDescription) rainCard.append(element('p', 'source-evidence', `最初的原话：${view.memoryContext.rainDescription}`)); target.append(rainCard);
+    }
+    for (const object of objects) {
+      const card = element('article', 'object-card'); card.append(element('div', 'memory-id', `${object.id} · 位置 ${object.x}, ${object.y} · 大小 ${object.scale}`), element('h3', '', object.label), element('pre', 'object-glyphs', object.glyphs));
+      appendMeaning(card, view.scene.annotations?.[object.id]);
+      const source = element('details', 'object-source'); source.append(element('summary', '', '看看它从哪句话开始'), element('p', 'source-evidence', object.source?.createdBy || '这条来源没有保留下来。'));
+      if (object.source?.lastChangedBy && object.source.lastChangedBy !== object.source.createdBy) source.append(element('p', 'source-evidence', `最近一次修改：${object.source.lastChangedBy}`));
+      card.append(source);
+      const button = element('button', 'object-talk', `再聊聊「${object.label}」`); button.disabled = locked;
+      button.addEventListener('click', () => { $('free-input').value = `我们再聊聊${object.label}`; $('free-input').focus({ preventScroll: true }); toast('已填入话题，你可以继续写后再发送。'); }); card.append(button); target.append(card);
+    }
   }
   function markLogVisit() {
     if (panel !== 'logs' || revealing() || busy || pending || logDisplayed < logItems.length || !state.started || !snapshot(revealedCount).logsEligible) return;
@@ -188,7 +231,7 @@
         button.append(element('span', 'choice-index', `0${i + 1}`), element('span', '', choice.label));
         button.addEventListener('click', () => respond({ choiceId: choice.id })); target.append(button);
       });
-      $('free-input').maxLength = 80; $('free-input-label').textContent = '自由聊天或改变雨，最多 80 个字';
+      $('free-input').maxLength = 80; $('free-input-label').textContent = '自由聊天或描画世界，最多 80 个字';
       $('free-input').placeholder = invitation?.id === 'rain_name' ? '给她一个名字，或继续聊你想到的事…' : invitation?.id === 'rain_description' ? '说说你见过、听过，或想象中的雨…' : view.rain.created ? '接着她的话说，或聊一件新的事…' : '你想从哪里开始？也可以直接问她…';
       $('free-input').disabled = false; $('free-send').disabled = false;
       $('input-note').textContent = mode === 'unconnected' ? '尚未选择连接方式 · 发送前会让你选择 AI 或离线' : mode === 'offline' ? '离线理解有限 · 未听懂会说明 · 名字最多 20 字' : '用自己的话回应，也可以岔开话题 · 对话发送给 DMXAPI';
@@ -214,12 +257,12 @@
   function renderPresentation() {
     const view = snapshot(revealedCount), progress = view.index / view.maxMilestones;
     softText('connection-label', state.started ? 'PROCESS / STILL LEARNING' : 'WAITING FOR YOU');
-    softText('progress-label', state.started ? 'PROLOGUE v0.3.5 / 不必赶路' : 'PROLOGUE v0.3.5 / 初次相遇');
+    softText('progress-label', state.started ? 'PROLOGUE v0.4.0 / 不必赶路' : 'PROLOGUE v0.4.0 / 初次相遇');
     softText('world-caption', view.name !== '未命名的雨' ? `「${view.name}」` : view.rain.created ? '第一次一起看雨' : '一扇尚未被命名的窗');
     softText('world-status', view.rain.created ? `rain.${view.rain.paused ? 'paused' : view.rain.density} / persistent` : 'world.build = incomplete');
     softText('world-code', view.memories.length ? 'gc.retain("first_rain");' : view.rain.created ? 'skills.rain = reusable;' : 'const world = await you;');
-    renderChoices(view); renderLogs(view); renderMemory(view);
-    window.HerWorld?.setProgress(progress); window.HerWorld?.setRain(view.effect); updateStatus();
+    renderChoices(view); renderLogs(view); renderMemory(view); renderObjects(view);
+    window.HerWorld?.setProgress(progress); window.HerWorld?.setRain(view.effect); window.HerWorld?.setObjects?.(view.scene?.objects || []); updateStatus();
   }
   function render(instant = false) {
     const active = state.started || pending?.opening;
@@ -228,7 +271,7 @@
   }
   function setPanel(next) {
     panel = next; const open = next !== 'dialogue';
-    $('inspector-panel').hidden = !open; $('logs-panel').hidden = next !== 'logs'; $('memory-panel').hidden = next !== 'memory';
+    $('inspector-panel').hidden = !open; $('logs-panel').hidden = next !== 'logs'; $('memory-panel').hidden = next !== 'memory'; $('objects-panel').hidden = next !== 'world';
     $('inspector-panel').setAttribute('aria-labelledby', `tab-${open ? next : 'dialogue'}`);
     document.querySelectorAll('.tab').forEach(tab => { const active = tab.dataset.panel === next; tab.classList.toggle('active', active); tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; });
     $('drawer-toggle').setAttribute('aria-expanded', String(open)); $('drawer-toggle').setAttribute('aria-label', open ? '收起记录面板' : '打开运行日志'); $('drawer-hint').textContent = open ? '先留在这里' : '有些话，藏在这里';
@@ -263,9 +306,9 @@
     const view = ENGINE.view(state), proposal = item.proposal;
     busy = true; $('request-error').hidden = true; render(); const version = ++operation;
     let result;
-    if (mode === 'offline') { result = { lines: proposal.reply, action: proposal.action, mode: 'offline' }; await new Promise(resolve => setTimeout(resolve, paused ? 80 : 260)); }
+    if (mode === 'offline') { result = { lines: proposal.reply, action: proposal.action, sceneEdits: proposal.sceneEdits || [], mode: 'offline' }; await new Promise(resolve => setTimeout(resolve, paused ? 80 : 260)); }
     else {
-      try { result = await HerAI.request({ scene: STORY.find(scene => scene.id === proposal.topic) || STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion, requireActionEvidence: proposal.requireActionEvidence, allowedStoryIntents: proposal.allowedStoryIntents, acceptedStoryIntent: proposal.acceptedStoryIntent, guidance: proposal.guidance, memoryContext: view.memoryContext }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
+      try { result = await HerAI.request({ scene: STORY.find(scene => scene.id === proposal.topic) || STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion, requireActionEvidence: proposal.requireActionEvidence, allowedStoryIntents: proposal.allowedStoryIntents, acceptedStoryIntent: proposal.acceptedStoryIntent, guidance: proposal.guidance, memoryContext: view.memoryContext, sceneContext: proposal.sceneContext, allowedSceneEdits: proposal.allowedSceneEdits }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
       catch (error) { if (version !== operation) return; busy = false; mode = 'error'; render(); showError(error); return; }
     }
     if (version !== operation) return;
@@ -277,6 +320,7 @@
     if (!revealing()) $('free-input').focus({ preventScroll: true });
   }
   $('memory-invitation').addEventListener('click', () => setPanel('logs'));
+  $('object-example').addEventListener('click', () => { $('free-input').value = '在窗边放一张能坐两个人的长椅'; $('free-input').focus({ preventScroll: true }); toast('已填入一个想法，发送后才会尝试修改世界。'); });
   $('start-button').addEventListener('click', start);
   $('ai-status-button').addEventListener('click', chooseMode);
   $('connect-form').addEventListener('submit', async event => {

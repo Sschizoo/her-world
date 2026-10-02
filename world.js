@@ -7,6 +7,10 @@
 
   const INK = '#c4c4c4';
   const COLUMNS = 100;
+  const OBJECT_ROWS = 60, MAX_OBJECTS = 8, MAX_GLYPH_WIDTH = 24, MAX_GLYPH_HEIGHT = 10;
+  // Object state is data only. At most eight live objects and eight departing
+  // objects are kept; repeated edits keep only one previous glyph pattern.
+  let objects = [];
   let width = 680, height = 660, rows = 67, cellX = 6.8, cellY = 9.85;
   let frame = 0, last = 0, paused = false, progress = 0, targetProgress = 0, raf;
   let density = 0, targetDensity = 0, speed = .5, targetSpeed = .5;
@@ -28,6 +32,103 @@
     [33, .36, 9], [41, .47, 8], [49, .38, 10], [59, .44, 9],
     [68, .31, 10], [78, .40, 8], [86, .35, 10], [95, .46, 7]
   ];
+
+  function readObjects(value) {
+    if (!Array.isArray(value) || value.length > MAX_OBJECTS) return null;
+    const ids = new Set(), result = [];
+    for (const item of value) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)
+        || typeof item.id !== 'string' || !/^obj_[1-9][0-9]{0,11}$/.test(item.id)
+        || ids.has(item.id) || typeof item.glyphs !== 'string'
+        || item.glyphs.length > MAX_GLYPH_WIDTH * MAX_GLYPH_HEIGHT + MAX_GLYPH_HEIGHT - 1
+        || /[^\x20-\x7e\n]/.test(item.glyphs) || !/[^ \n]/.test(item.glyphs)
+        || !Number.isInteger(item.x) || !Number.isInteger(item.y)
+        || !Number.isInteger(item.scale) || item.scale < 1 || item.scale > 3) return null;
+      const lines = item.glyphs.split('\n');
+      const span = Math.max(...lines.map(line => line.length));
+      if (lines.length > MAX_GLYPH_HEIGHT || span > MAX_GLYPH_WIDTH
+        || item.x < 0 || item.y < 0
+        || item.x + span * item.scale > COLUMNS
+        || item.y + lines.length * item.scale > OBJECT_ROWS) return null;
+      ids.add(item.id);
+      // Never retain model metadata or the caller's mutable object references.
+      result.push({ id: item.id, glyphs: item.glyphs, lines, x: item.x, y: item.y, scale: item.scale });
+    }
+    return result;
+  }
+
+  function approach(value, target) {
+    const next = value + (target - value) * .18;
+    return Math.abs(target - next) < .002 ? target : next;
+  }
+
+  function advanceObjects(settle = false) {
+    for (const item of objects) {
+      for (const key of ['x', 'y', 'scale', 'alpha']) {
+        item[key] = settle ? item.target[key] : approach(item[key], item.target[key]);
+      }
+      item.blend = settle ? 1 : approach(item.blend, 1);
+      if (item.blend === 1) item.previousLines = null;
+    }
+    objects = objects.filter(item => item.alpha !== 0 || item.target.alpha !== 0);
+  }
+
+  function setObjects(value) {
+    const next = readObjects(value);
+    if (!next) return false;
+    const old = new Map(objects.map(item => [item.id, item]));
+    const live = next.map(item => {
+      const current = old.get(item.id);
+      old.delete(item.id);
+      if (!current) return {
+        ...item, alpha: 0, previousLines: null, blend: 1,
+        target: { x: item.x, y: item.y, scale: item.scale, alpha: 1 }
+      };
+      if (current.glyphs !== item.glyphs) {
+        current.previousLines = current.lines;
+        current.lines = item.lines;
+        current.glyphs = item.glyphs;
+        current.blend = 0;
+      }
+      current.target = { x: item.x, y: item.y, scale: item.scale, alpha: 1 };
+      return current;
+    });
+    const leaving = [...old.values()].slice(-MAX_OBJECTS);
+    for (const item of leaving) item.target.alpha = 0;
+    // Departing glyphs are behind the current ordered scene. A continuous stream
+    // of replacements cannot accumulate an unbounded animation backlog.
+    objects = [...leaving, ...live];
+    if (paused) advanceObjects(true);
+    scene();
+    return true;
+  }
+
+  function drawObjects() {
+    const objectCellY = height / OBJECT_ROWS;
+    // Keep each actual glyph within its logical cell at both desktop aspects.
+    const fontSize = Math.min(cellX / .60, objectCellY);
+    for (const item of objects) {
+      if (item.alpha === 0) continue;
+      ctx.font = `${fontSize * item.scale}px "Courier New", monospace`;
+      const drawPattern = (lines, alpha) => {
+        if (!lines || alpha <= 0) return;
+        const span = Math.max(...lines.map(line => line.length));
+        // Edits may change a pattern's extent during a simultaneous move/scale.
+        // Bound both cross-fading patterns until the validated target settles.
+        const x = Math.max(0, Math.min(item.x, COLUMNS - span * item.scale));
+        const y = Math.max(0, Math.min(item.y, OBJECT_ROWS - lines.length * item.scale));
+        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+        for (let row = 0; row < lines.length; row++) for (let col = 0; col < lines[row].length; col++) {
+          const text = lines[row][col];
+          if (text !== ' ') ctx.fillText(text,
+            (x + (col + .5) * item.scale) * cellX,
+            (y + (row + .5) * item.scale) * objectCellY);
+        }
+      };
+      drawPattern(item.previousLines, item.alpha * (1 - item.blend));
+      drawPattern(item.lines, item.alpha * item.blend);
+    }
+  }
 
   // Compose an ASCII cell map, rather than drawing geometric shapes underneath it.
   // A cell holds its character, opacity, and whether it belongs to the lit window.
@@ -181,6 +282,8 @@
       glyph({ x, y, glyph: drop.glyph, alpha: drop.alpha * visibility });
       if (i % 9 === 0) glyph({ x, y: y - 1, glyph: ':', alpha: drop.alpha * visibility * .35 });
     }
+    // New objects are foreground character layers, above the city and rain.
+    drawObjects();
     ctx.globalAlpha = 1;
   }
   function resize() {
@@ -199,6 +302,7 @@
       progress += (targetProgress - progress) * .08;
       density += (targetDensity - density) * .075;
       speed += (targetSpeed - speed) * .07;
+      advanceObjects();
       frame += speed; scene(); last = now;
     }
     raf = requestAnimationFrame(tick);
@@ -206,9 +310,10 @@
   new ResizeObserver(resize).observe(canvas);
   resize(); raf = requestAnimationFrame(tick);
   window.HerWorld = {
+    setObjects,
     setProgress(value) { targetProgress = Math.min(1, Math.max(0, value)); if (paused) progress = targetProgress; scene(); },
     setRain(value) { const target = weather[value] || weather.normal; targetDensity = target.density; targetSpeed = target.speed; if (paused) { density = targetDensity; speed = targetSpeed; } scene(); },
-    pause(value) { paused = Boolean(value); if (paused) { progress = targetProgress; density = targetDensity; speed = targetSpeed; } scene(); }
+    pause(value) { paused = Boolean(value); if (paused) { progress = targetProgress; density = targetDensity; speed = targetSpeed; advanceObjects(true); } scene(); }
   };
   window.addEventListener('pagehide', () => cancelAnimationFrame(raf));
   window.addEventListener('pageshow', event => { if (event.persisted) { cancelAnimationFrame(raf); raf = requestAnimationFrame(tick); } });

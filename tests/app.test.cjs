@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const story = require('../story.js');
 const engine = require('../engine.js');
+const sceneState = require('../world-state.js');
 const focus = require('../focus.js');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 const source = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
@@ -31,12 +32,13 @@ function runtime(options={}){
   for(const match of html.matchAll(/<(\w+)\b([^>]*)>/g)) {const node=new Element(match[1]),attrs=match[2];for(const a of attrs.matchAll(/([\w-]+)="([^"]*)"/g)){node.attrs[a[1]]=a[2];if(a[1]==='id'){node.id=a[2];ids[a[2]]=node;}if(a[1]==='class')node.className=a[2];if(a[1].startsWith('data-'))node.dataset[a[1].slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]=a[2];}node.hidden=/\bhidden\b/.test(attrs);all.push(node);}
   const walk=node=>[node,...node.children.flatMap(walk)];
   const document={documentElement:new Element('html'),getElementById:id=>ids[id],createElement:tag=>new Element(tag),createTextNode:text=>Object.assign(new Element('text'),{textContent:text}),querySelectorAll:sel=>{const pool=[...new Set([...all,...Object.values(ids).flatMap(walk)])];return pool.filter(n=>sel==='[data-close]'?n.dataset.close:sel==='[data-topic]'?n.dataset.topic:sel.startsWith('.')?n.className.split(' ').includes(sel.slice(1)):false);},querySelector(sel){return this.querySelectorAll(sel)[0];}};
+  let worldObjects=[];
   const storage=options.storage||new Map(),events={};let connected=false,requestCount=0;
   let ai={connected:()=>connected,connect:k=>(connected=k.length>=8),disconnect:()=>{connected=false;},calls:()=>requestCount,request:async data=>{requestCount++;if(options.request)return options.request(data);return data.opening ? ['这是模拟模型的一句回应。'] : {lines:['这是模拟模型的一句回应。'],action:data.requireActionEvidence?null:data.allowedActions?.[0]||null,structured:true};}};
   const mediaEvents=[];const media={matches:options.reducedMotion!==false,addEventListener:(name,fn)=>mediaEvents.push(fn)};
-  const window={HER_STORY:story,HerEngine:engine,HerFocus:focus,matchMedia:()=>media,addEventListener:(e,fn)=>(events[e]||=[]).push(fn)};
-  const context={window,document,HerAI:ai,HerWorld:{setProgress(){},setRain(){},pause(){}},localStorage:{getItem:k=>{if(options.blockStorage)throw Error('blocked');return storage.get(k)||null;},setItem:(k,v)=>{if(options.blockStorage)throw Error('blocked');storage.set(k,v);},removeItem:k=>{if(options.blockStorage||options.storageRemovalFails)throw Error('blocked');storage.delete(k);}},setTimeout:options.clock?options.clock.setTimeout:(fn,ms)=>ms>1000?1:setTimeout(fn,0),clearTimeout:options.clock?options.clock.clearTimeout:clearTimeout,requestAnimationFrame:fn=>fn(),console};if(options.provider){context.AbortController=AbortController;context.TextEncoder=TextEncoder;context.TextDecoder=TextDecoder;context.fetch=async(url,settings)=>{requestCount++;const body=JSON.parse(settings.body),payload=JSON.parse(body.messages.at(-1).content),content=await options.provider(payload,body);return new Response(JSON.stringify({choices:[{message:{content:typeof content==='string'?content:JSON.stringify(content)},finish_reason:'stop'}]}),{status:200});};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../ai.js'),'utf8'),context);ai=window.HerAI;context.HerAI=ai;}vm.runInNewContext(source,context);
-  return {ids,storage,ai,events,all,setReduced(value){media.matches=value;mediaEvents.forEach(fn=>fn({matches:value}));},async key(event){for(const fn of events.keydown||[])await fn({preventDefault(){},...event});},count:()=>requestCount,async click(id){await ids[id].emit('click');},async choose(n=0){const buttons=ids.choices.children.filter(x=>x.dataset.choice);await buttons[n].emit('click');await new Promise(r=>setTimeout(r,5));},async offline(){await ids['start-button'].emit('click');await ids['offline-button'].emit('click');},async say(text){ids['free-input'].value=text;await ids['free-form'].emit('submit');await new Promise(r=>setTimeout(r,5));},async action(id){const button=[...ids.choices.children,...ids['weather-controls'].children,...all].find(x=>x.dataset.choice===id||x.dataset.skill===id||x.dataset.choiceId===id);assert(button,`missing button ${id}`);await button.emit('click');if(button.dataset.skill)await ids['free-form'].emit('submit');await new Promise(r=>setTimeout(r,5));},get saved(){return JSON.parse(storage.get('her-world.prologue.v3')||'null');}};
+  const window={HER_STORY:story,HerEngine:engine,HerFocus:focus,HerScene:sceneState,matchMedia:()=>media,addEventListener:(e,fn)=>(events[e]||=[]).push(fn)};
+  const context={window,document,HerAI:ai,HerWorld:{setProgress(){},setRain(){},setObjects(objects){worldObjects=JSON.parse(JSON.stringify(objects));},pause(){}},localStorage:{getItem:k=>{if(options.blockStorage)throw Error('blocked');return storage.get(k)||null;},setItem:(k,v)=>{if(options.blockStorage)throw Error('blocked');storage.set(k,v);},removeItem:k=>{if(options.blockStorage||options.storageRemovalFails)throw Error('blocked');storage.delete(k);}},setTimeout:options.clock?options.clock.setTimeout:(fn,ms)=>ms>1000?1:setTimeout(fn,0),clearTimeout:options.clock?options.clock.clearTimeout:clearTimeout,requestAnimationFrame:fn=>fn(),console};if(options.provider){context.AbortController=AbortController;context.TextEncoder=TextEncoder;context.TextDecoder=TextDecoder;context.fetch=async(url,settings)=>{requestCount++;const body=JSON.parse(settings.body),payload=JSON.parse(body.messages.at(-1).content),content=await options.provider(payload,body);return new Response(JSON.stringify({choices:[{message:{content:typeof content==='string'?content:JSON.stringify(content)},finish_reason:'stop'}]}),{status:200});};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../ai.js'),'utf8'),context);ai=window.HerAI;context.HerAI=ai;}window.HerWorld=context.HerWorld;if(options.missingScene)delete window.HerScene;vm.runInNewContext(source,context);
+  return {ids,storage,ai,events,all,get worldObjects(){return worldObjects;},setReduced(value){media.matches=value;mediaEvents.forEach(fn=>fn({matches:value}));},async key(event){for(const fn of events.keydown||[])await fn({preventDefault(){},...event});},count:()=>requestCount,async click(id){await ids[id].emit('click');},async choose(n=0){const buttons=ids.choices.children.filter(x=>x.dataset.choice);await buttons[n].emit('click');await new Promise(r=>setTimeout(r,5));},async offline(){await ids['start-button'].emit('click');await ids['offline-button'].emit('click');},async say(text){ids['free-input'].value=text;await ids['free-form'].emit('submit');await new Promise(r=>setTimeout(r,5));},async action(id){const button=[...ids.choices.children,...ids['weather-controls'].children,...all].find(x=>x.dataset.choice===id||x.dataset.skill===id||x.dataset.choiceId===id);assert(button,`missing button ${id}`);await button.emit('click');if(button.dataset.skill)await ids['free-form'].emit('submit');await new Promise(r=>setTimeout(r,5));},get saved(){return JSON.parse(storage.get('her-world.prologue.v3')||'null');}};
 }
 
 function advance(state, input) {const p=engine.plan(state,input);assert(p);const next=engine.commit(state,p,{lines:p.reply,action:p.action,mode:'offline'});assert(next);return next;}
@@ -59,7 +61,7 @@ test('AI failure and cancel leave both world and events untouched',async()=>{con
 test('explicit offline fallback performs pending weather action once',async()=>{const r=withState(seeded(),{request:async()=>{throw Error('模拟失败');}});await r.click('ai-status-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');await r.say('让雨停下');const count=r.saved.events.length;await r.click('fallback-button');await new Promise(x=>setTimeout(x,5));assert(view(r).rain.paused);assert.equal(r.saved.events.length,count+1);assert.match(r.ids['ai-status-button'].textContent,/离线/);});
 test('reset stays confirmed and cancels current key/state',async()=>{const r=withState(seeded());await enableOffline(r);await r.click('reset-button');r.ids['reset-dialog'].close();assert(view(r).rain.created);await r.click('reset-button');await r.click('confirm-reset');assert.equal(r.saved.started,false);assert.equal(r.saved.events.length,0);assert(!r.ai.connected());});
 test('farewell does not lock the world or future conversation',async()=>{const r=withState(seeded());await enableOffline(r);await r.action('topic_goodbye');await r.action('goodbye');assert(view(r).ended);assert(!r.ids['free-form'].hidden);await r.say('我还想再聊一会儿');assert(!view(r).ended);await r.say('让雨停下');assert(view(r).rain.paused);});
-test('tabs, reduced motion and visible focus distribution remain functional',async()=>{const r=withState(seeded());await r.ids['tab-dialogue'].emit('keydown',{key:'ArrowRight'});assert(!r.ids['memory-panel'].hidden);assert.equal(r.ids['motion-toggle'].attrs['aria-pressed'],'true');assert(r.ids['focus-bars'].children.length>0);assert(!r.ids['focus-bars'].textContent.includes('undefined'));});
+test('tabs, reduced motion and visible focus distribution remain functional',async()=>{const r=withState(seeded());await r.ids['tab-dialogue'].emit('keydown',{key:'ArrowRight'});assert(!r.ids['objects-panel'].hidden);await r.ids['tab-world'].emit('keydown',{key:'ArrowRight'});assert(!r.ids['memory-panel'].hidden);assert.equal(r.ids['motion-toggle'].attrs['aria-pressed'],'true');assert(r.ids['focus-bars'].children.length>0);assert(!r.ids['focus-bars'].textContent.includes('undefined'));});
 test('old v2 save migrates names, weather, memories and complete transcript',async()=>{const old={version:2,started:true,opening:[],logVisits:[6,7],decisions:story.slice(0,8).map(scene=>({choiceId:scene.choices[0].id,mode:'offline',logsViewed:true}))};const r=runtime({storage:new Map([['her-world.prologue.v2',JSON.stringify(old)]])});assert.equal(r.saved.version,3);assert.equal(view(r).name,story[5].choices[0].rainName);assert.match(r.ids.transcript.textContent,/boot/);assert(r.storage.has('her-world.prologue.v2'));assert(r.ids['reveal-controls'].hidden);});
 test('normal motion reveals sequential characters and skip affects only current sentence',async()=>{const clock=fakeClock(),r=runtime({clock,reducedMotion:false});await r.offline();assert(!r.ids['reveal-controls'].hidden);assert(r.ids['free-form'].hidden);await clock.advance(500);const before=r.ids.transcript.textContent;await r.click('skip-reveal');const after=r.ids.transcript.textContent;assert(after.length>=before.length);await r.key({code:'Space',repeat:true});await clock.flush();assert(!r.ids['free-form'].hidden);assert(r.ids['reveal-controls'].hidden);});
 test('weather state saved atomically before reveal and restored without request replay',async()=>{const clock=fakeClock(),r=withState(seeded(),{clock,reducedMotion:false});await enableOffline(r);r.ids['free-input'].value='让雨停下';const send=r.ids['free-form'].emit('submit');await clock.advance(260);await send;assert(view(r).rain.paused);assert(!r.ids['reveal-controls'].hidden);assert(r.ids['free-form'].hidden);const restored=runtime({storage:r.storage,reducedMotion:false,clock:fakeClock()});assert(view(restored).rain.paused);assert(restored.ids['reveal-controls'].hidden);assert.equal(restored.count(),0);});
@@ -196,4 +198,82 @@ test('validated first-rain and latest naming sources survive recent-context evic
   assert(received);assert(!sentBody.messages.slice(1,-1).some(item=>item.content.includes(description)));assert.equal(received.memoryContext.rainDescription,description);assert.equal(received.memoryContext.rainNameSource,'把雨叫做归舟');assert.equal(received.memoryContext.visitorChoice,'anonymous');
   assert.equal(received.world.rain.name,'归舟');assert.equal(view(r).memories.length,1);assert(!JSON.stringify(r.saved).includes('MOCK_ONLY_KEY'));
   const restored=runtime({storage:r.storage});assert.equal(view(restored).memoryContext.rainDescription,description);assert.equal(restored.count(),0);
+});
+
+test('free dialogue creates a novel object, moves it, recalls it and revises meanings independently of the prologue',async()=>{
+  const glyphs='  __  __\n |__||__|\n /======\\\n   |  |';let requests=0;
+  const r=runtime({provider:async ctx=>{
+    if(!ctx.playerSaid)return '窗外还没有雨，你也可以先添一点自己想到的东西。';
+    requests++;const text=ctx.playerSaid, out={lines:['我把这一处改好了。'],sceneEdits:[]};
+    if(text==='在这里放一张能坐两个人的长椅')out.sceneEdits=[{type:'create',object:{label:'长椅',glyphs,x:60,y:43,scale:1},evidence:text}];
+    else if(text==='把长椅移到窗边')out.sceneEdits=[{type:'update',target:'obj_1',changes:{x:27,y:43},evidence:text}];
+    else if(text==='长椅对我代表一起等雨停')out.sceneEdits=[{type:'annotate',target:'obj_1',field:'meaning',value:'一起等雨停',evidence:text}];
+    else if(text==='你怎样理解这张长椅？')out.sceneEdits=[{type:'annotate',target:'obj_1',field:'interpretation',value:'两个并排的位置，也容得下沉默。',evidence:text}];
+    else if(text==='长椅的意义改成一起看天亮')out.sceneEdits=[{type:'annotate',target:'obj_1',field:'meaning',value:'一起看天亮',evidence:text}];
+    else if(text==='清掉你对长椅的理解')out.sceneEdits=[{type:'annotate',target:'obj_1',field:'interpretation',value:null,evidence:text}];
+    else if(text==='把长椅移除')out.sceneEdits=[{type:'remove',target:'obj_1',evidence:text}];
+    else {out.lines=['长椅仍在窗边。我们也可以先聊别的。'];assert.equal(ctx.sceneContext.objects[0].x,27);}
+    return out;
+  }});
+  await r.click('start-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');
+  for(const text of ['在这里放一张能坐两个人的长椅','把长椅移到窗边','我想聊聊今天','长椅还在吗','长椅对我代表一起等雨停','你怎样理解这张长椅？','长椅的意义改成一起看天亮','清掉你对长椅的理解']){
+    await r.say(text);assert(r.ids['request-error'].hidden,r.ids['request-error-text'].textContent);assert.deepEqual(view(r).milestones,['connected']);
+  }
+  assert.equal(requests,8);assert.equal(view(r).scene.objects[0].glyphs,glyphs);assert.equal(r.worldObjects[0].x,27);
+  assert.equal(view(r).scene.annotations.obj_1.meaning,'一起看天亮');assert.equal(view(r).scene.annotations.obj_1.interpretation,null);
+  await r.click('tab-world');assert(!r.ids['objects-panel'].hidden);assert.match(r.ids['objects-list'].textContent,/一起看天亮/);assert.match(r.ids['objects-list'].textContent,/在这里放一张能坐两个人的长椅/);
+  assert(!JSON.stringify(r.saved).includes('MOCK_ONLY_KEY'));const resumed=runtime({storage:r.storage});assert.deepEqual(view(resumed).scene,view(r).scene);assert.equal(resumed.count(),0);
+  await r.say('把长椅移除');assert.equal(view(r).scene.objects.length,0);assert.equal(view(r).scene.annotations.obj_1,undefined);assert.equal(r.worldObjects.length,0);assert.deepEqual(view(r).milestones,['connected']);
+});
+
+test('world examples and object conversation buttons fill only, without implicit mutation or requests',async()=>{
+  const r=runtime();await r.offline();const before=JSON.stringify(r.saved);await r.click('tab-world');await r.click('object-example');
+  assert.equal(r.ids['free-input'].value,'在窗边放一张能坐两个人的长椅');assert.equal(JSON.stringify(r.saved),before);assert.equal(r.count(),0);
+  await r.ids['free-form'].emit('submit');await new Promise(resolve=>setTimeout(resolve,5));assert.equal(view(r).scene.objects.length,1);
+  const saved=JSON.stringify(r.saved), button=r.ids['objects-list'].children[0].children.find(child=>child.className==='object-talk');assert(button);await button.emit('click');assert.match(r.ids['free-input'].value,/我们再聊聊/);assert.equal(JSON.stringify(r.saved),saved);assert.equal(r.count(),0);
+});
+
+test('object changes become visible after reveal and a cancelled provider reply cannot edit the scene',async()=>{
+  const clock=fakeClock(),r=runtime({clock,reducedMotion:false});await r.offline();await clock.flush();
+  r.ids['free-input'].value='画一张长椅';const pending=r.ids['free-form'].emit('submit');await clock.advance(300);await pending;
+  assert.equal(view(r).scene.objects.length,1);assert.equal(r.worldObjects.length,0);await clock.flush();assert.equal(r.worldObjects.length,1);
+  let complete;const live=withState(r.saved,{request:()=>new Promise(resolve=>{complete=resolve;})});await live.click('ai-status-button');live.ids['api-key'].value='MOCK_ONLY_KEY';await live.ids['connect-form'].emit('submit');
+  live.ids['free-input'].value='把长椅移到窗边';const sending=live.ids['free-form'].emit('submit'), before=JSON.stringify(live.saved);await live.click('ai-status-button');await live.click('disconnect-button');
+  complete({lines:['移好了。'],sceneEdits:[{type:'update',target:'obj_1',changes:{x:27,y:43},evidence:'把长椅移到窗边'}]});await sending;assert.equal(JSON.stringify(live.saved),before);assert.equal(live.worldObjects[0].x,view(r).scene.objects[0].x);
+});
+
+test('first-rain meanings are visibly revisable without rewriting the original teaching or retained milestone',async()=>{
+  let state=advance(seeded(),{text:'把雨叫做初晴'});state=engine.visitLogs(state);
+  const original=engine.view(state).memoryContext.rainDescription, marks=engine.view(state).milestones;
+  const r=withState(state,{provider:async ctx=>({lines:['这份意义可以跟着你的想法改变。'],sceneEdits:[{type:'annotate',target:'first_rain',field:'meaning',value:ctx.playerSaid.includes('清掉')?null:'开始',evidence:ctx.playerSaid}]})});
+  await r.click('ai-status-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');
+  await r.say('这场雨对我代表开始');assert(r.ids['request-error'].hidden,r.ids['request-error-text'].textContent);await r.click('tab-memory');assert.match(r.ids['memory-panel'].textContent,/你赋予的意义/);assert.match(r.ids['memory-panel'].textContent,/开始/);assert.match(r.ids['memory-panel'].textContent,/最初的原话/);
+  await r.say('清掉这场雨的意义');assert(r.ids['request-error'].hidden,r.ids['request-error-text'].textContent);assert.equal(view(r).scene.annotations.first_rain.meaning,null);assert.equal(view(r).memoryContext.rainDescription,original);assert.deepEqual(view(r).milestones,marks);assert.equal(view(r).memories.length,1);
+});
+
+test('invalid scene batches fail atomically and cancellation keeps both state layers unchanged',async()=>{
+  const r=runtime({provider:async ctx=>!ctx.playerSaid?'我在这里。':{lines:['东西放好了。'],sceneEdits:[{type:'create',object:{label:'灯',glyphs:'[*]',x:40,y:35,scale:1},evidence:ctx.playerSaid},{type:'update',target:'obj_99',changes:{x:4},evidence:ctx.playerSaid}]}});
+  await r.click('start-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');const before=JSON.stringify(r.saved);
+  await r.say('画一盏灯，再把灯移到窗边');assert(!r.ids['request-error'].hidden);assert.equal(JSON.stringify(r.saved),before);assert.equal(r.worldObjects.length,0);
+  await r.click('cancel-request-button');assert.equal(JSON.stringify(r.saved),before);assert(r.ids['request-error'].hidden);
+});
+
+test('object vocabulary and labels cannot steal rain teaching, weather or explicit rain naming',async()=>{
+  const r=runtime({provider:async ctx=>{
+    if(!ctx.playerSaid)return '你愿意讲讲雨吗？';
+    if(ctx.playerSaid==='画一个叫夜航的物件')return {lines:['这个物件留在窗边。'],sceneEdits:[{type:'create',object:{label:'夜航',glyphs:' /\\\n/==\\',x:60,y:40,scale:1},evidence:ctx.playerSaid}]};
+    if(ctx.playerSaid==='雨是落在长椅上的水滴'){assert(ctx.acceptedAnswer?.type==='rain_definition'||ctx.answerQuestion==='teach_rain');return ctx.acceptedAnswer?{lines:['我理解这份雨的描述了。']}:{lines:['我理解这份雨的描述了。'],answer:{type:'rain_definition',question:'teach_rain',evidence:ctx.playerSaid}};}
+    if(ctx.playerSaid==='试着画出第一场雨')return {lines:['雨落下来了。'],action:{type:'rain_start'}};
+    if(ctx.playerSaid==='把雨叫做夜航'){assert.equal(ctx.acceptedAnswer?.type,'rain_name');return {lines:['这场雨也叫夜航。']};}
+    if(ctx.playerSaid==='让雨停下')return {lines:['雨停了。'],action:{type:'rain_pause'}};
+    throw Error('unexpected fixture input');
+  }});
+  await r.click('start-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');
+  for(const text of ['画一个叫夜航的物件','雨是落在长椅上的水滴','试着画出第一场雨','把雨叫做夜航','让雨停下']){await r.say(text);assert(r.ids['request-error'].hidden,r.ids['request-error-text'].textContent);}
+  assert(view(r).milestones.includes('rain_taught'));assert(view(r).rain.created);assert(view(r).rain.paused);assert.equal(view(r).name,'夜航');assert.equal(view(r).scene.objects.length,1);assert.equal(view(r).scene.objects[0].label,'夜航');
+});
+
+test('a missing scene module cannot overwrite an existing saved story during startup',()=>{
+  const state=seeded(), storage=new Map([['her-world.prologue.v3',JSON.stringify(state)]]), before=storage.get('her-world.prologue.v3');
+  const r=runtime({storage,missingScene:true});assert.equal(storage.get('her-world.prologue.v3'),before);assert(r.ids['start-button'].disabled);assert.equal(r.count(),0);assert.match(r.all.find(node=>node.className==='intro-note').textContent,/刷新/);
 });

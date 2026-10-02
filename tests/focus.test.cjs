@@ -8,6 +8,23 @@ const source = fs.readFileSync(path.join(__dirname, '../focus.js'), 'utf8');
 const find = (rows, id) => rows.find(row => row.id === id);
 const message = (text, index = 0, role = 'her') => ({ role, text, index });
 
+test('visible created objects become focus subjects and follow actual object conversation', () => {
+  const object={id:'obj_1',label:'双人长椅',source:{createdBy:'画一张双人长椅',lastChangedBy:'把长椅移到窗边'}};
+  const scene={objects:[object]};
+  assert(!Focus.calculate({messages:[message('我想画双人长椅')]}).some(row=>row.id==='object:obj_1'));
+  const before=Focus.calculate({scene,messages:[message('窗外的雨。')]});
+  const after=Focus.calculate({scene,messages:[message('窗外的雨。'),message('把长椅移到窗边',1,'user'),message('双人长椅就在这里。',1)]});
+  assert(find(after,'object:obj_1').score>find(before,'object:obj_1').score);assert.equal(after.reduce((sum,row)=>sum+row.percent,0),100);
+  assert.equal(find(after,'object:obj_1').label,'双人长椅');
+});
+
+test('object focus is bounded, deterministic and does not leak an unrevealed creation', () => {
+  const objects=Array.from({length:10},(_,i)=>({id:`obj_${i+1}`,label:`物件${i+1}`,source:{createdBy:`创建物件${i+1}`,lastChangedBy:`创建物件${i+1}`}}));
+  const input={scene:{objects},messages:[message('物件1、物件2在这里。')]}, first=Focus.calculate(input);
+  assert(first.length<=4);assert.equal(first.reduce((sum,row)=>sum+row.percent,0),100);assert.deepEqual(Focus.calculate(input),first);
+  assert.deepEqual(Focus.calculate({scene:{objects:[]},messages:[{...message('创建物件1',1,'user'),transient:true}]}),[]);
+});
+
 test('UMD exposes one pure browser/CommonJS calculation API', () => {
   const window = {};
   vm.runInNewContext(source, { window });

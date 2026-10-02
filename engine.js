@@ -1,9 +1,9 @@
 /* Her World — bounded, event-derived conversation and weather state. No IO. */
 (function (root, factory) {
-  const engine = factory(typeof module === 'object' && module.exports ? require('./story.js') : root.HER_STORY);
+  const engine = factory(typeof module === 'object' && module.exports ? require('./story.js') : root.HER_STORY, typeof module === 'object' && module.exports ? require('./world-state.js') : root.HerScene);
   if (typeof module === 'object' && module.exports) module.exports = engine;
   if (root) root.HerEngine = engine;
-})(typeof window !== 'undefined' ? window : null, function (STORY) {
+})(typeof window !== 'undefined' ? window : null, function (STORY, SCENE) {
   'use strict';
   const MAX_EVENTS = 200, MAX_INPUT = 80, MAX_LINES = 3, MAX_LINE = 500;
   const MILESTONES = ['connected', 'rain_taught', 'rain_created', 'rain_changed', 'rain_named', 'memory_found', 'own_reason', 'visitor_decided', 'farewell'];
@@ -91,7 +91,11 @@
   function ambiguousAnswer(text) {
     return /^(?:嗯+|哦+|噢+|好(?:啊|呀|吧|的)?|可以|行|都行|随便|随意|(?:我)?(?:也|还)?不知道|(?:我)?(?:还)?没想好|还没决定|(?:你|随你)(?:来)?决定(?:吧)?|听你的|再想想|先不决定|明白|知道了|ok|okay|yes)(?:吧|啊|呀|呢|啦|了)?$/iu.test(clean(text).replace(/[。！？!?.,，；;…～~]+$/u, '').trim());
   }
+  function sceneContext(state) {
+    return SCENE.context(state.scene || SCENE.empty(), { firstRainAvailable: state.created, firstRainSource: { description: state.memoryContext?.rainDescription, nameSource: state.memoryContext?.rainNameSource } });
+  }
   function answerQuestion(state, request) {
+    if (state.sceneRouting !== false && SCENE.isSceneRequest(request.text, sceneContext(state))) return null;
     return pendingQuestion(state) === 'teach_rain' && typeof request.text === 'string' && !unrelatedQuestion(request.text) && !directionRequest(request.text) &&
       !ambiguousAnswer(request.text) ? 'teach_rain' : null;
   }
@@ -128,6 +132,7 @@
       weatherCapabilities(state).some(item => actionEqual(item, action)));
   }
   function availableActions(state, request, result) {
+    if (result.sceneRequest) return [];
     if (result.action) return actionAllowed(state, result, result.action) ? [copy(result.action)] : [];
     return weatherIntentAllowed(request.text) ? weatherCapabilities(state) : [];
   }
@@ -138,7 +143,7 @@
     return { type: 'weather_request', evidence: value.evidence };
   }
   function storyCapabilities(state, request, result) {
-    if (typeof request.text !== 'string' || result.navigation || result.teach || result.name || result.reason || result.visitor || result.goodbye) return [];
+    if (typeof request.text !== 'string' || result.sceneRequest || result.navigation || result.teach || result.name || result.reason || result.visitor || result.goodbye) return [];
     const topics = ['boot', 'unfinished', state.created ? 'modify_rain' : 'teach_rain', 'parting'];
     if (state.created) topics.push('rain_name', 'shared_silence', 'memory_discovery');
     if (state.milestones.includes('memory_found')) topics.push('her_choice', 'visitor_reference');
@@ -249,6 +254,11 @@
     }
     if (description.goodbye) { state.ended = true; mark(state, 'farewell'); logs.push('session.close("for_now")  // 仍可回来继续聊'); }
     if (!wasEligible && eligible(state)) logs.push(...retentionLogs(state));
+    if (Array.isArray(event.sceneEdits) && !event.sceneEdits.length) state.scene = SCENE.focusAfter(state.scene, event.request.text);
+    if (Array.isArray(event.sceneEdits) && event.sceneEdits.length) {
+      const ctx = sceneContext(state), next = SCENE.applyEdits(state.scene, event.sceneEdits, event.request.text, { firstRainAvailable: ctx.firstRainAvailable, firstRainSource: ctx.firstRainSource });
+      if (next) { state.scene = next; logs.push(`scene.edits = ${event.sceneEdits.length}  // 当前画面与注解；原始来源仍保留`); }
+    }
     if (Object.prototype.hasOwnProperty.call(event, 'invitation')) state.invitation = event.invitation ? copy(event.invitation) : null;
     if (!logs.length && description.navigation) logs.push(`conversation.topic = ${JSON.stringify(description.topic)}`);
     return logs;
@@ -264,6 +274,7 @@
     // Derived only from validated turns; old snapshots and prose do not supply
     // an attributable source. These bounded strings are never persisted anew.
     value.memoryContext = { rainDescription: null, rainNameSource: null };
+    value.scene = SCENE.empty();
     if (state.started) mark(value, 'connected');
     if (state.openingInvitation) value.invitation = copy(state.openingInvitation);
     return value;
@@ -276,7 +287,7 @@
     applyResumeInvitation(value, state, 0);
     for (const [index, event] of state.events.entries()) {
       if (event.type === 'logs') { discover(value); if (Object.prototype.hasOwnProperty.call(event, 'invitation')) value.invitation = event.invitation ? copy(event.invitation) : null; }
-      else applyTurn(value, describe(value, event.request), event);
+      else { value.sceneRouting = Object.prototype.hasOwnProperty.call(event, 'sceneEdits'); applyTurn(value, describe(value, event.request), event); }
       applyResumeInvitation(value, state, index + 1);
     }
     return value;
@@ -364,6 +375,9 @@
       if (id === 'inspect_result') reply = [`当前雨量是${{ gentle: '轻雨', normal: '普通', heavy: '大雨' }[state.density]}，${state.paused ? '暂时停着' : '正在落下'}。`, '没做完的地方还在，我们也不必马上补完。'];
       return description(topic, reply, { teach: topic === 'teach_rain', reason: topic === 'her_choice' });
     }
+    const canonicalCommand = command(text) || rainName(text, pendingQuestion(state) === 'rain_name' || state.topic === 'rain_name');
+    const sceneResult = state.sceneRouting === false || canonicalCommand ? { handled: false } : SCENE.offline(sceneContext(state), text);
+    if (sceneResult.handled) return description(state.topic, sceneResult.reply, { sceneRequest: true, sceneEdits: sceneResult.edits });
     if (directionRequest(text)) {
       const invitation = invitationDetails(state.invitation);
       return description(state.topic, invitation ? [invitation.question, invitation.context] : ['我们可以继续聊你想聊的事。', '如果想回到雨或刚才的记忆，也可以直接告诉我。']);
@@ -418,13 +432,16 @@
     if (result.navigation) return { type: 'topic', value: result.topic };
     return null;
   }
-  function plan(state, input) {
+  function plan(state, input) { return makePlan(state, input, true); }
+  function makePlan(state, input, sceneRouting) {
     if (!state || state.version !== 3 || !state.started || !Array.isArray(state.events)) return null;
     if (state.events.length >= MAX_EVENTS) throw new RangeError('本机对话已达 200 条记录上限。请重新开始后继续。');
     const request = requestClean(input); if (!request) return null;
-    const current = derive(state), result = describe(current, request); if (!result) return null;
+    const current = derive(state); current.sceneRouting = sceneRouting;
+    const result = describe(current, request); if (!result) return null;
     const allowedActions = availableActions(current, request, result);
-    const proposal = { input: request.text || label(request.choiceId), reply: result.reply.map(line => interpolate(line, current.name)), action: result.action ? copy(result.action) : null, allowedActions, requireActionEvidence: !result.action && allowedActions.length > 0, allowedStoryIntents: storyCapabilities(current, request, result), acceptedStoryIntent: acceptedStoryIntent(result), topic: result.topic, guidance: invitationDetails(current.invitation), pendingTopic: pendingQuestion(current), answerQuestion: answerQuestion(current, request), acceptedAnswer: result.name ? { type: 'rain_name', value: result.name } : result.teach ? { type: 'rain_definition' } : null, notices: result.notices.slice(), request: copy(request), revision: state.events.length };
+    const mutableContext = sceneContext(current), allowedSceneEdits = result.sceneRequest && request.text ? SCENE.allowedEdits(request.text, mutableContext) : [];
+    const proposal = { sceneContext: mutableContext, allowedSceneEdits, sceneEdits: copy(result.sceneEdits || []), input: request.text || label(request.choiceId), reply: result.reply.map(line => interpolate(line, current.name)), action: result.action ? copy(result.action) : null, allowedActions, requireActionEvidence: !result.action && allowedActions.length > 0, allowedStoryIntents: storyCapabilities(current, request, result), acceptedStoryIntent: acceptedStoryIntent(result), topic: result.topic, guidance: invitationDetails(current.invitation), pendingTopic: pendingQuestion(current), answerQuestion: answerQuestion(current, request), acceptedAnswer: result.name ? { type: 'rain_name', value: result.name } : result.teach ? { type: 'rain_definition' } : null, notices: result.notices.slice(), request: copy(request), revision: state.events.length };
     plans.set(proposal, { state, request, result, current });
     return proposal;
   }
@@ -440,9 +457,15 @@
     if (outcome.storyIntent !== null && outcome.storyIntent !== undefined && !storyIntent) return null;
     if (outcome.action !== null && outcome.action !== undefined && (!action || !availableActions(original.current, original.request, result).some(item => actionEqual(item, action)) ||
       (!result.action && !intent))) return null;
+    const providedSceneEdits = outcome.sceneEdits === null ? [] : outcome.sceneEdits;
+    const edits = providedSceneEdits === undefined ? (mode === 'offline' && !original.replay ? result.sceneEdits || [] : []) : providedSceneEdits;
+    const normalizedSceneEdits = typeof original.request.text === 'string' ? SCENE.validateEdits(edits, sceneContext(original.current), original.request.text) : Array.isArray(edits) && edits.length === 0 ? [] : null;
+    if (!normalizedSceneEdits || (normalizedSceneEdits.length && !result.sceneRequest)) return null;
     let lines = outcome.lines.map(clean);
     if (result.action && !action) lines = [result.name ? `名字记成了“${result.name}”。这次没有执行天气修改。` : '这次没有执行天气修改。', '窗外保持原样。你可以再试一次，或继续聊别的。'];
+    if (mode === 'ai' && result.sceneEdits?.length && !normalizedSceneEdits.length) lines = ['这次没有执行物件或注解修改。', '当前画面和注解保持原样，可以再试一次。'];
     const event = { type: 'turn', request: copy(original.request), lines, action, answer, intent, storyIntent, mode };
+    if (normalizedSceneEdits.length || providedSceneEdits !== undefined || !original.replay) event.sceneEdits = normalizedSceneEdits;
     const after = copy(original.current);
     applyTurn(after, result, event);
     const invitation = nextInvitation(after, !!result.navigation || storyIntent?.type === 'topic');
@@ -485,7 +508,7 @@
     if (object(payload) && validLines(payload.lines, false)) return payload.lines.flatMap(value => safeHistoricalLine(value, depth + 1));
     if (object(payload) || Array.isArray(payload)) return hidden;
     if (/^\s*[\{\[]\s*[{"']/u.test(text)) return hidden;
-    if (/[\{\[][^]*?["'](?:lines|action|answer|intent|storyIntent|reasoning_content|reasoning|analysis|thought|thinking|debug|metadata)["']\s*:/iu.test(text)) return hidden;
+    if (/[\{\[][^]*?["'](?:lines|action|answer|intent|storyIntent|sceneEdits|reasoning_content|reasoning|analysis|thought|thinking|debug|metadata)["']\s*:/iu.test(text)) return hidden;
     return [text];
   }
   function visibleReply(event) {
@@ -516,6 +539,7 @@
       state.events.forEach((event, eventIndex) => {
         const index = eventIndex + 1;
         if (event.type === 'logs') { discover(current).forEach(text => logs.push({ text, index })); if (Object.prototype.hasOwnProperty.call(event, 'invitation')) current.invitation = event.invitation ? copy(event.invitation) : null; applyResumeInvitation(current, state, index); capture(); return; }
+        current.sceneRouting = Object.prototype.hasOwnProperty.call(event, 'sceneEdits');
         const result = describe(current, event.request);
         add('user', event.request.text || label(event.request.choiceId), index);
         visibleReply(event).forEach(text => add('her', text, index));
@@ -527,7 +551,7 @@
     }
     const rain = { name: visible.name, density: visible.density, paused: visible.paused, created: visible.created };
     const memoryContext = { ...visible.memoryContext, visitorChoice: ['remember', 'anonymous', 'undecided'].includes(visible.visitor) ? visible.visitor : 'undecided' };
-    return { messages, logs: visible.logs || [], memories: visible.memories, memoryContext, name: visible.name, effect: !visible.created || visible.paused ? 'pause_rain' : { gentle: 'soft_rain', normal: 'normal', heavy: 'heavy_rain' }[visible.density], rain, index: visible.milestones.length, sceneIndex: TOPICS.indexOf(visible.topic), milestones: visible.milestones, maxMilestones: MILESTONES.length, topic: visible.topic, pendingTopic: pendingQuestion(visible), invitation: invitationDetails(visible.invitation), ended: visible.ended, neutralHints: visible.neutralHints, logsEligible: eligible(visible), tone: 'quiet', status: !state.started ? '等待连接' : visible.ended ? '暂别 · 随时可以继续聊' : visible.created ? `雨${visible.paused ? '暂时停着' : '正在落下'} · 可以自由交谈` : '第一次相遇 · 不必急着往下走' };
+    return { messages, scene: copy(visible.scene), sceneContext: sceneContext(visible), logs: visible.logs || [], memories: visible.memories, memoryContext, name: visible.name, effect: !visible.created || visible.paused ? 'pause_rain' : { gentle: 'soft_rain', normal: 'normal', heavy: 'heavy_rain' }[visible.density], rain, index: visible.milestones.length, sceneIndex: TOPICS.indexOf(visible.topic), milestones: visible.milestones, maxMilestones: MILESTONES.length, topic: visible.topic, pendingTopic: pendingQuestion(visible), invitation: invitationDetails(visible.invitation), ended: visible.ended, neutralHints: visible.neutralHints, logsEligible: eligible(visible), tone: 'quiet', status: !state.started ? '等待连接' : visible.ended ? '暂别 · 随时可以继续聊' : visible.created ? `雨${visible.paused ? '暂时停着' : '正在落下'} · 可以自由交谈` : '第一次相遇 · 不必急着往下走' };
   }
   function guidance(state) {
     if (!state || state.version !== 3) return null;
@@ -655,10 +679,11 @@
         if (!object(event)) return null;
         if (event.type === 'logs') { const next = appendLogVisit(state, event); if (!next || next === state) return null; state = next; if (!restoreResume()) return null; continue; }
         if (event.type !== 'turn' || !validLines(event.lines, false) || !['ai', 'offline'].includes(event.mode) || !(event.action === null || actionClean(event.action))) return null;
-        const proposal = plan(state, event.request); if (!proposal) return null;
+        if (Object.prototype.hasOwnProperty.call(event, 'sceneEdits') && !Array.isArray(event.sceneEdits)) return null;
+        const proposal = makePlan(state, event.request, Object.prototype.hasOwnProperty.call(event, 'sceneEdits')); if (!proposal) return null;
         Object.assign(plans.get(proposal), { replay: true, hasInvitation: Object.prototype.hasOwnProperty.call(event, 'invitation'), invitation: event.invitation });
         if (event.action !== null && !proposal.allowedActions.some(action => actionEqual(action, event.action))) return null;
-        state = commit(state, proposal, { lines: event.lines, action: event.action, answer: event.answer, intent: event.intent, storyIntent: event.storyIntent, mode: event.mode });
+        state = commit(state, proposal, { lines: event.lines, action: event.action, answer: event.answer, intent: event.intent, storyIntent: event.storyIntent, sceneEdits: event.sceneEdits, mode: event.mode });
         if (!state || !restoreResume()) return null;
       }
       // Only after all historical events were checked under their original

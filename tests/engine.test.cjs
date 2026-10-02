@@ -1027,3 +1027,132 @@ test('old v3 replay does not reinterpret ordinary prose as an attributable descr
   assert.equal(E.view(restoredAccepted).memoryContext.rainNameSource, '把雨叫做叶信');
   assert.equal(E.view(restoredAccepted).memoryContext.rainDescription, E.plan(fresh(), { choiceId: 'water' }).input);
 });
+
+test('scene bench create move topic recall revise persists without advancing the nine milestones', () => {
+  let state = fresh(); const original = E.view(state);
+  state = turn(state, '帮我画一张能坐两个人的长椅');
+  assert.equal(E.view(state).scene.objects[0].label, '长椅');
+  state = turn(state, '把它移到窗边');
+  assert.equal(E.view(state).scene.objects[0].x, 27); assert.equal(E.view(state).scene.objects[0].y, 43);
+  state = turn(state, '聊聊世界'); assert.equal(E.view(state).scene.focusedTarget, null);
+  const noGuess = E.plan(state, { text: '把它放大一点' }); assert.equal(noGuess.sceneEdits.length, 0);
+  assert.equal(E.commit(state, noGuess, { mode: 'ai', lines: ['改好了。'], sceneEdits: [{ type: 'update', target: 'obj_1', changes: { scale: 2 }, evidence: noGuess.input }] }), null);
+  state = turn(state, '你还记得长椅吗？'); assert.equal(E.view(state).scene.focusedTarget, 'obj_1');
+  assert.match(E.view(state).messages.at(-2).text, /能坐两个人/);
+  state = turn(state, '长椅代表等待'); state = turn(state, '长椅的意义改成自由');
+  assert.equal(E.view(state).scene.annotations.obj_1.meaning, '自由');
+  assert.equal(E.view(state).scene.objects[0].source.createdBy, '帮我画一张能坐两个人的长椅');
+  assert.deepEqual(E.view(state).milestones, original.milestones); assert.deepEqual(E.view(state).rain, original.rain);
+  assert.deepEqual(roundTrip(state), state); assert.deepEqual(E.view(roundTrip(state)).scene, E.view(state).scene);
+});
+
+test('scene and annotation mutations reveal only after the whole accepted reply and canceled plans do nothing', () => {
+  const state = fresh(), before = E.view(state), proposal = E.plan(state, { text: '画一张长椅' });
+  assert.equal(E.view(state).scene.objects.length, 0); assert.equal(proposal.sceneEdits.length, 1);
+  proposal.sceneContext.nextId = 90; proposal.sceneContext.objects.push({ id: 'obj_89' }); proposal.allowedSceneEdits.push('hack');
+  const next = E.commit(state, proposal, { lines: ['我画好了。', '它还可以继续修改。'] }); assert(next);
+  assert.equal(E.view(next, before.messages.length).scene.objects.length, 0);
+  assert.equal(E.view(next, E.view(next).messages.length - 1).scene.objects.length, 0);
+  assert.equal(E.view(next).scene.objects[0].id, 'obj_1');
+  const assigned = turn(next, '长椅代表等待');
+  assert.deepEqual(E.view(assigned, E.view(assigned).messages.length - 1).scene.annotations, {});
+  assert.equal(E.view(assigned).scene.annotations.obj_1.meaning, '等待');
+  const abandoned = E.plan(assigned, { text: '移走长椅' }); assert(abandoned.sceneEdits.length);
+  assert.equal(E.view(assigned).scene.objects.length, 1); assert.deepEqual(roundTrip(assigned), assigned);
+});
+
+test('scene commits reject fabricated authority and replay validates every edit atomically', () => {
+  const state = turn(fresh(), '画一张长椅');
+  const text = '把长椅移到窗边，同时把它的意义改成等待', proposal = E.plan(state, { text });
+  const edits = [{ type: 'update', target: 'obj_1', changes: { x: 27, y: 43 }, evidence: text }, { type: 'annotate', target: 'obj_1', field: 'meaning', value: '等待', evidence: text }];
+  const good = E.commit(state, proposal, { mode: 'ai', lines: ['位置和意义已经分别记下。'], sceneEdits: edits }); assert(good);
+  assert.deepEqual(roundTrip(good), good);
+  for (const change of [
+    event => { event.sceneEdits[1].target = 'obj_2'; },
+    event => { event.sceneEdits[0].changes.x = 100; },
+    event => { event.sceneEdits[0].evidence = '旧输入'; },
+    event => { event.request.text = '如果把长椅移到窗边会怎样'; },
+    event => { event.sceneEdits[1].field = 'source'; },
+    event => { event.sceneEdits = null; }
+  ]) { const corrupt = JSON.parse(JSON.stringify(good)); change(corrupt.events.at(-1)); assert.equal(E.restore(corrupt), null); }
+  assert.equal(E.commit(state, proposal, { mode: 'ai', lines: ['改好了。'], sceneEdits: [edits[0], { ...edits[1], target: 'obj_999' }] }), null);
+  assert.equal(E.view(state).scene.objects[0].x, 35); assert.deepEqual(E.view(state).scene.annotations, {});
+  const omitted = turn(state, '把长椅移到窗边', { mode: 'ai', lines: ['已经移走。'], sceneEdits: [] });
+  assert.equal(E.view(omitted).scene.objects[0].x, 35); assert.match(E.view(omitted).messages.at(-2).text, /没有执行/);
+});
+
+test('mutable first rain meanings preserve source, original transcript and completed story', () => {
+  let state = rain(); state = turn(state, '把雨叫做夜航'); state = E.visitLogs(state);
+  const before = E.view(state), originalEvents = JSON.stringify(state.events);
+  state = turn(state, '第一场雨代表等待');
+  state = turn(state, '第一场雨的意义改成自由');
+  const text = '你觉得第一场雨代表什么？';
+  state = turn(state, text, { mode: 'ai', lines: ['对我来说，它像一次愿意留下来的选择。'], sceneEdits: [{ type: 'annotate', target: 'first_rain', field: 'interpretation', value: '一次愿意留下来的选择', evidence: text }] });
+  state = turn(state, '清掉第一场雨的意义');
+  assert.equal(E.view(state).scene.annotations.first_rain.meaning, null);
+  assert.equal(E.view(state).scene.annotations.first_rain.interpretation, '一次愿意留下来的选择');
+  assert.deepEqual(E.view(state).memoryContext, before.memoryContext); assert.deepEqual(E.view(state).rain, before.rain);
+  assert.deepEqual(E.view(state).milestones, before.milestones); assert.deepEqual(E.view(state).memories, before.memories);
+  assert.equal(JSON.stringify(state.events.slice(0, JSON.parse(originalEvents).length)), originalEvents);
+  assert.deepEqual(roundTrip(state), state);
+});
+
+test('new object tinkering never answers a pending rain question or grants weather or story authority', () => {
+  const state = fresh();
+  for (const text of ['画一张雨滴落在上面的长椅', '这里缺一座桥，能画出来吗']) {
+    const p = E.plan(state, { text }); assert.equal(p.answerQuestion, null); assert.deepEqual(p.allowedStoryIntents, []); assert.deepEqual(p.allowedActions, []);
+    assert.equal(E.commit(state, p, { mode: 'ai', lines: ['我认识雨了。'], answer: rainAnswer(text) }), null);
+  }
+  const p = E.plan(state, { text: '试着画出第一场雨' }); assert.deepEqual(p.allowedSceneEdits, []);
+  assert.equal(E.commit(state, p, { mode: 'ai', lines: ['雨已经有了。'], sceneEdits: [{ type: 'create', object: { label: '雨', glyphs: '|||', x: 0, y: 0, scale: 1 }, evidence: p.input }] }), null);
+});
+
+test('old v3 accepted metaphors and ordinary object chat replay before the additive scene boundary', () => {
+  const source = '雨落在长椅上，像一封写给夜晚的信';
+  const raw = { version: 3, started: true, opening: [], openingInvitation: { id: 'rain_description' }, events: [
+    { type: 'turn', request: { text: source }, lines: ['我记住你的比喻。'], action: null, answer: rainAnswer(source), intent: null, storyIntent: null, mode: 'ai', invitation: { id: 'rain_create' } },
+    { type: 'turn', request: { text: '画一张长椅' }, lines: ['我暂时还不会。'], action: null, answer: null, intent: null, storyIntent: null, mode: 'offline', invitation: { id: 'rain_create' } }
+  ] };
+  const restored = E.restore(raw); assert(restored); assert.equal(E.view(restored).memoryContext.rainDescription, source);
+  assert.deepEqual(E.view(restored).milestones, ['connected', 'rain_taught']); assert.equal(E.view(restored).scene.objects.length, 0);
+  assert(!restored.events.some(event => Object.hasOwn(event, 'sceneEdits')));
+  const next = turn(restored, '画一张长椅'); assert.equal(E.view(next).scene.objects.length, 1); assert.deepEqual(roundTrip(next), next);
+});
+
+test('explicitly revisiting one of several objects enables pronouns only until the subject changes', () => {
+  let state = turn(turn(fresh(), '画一张长椅'), '画一盏灯');
+  assert.equal(E.view(state).scene.focusedTarget, 'obj_2');
+  state = turn(state, '你还记得长椅吗？'); assert.equal(E.view(state).scene.focusedTarget, 'obj_1');
+  state = turn(state, '把它放大一点'); assert.equal(E.view(state).scene.objects[0].scale, 2); assert.equal(E.view(state).scene.objects[1].scale, 1);
+  const last = state; state = turn(state, '现在的时间是几点？'); assert.equal(E.view(state).scene.focusedTarget, null);
+  assert.equal(E.view(state, E.view(last).messages.length).scene.focusedTarget, 'obj_1');
+  state = turn(state, '把它移到窗边'); assert.match(E.view(state).messages.at(-2).text, /哪一个/);
+  assert.deepEqual(roundTrip(state), state);
+});
+
+test('fresh rain teaching remains available when genuine descriptions use object imagery', () => {
+  for (const starting of [fresh(), turn(fresh(), '画一张长椅')]) {
+    const literal = '雨是落在长椅上的水滴', metaphor = '雨像敲在长椅上的细碎指尖';
+    const p = E.plan(starting, { text: literal }); assert.equal(p.acceptedAnswer.type, 'rain_definition'); assert.deepEqual(p.allowedSceneEdits, []);
+    const learned = turn(starting, literal); assert(E.view(learned).milestones.includes('rain_taught')); assert.equal(E.view(learned).rain.created, false);
+    const online = E.plan(starting, { text: metaphor }); assert.equal(online.answerQuestion, 'teach_rain'); assert.deepEqual(online.allowedSceneEdits, []);
+    const accepted = E.commit(starting, online, { mode: 'ai', lines: ['我记住落在长椅上的雨。'], answer: rainAnswer(metaphor) }); assert(accepted);
+    assert.equal(E.view(accepted).memoryContext.rainDescription, metaphor); assert.deepEqual(roundTrip(accepted), accepted);
+    const actualEdit = E.plan(starting, { text: '画一张雨滴落在上面的长椅' }); assert.equal(actualEdit.answerQuestion, null); assert.equal(actualEdit.acceptedAnswer, null);
+  }
+});
+
+test('explicit canonical weather naming farewell and consent keep precedence over object-label collisions', () => {
+  let state = rain();
+  for (const label of ['夜航', '大一点', '晚安', '我']) state = turn(state, `画一个${label}`);
+  const before = E.view(state).scene.objects;
+  const density = E.plan(state, { text: '让雨大一点' }); assert.equal(density.action.type, 'rain_density'); assert.deepEqual(density.allowedSceneEdits, []);
+  assert.equal(E.commit(state, density, { mode: 'ai', lines: ['调整好了。'], action: density.action, sceneEdits: [{ type: 'update', target: 'obj_2', changes: { scale: 2 }, evidence: density.input }] }), null);
+  state = turn(state, '让雨大一点'); assert.equal(E.view(state).rain.density, 'heavy');
+  state = turn(state, '把雨叫做夜航'); assert.equal(E.view(state).name, '夜航'); assert.deepEqual(E.view(state).scene.objects, before);
+  state = E.visitLogs(state);
+  const consent = E.plan(state, { text: '请你记住我' }); assert(consent.allowedStoryIntents.some(item => item.type === 'visitor_choice')); assert.deepEqual(consent.allowedSceneEdits, []);
+  state = E.commit(state, consent, { mode: 'ai', lines: ['我会记下这一夜一起看雨的来访者。'], storyIntent: { type: 'visitor_choice', value: 'remember', evidence: consent.input } }); assert(state);
+  state = turn(state, '晚安'); assert.equal(E.view(state).ended, true); assert.deepEqual(E.view(state).scene.objects, before); assert.deepEqual(roundTrip(state), state);
+  const rename = E.plan(turn(fresh(), '画一张长椅'), { text: '把长椅的名字改成雨' }); assert.equal(rename.sceneEdits.length, 0);
+});

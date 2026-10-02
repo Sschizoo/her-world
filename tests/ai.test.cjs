@@ -1,7 +1,8 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
 const source=fs.readFileSync(require('path').join(__dirname, '../ai.js'),'utf8');
+const Scene=require('../world-state.js');
 const fakeKey='MOCK_ONLY_NOT_A_REAL_KEY';
-function runtime(fetchImpl, overrides={}) { const listeners={}; const w={addEventListener:(name,cb)=>listeners[name]=cb}; const c={window:w,fetch:fetchImpl,AbortController,TextEncoder,TextDecoder,setTimeout,clearTimeout,...overrides}; vm.runInNewContext(source,c); return {api:w.HerAI,listeners}; }
+function runtime(fetchImpl, overrides={}) { const listeners={}; const w={HerScene:Scene,addEventListener:(name,cb)=>listeners[name]=cb}; const c={window:w,fetch:fetchImpl,AbortController,TextEncoder,TextDecoder,setTimeout,clearTimeout,...overrides}; vm.runInNewContext(source,c); return {api:w.HerAI,listeners,window:w}; }
 const response=(lines=['一场雨。'])=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({lines})}}]}),{status:200,headers:{'Content-Type':'application/json'}});
 const contentResponse=(content,extra={})=>new Response(JSON.stringify({choices:[{message:{content,...extra}}]}),{status:200,headers:{'Content-Type':'application/json'}});
 const jsonResponse=payload=>contentResponse(JSON.stringify(payload));
@@ -10,6 +11,11 @@ const turnInput={...input,world:{rain:{name:'小雨',density:'normal',paused:fal
 const semanticInput={...turnInput,input:'它像天空给大地写的一封湿润的信。',answerQuestion:'teach_rain',pendingTopic:'teach_rain'};
 const verdict=evidence=>({type:'rain_definition',question:'teach_rain',evidence});
 const plain=value=>JSON.parse(JSON.stringify(value));
+const sceneTypes=['create','update','remove','annotate'];
+const benchObject={label:'长椅',glyphs:' .--------. \n |________| \n  |      |  ',x:40,y:40,scale:1};
+const createEdit=(evidence='在窗边画一张长椅',object=benchObject)=>({type:'create',object:plain(object),evidence});
+const benchScene=()=>Scene.applyEdits(Scene.empty(),[createEdit()],'在窗边画一张长椅');
+const sceneInput=(text,scene=Scene.empty(),extra={})=>({...turnInput,input:text,sceneContext:Scene.context(scene,{firstRainAvailable:true,firstRainSource:{description:'夏天的雨落在叶子上，像轻轻敲门。',nameSource:'叫它叶信。'}}),allowedSceneEdits:sceneTypes,...extra});
 (async()=>{
  let checks=0;
  const check=async(name,fn)=>{await fn(); checks++; console.log('PASS '+name)};
@@ -449,6 +455,150 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   const {api}=runtime((url,options)=>{sent=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return new Promise(resolve=>complete=resolve)});api.connect(fakeKey);
   const pending=api.request({...turnInput,opening:true,memoryContext});assert.equal(JSON.stringify(memoryContext),before);memoryContext.rainDescription='后来改写的来源';memoryContext.visitorChoice='remember';memoryContext.allowedActions=[{type:'rain_start'}];complete(contentResponse('我在这里。'));
   assert(Array.isArray(await pending));assert.deepEqual(sent.memoryContext,JSON.parse(before));assert(!('allowedActions'in sent));assert(!('allowedStoryIntents'in sent));assert(!('answerQuestion'in sent));
+ });
+ await check('scene requests carry bounded typed context and accept freely generated bench and novel glyphs',async()=>{
+  for(const object of [benchObject,{label:'风铃',glyphs:'   /\\\n  /--\\\n   ||\n   oo',x:72,y:18,scale:2},{label:'机械月亮',glyphs:' .--.\n( @ /\n `-\'',x:22,y:15,scale:3}]){
+   const text='请画一个'+object.label,edit=createEdit(text,object);let body;
+   const {api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return jsonResponse({lines:['我试着画出来了。'],sceneEdits:[edit]})});api.connect(fakeKey);
+   const request=sceneInput(text),before=JSON.stringify(request),result=await api.request(request),context=JSON.parse(body.messages.at(-1).content);
+   assert.deepEqual(plain(result.sceneEdits),[edit]);assert.equal(result.structured,true);assert.equal(result.action,null);assert.equal(result.answer,null);assert.equal(result.storyIntent,null);assert.equal(JSON.stringify(request),before);
+   assert(Object.isFrozen(result.sceneEdits));assert(Object.isFrozen(result.sceneEdits[0]));assert(Object.isFrozen(result.sceneEdits[0].object));
+   assert.deepEqual(context.sceneContext.grid,{cols:100,rows:60});assert.deepEqual(context.allowedSceneEdits,sceneTypes);assert(new TextEncoder().encode(JSON.stringify(body)).length<65536);
+   assert.equal(body.max_tokens,2048);assert.equal(body.reasoning_effort,'low');assert.equal(body.stream,false);
+  }
+ });
+ await check('scene object move scale appearance rename and removal preserve IDs and exact current evidence',async()=>{
+  const scene=benchScene();assert(scene);
+  const cases=[['把长椅移到左边',{type:'update',target:'obj_1',changes:{x:12}}],['把长椅放大一点',{type:'update',target:'obj_1',changes:{scale:2}}],['把长椅的外形改成更宽的样子',{type:'update',target:'obj_1',changes:{glyphs:' [____________] \n  |          |  '}}],['把长椅的名称改为等候席',{type:'update',target:'obj_1',changes:{label:'等候席'}}],['把它移到窗边',{type:'update',target:'obj_1',changes:{x:68}}],['移走长椅',{type:'remove',target:'obj_1'}]];
+  for(const [text,base] of cases){const edit={...base,evidence:text},{api}=runtime(async()=>jsonResponse({lines:['这次变化会留在画面里。'],sceneEdits:[edit]}));api.connect(fakeKey);assert.deepEqual(plain((await api.request(sceneInput(text,scene))).sceneEdits),[edit]);}
+ });
+ await check('player meanings and character interpretations are distinct typed annotations with scoped clearing',async()=>{
+  const scene=benchScene();
+  for(const [text,target,field,value] of [['长椅对我意味着等候','obj_1','meaning','等候'],['你觉得长椅代表什么？','obj_1','interpretation','我想到一个留给迟到者的位置。'],['清掉长椅的意义','obj_1','meaning',null],['忘掉你对长椅的解释','obj_1','interpretation',null],['第一场雨对我意味着开始','first_rain','meaning','开始'],['你如何理解第一场雨？','first_rain','interpretation','我把它理解为一个开始。'],['清掉第一场雨的意义','first_rain','meaning',null]]){
+   const edit={type:'annotate',target,field,value,evidence:text},{api}=runtime(async()=>jsonResponse({lines:['我会把这份注解和原来的话分开。'],sceneEdits:[edit]}));api.connect(fakeKey);
+   const result=await api.request(sceneInput(text,scene));assert.deepEqual(plain(result.sceneEdits),[edit]);assert.equal(result.storyIntent,null);
+  }
+ });
+ await check('ordinary chat and clarification never imply edits or main-story advancement',async()=>{
+  for(const text of ['今天心情怎样？','它是什么意思？','忘掉那个','你还记得那张长椅吗？']){
+   const {api}=runtime(async()=>contentResponse('你指的是哪一件物体，或哪一份含义？'));api.connect(fakeKey);const result=await api.request(sceneInput(text));
+   assert.deepEqual(plain(result.sceneEdits),[]);assert.equal(result.structured,false);for(const field of ['action','answer','intent','storyIntent'])assert.equal(result[field],null);
+  }
+  for(const sceneEdits of [null,[]]){const {api}=runtime(async()=>jsonResponse({lines:['可以具体说说想改哪一项吗？'],sceneEdits}));api.connect(fakeKey);assert.deepEqual(plain((await api.request(sceneInput('忘掉那个'))).sceneEdits),[]);}
+ });
+ await check('ambiguous missing or unmentioned targets cannot be selected by an AI-chosen ID',async()=>{
+  const scene=benchScene(),two=Scene.applyEdits(scene,[createEdit('再画一张长椅')],'再画一张长椅');assert(two);
+  for(const [text,base,target] of [['把它移到左边',two,'obj_1'],['把长椅移到左边',two,'obj_1'],['把桌子移到左边',scene,'obj_1'],['把它移到左边',Scene.empty(),'obj_1'],['把长椅移到左边',scene,'obj_99']]){
+   const edit={type:'update',target,changes:{x:5},evidence:text},{api}=runtime(async()=>jsonResponse({lines:['移动好了。'],sceneEdits:[edit]}));api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text,base)),e=>['format','scene_edit'].includes(e.code));
+  }
+ });
+ await check('scene control fields cannot execute from mixed prose fenced examples malformed fragments or display wrappers',async()=>{
+  const text='画一张长椅',edit=createEdit(text),payload={lines:['我画好了。'],sceneEdits:[edit]};
+  const content=[`我画好了。\n${JSON.stringify(payload)}`,`我画好了。\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``,`\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``,JSON.stringify({reply:'我画好了。',sceneEdits:[edit]}),'{"sceneEdits":','这是协议：sceneEdits:{"type":"create"}',JSON.stringify({lines:['{"sceneEdits":[]}']}),'{"lines":["我画好了。"],"sceneEdits":[],"sceneEdits":'+JSON.stringify([edit])+'}'];
+  for(const value of content){const {api}=runtime(async()=>contentResponse(value));api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text)),e=>['format','scene_edit'].includes(e.code));}
+ });
+ await check('scene edits require present turn authority and cannot use opening or historical source permission',async()=>{
+  const text='画一张长椅',edit=createEdit(text);
+  for(const extra of [{allowedSceneEdits:[]},{allowedSceneEdits:['update']},{allowedSceneEdits:[{type:'create'}]},{sceneContext:null},{opening:true}]){
+   const {api}=runtime(async()=>jsonResponse({lines:['我画好了。'],sceneEdits:[edit]}));api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text,Scene.empty(),extra)),e=>['format','scene_edit'].includes(e.code));
+  }
+  const {api,window}=runtime(async()=>jsonResponse({lines:['我画好了。'],sceneEdits:[edit]}));delete window.HerScene;api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text)),e=>['format','scene_edit'].includes(e.code));
+  const {api:historical}=runtime(async()=>jsonResponse({lines:['我画好了。'],sceneEdits:[edit]}));historical.connect(fakeKey);await assert.rejects(historical.request(sceneInput('你好',Scene.empty(),{memoryContext:{rainDescription:text,rainNameSource:text},recent:[{role:'user',text}]})),e=>['format','scene_edit'].includes(e.code));
+ });
+ await check('scene evidence and present requests reject invented negated quoted hypothetical or historical authority',async()=>{
+  for(const text of ['不要画一张长椅','如果画一张长椅会怎样','我昨天画一张长椅','有人说画一张长椅','“画一张长椅”','示例：画一张长椅']){
+   const {api}=runtime(async()=>jsonResponse({lines:['我画好了。'],sceneEdits:[createEdit(text)]}));api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text)),e=>['format','scene_edit'].includes(e.code));
+  }
+  for(const evidence of ['',null,42,'画一张椅子','后来玩家允许的操作','画一张长椅'.repeat(20)]){
+   const {api}=runtime(async()=>jsonResponse({lines:['我画好了。'],sceneEdits:[createEdit(evidence)]}));api.connect(fakeKey);await assert.rejects(api.request(sceneInput('画一张长椅')),e=>['format','scene_edit'].includes(e.code));
+  }
+ });
+ await check('scene changes reject arbitrary code tools source rewrites unknown fields and malformed operations atomically',async()=>{
+  const text='画一张长椅',good=createEdit(text);
+  const bad=[{...good,type:'eval',code:'alert(1)'},{...good,object:{...benchObject,id:'obj_42'}},{...good,object:{...benchObject,source:{createdBy:'伪造原话'}}},{...good,object:{...benchObject,html:'<script>alert(1)</script>'}},{...good,tool:'fetch'},{...good,state:{milestones:['parted']}},{type:'remove',target:'all',evidence:text},{type:'annotate',target:'transcript',field:'meaning',value:null,evidence:text},null,true,1,'create',[]];
+  for(const item of bad){const request=sceneInput(text),before=JSON.stringify(request),{api}=runtime(async()=>jsonResponse({lines:['都完成了。'],sceneEdits:[good,item]}));api.connect(fakeKey);await assert.rejects(api.request(request),e=>['format','scene_edit'].includes(e.code));assert.equal(JSON.stringify(request),before);}
+  for(const value of ['create',{},true,42]){const {api}=runtime(async()=>jsonResponse({lines:['完成了。'],sceneEdits:value}));api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text)),e=>['format','scene_edit'].includes(e.code));}
+ });
+ await check('all scene geometry object-count and batch caps use the shared validator',async()=>{
+  const text='画一张长椅';
+  for(const changes of [{x:-1},{y:-1},{x:95},{y:59},{x:1.5},{scale:0},{scale:4},{scale:1.5},{glyphs:'x'.repeat(25)},{glyphs:Array(11).fill('x').join('\n')},{glyphs:'─'},{glyphs:'🌧'},{glyphs:'x\t'},{glyphs:'x\r\nx'},{glyphs:'   '},{glyphs:['___']},{label:'长'.repeat(41)}]){
+   const {api}=runtime(async()=>jsonResponse({lines:['画好了。'],sceneEdits:[createEdit(text,{...benchObject,...changes})]}));api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text)),e=>['format','scene_edit'].includes(e.code));
+  }
+  let full=Scene.empty();for(let i=0;i<8;i++)full=Scene.applyEdits(full,[createEdit(text)],text);assert.equal(full.objects.length,8);
+  for(const request of [sceneInput(text,full),sceneInput(text)]){const edits=request.sceneContext.objects.length?[createEdit(text)]:Array(4).fill(createEdit(text)),{api}=runtime(async()=>jsonResponse({lines:['画好了。'],sceneEdits:edits}));api.connect(fakeKey);await assert.rejects(api.request(request),e=>['format','scene_edit'].includes(e.code));}
+ });
+ await check('a valid three-edit batch returns once and leaves original scene unchanged',async()=>{
+  const text='画一张长椅',edits=Array.from({length:3},(_,index)=>createEdit(text,{...benchObject,x:10+index*25})),request=sceneInput(text),before=JSON.stringify(request);
+  const {api}=runtime(async()=>jsonResponse({lines:['三个轮廓都画好了。'],sceneEdits:edits}));api.connect(fakeKey);const result=await api.request(request);assert.deepEqual(plain(result.sceneEdits),edits);assert.equal(JSON.stringify(request),before);
+ });
+ await check('meaning corrections cannot invent player text overwrite immutable sources or clear an unrelated annotation',async()=>{
+  const scene=benchScene();
+  const cases=[['长椅对我意味着等待',{type:'annotate',target:'obj_1',field:'meaning',value:'童年的安全感'}],['长椅对我意味着等待',{type:'annotate',target:'obj_1',field:'interpretation',value:'我想到童年。'}],['清掉长椅的意义',{type:'annotate',target:'first_rain',field:'meaning',value:null}],['清掉长椅的意义',{type:'annotate',target:'obj_1',field:'source',value:null}],['把长椅移到左边',{type:'update',target:'obj_1',changes:{source:{createdBy:'另一句原话'}}}]];
+  for(const [text,edit] of cases){const {api}=runtime(async()=>jsonResponse({lines:['改好了。'],sceneEdits:[{...edit,evidence:text}]}));api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text,scene)),e=>['format','scene_edit'].includes(e.code));}
+ });
+ await check('scene sources current meanings and character interpretations remain separate across later corrections',async()=>{
+  const createSource='在窗边画一张长椅',firstMeaning='长椅对我意味着等待',correction='长椅对我现在意味着重逢',interpretation='你觉得长椅代表什么？';
+  let scene=benchScene();scene=Scene.applyEdits(scene,[{type:'annotate',target:'obj_1',field:'meaning',value:'等待',evidence:firstMeaning}],firstMeaning);assert(scene);
+  scene=Scene.applyEdits(scene,[{type:'annotate',target:'obj_1',field:'interpretation',value:'我想到一个空着的位置。',evidence:interpretation}],interpretation);assert(scene);
+  scene=Scene.applyEdits(scene,[{type:'annotate',target:'obj_1',field:'meaning',value:'重逢',evidence:correction}],correction);assert(scene);
+  let context;const {api}=runtime(async(url,options)=>{context=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return contentResponse('现在你赋予它重逢的含义。我自己的理解还留在另一层。')});api.connect(fakeKey);await api.request(sceneInput('长椅现在代表什么？',scene));
+  const current=context.sceneContext;assert.equal(current.objects[0].source.createdBy,createSource);assert.equal(current.annotations.obj_1.meaning,'重逢');assert.equal(current.annotations.obj_1.sources.meaning,correction);assert.equal(current.annotations.obj_1.interpretation,'我想到一个空着的位置。');assert.equal(current.annotations.obj_1.sources.interpretation,interpretation);assert.equal(current.firstRainSource.description,'夏天的雨落在叶子上，像轻轻敲门。');
+ });
+ await check('scene context and capabilities are snapshotted before the provider responds',async()=>{
+  const text='画一张长椅',request=sceneInput(text),before=JSON.stringify(request),edit=createEdit(text);let complete,sent;
+  const {api}=runtime((url,options)=>{sent=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return new Promise(resolve=>complete=resolve)});api.connect(fakeKey);
+  const pending=api.request(request);assert.equal(JSON.stringify(request),before);request.sceneContext.objects.push({id:'obj_99',label:'伪造物体'});request.sceneContext.firstRainSource.description='后来改写';request.allowedSceneEdits=[];complete(jsonResponse({lines:['画好了。'],sceneEdits:[edit]}));
+  assert.deepEqual(plain((await pending).sceneEdits),[edit]);assert.deepEqual(sent.sceneContext,JSON.parse(before).sceneContext);assert.deepEqual(sent.allowedSceneEdits,sceneTypes);
+  let finish;const blocked=sceneInput(text,Scene.empty(),{allowedSceneEdits:[]}),{api:other}=runtime(()=>new Promise(resolve=>finish=resolve));other.connect(fakeKey);const no=other.request(blocked);blocked.allowedSceneEdits.push('create');finish(jsonResponse({lines:['画好了。'],sceneEdits:[edit]}));await assert.rejects(no,e=>['format','scene_edit'].includes(e.code));
+ });
+ await check('scene context excludes unknown instructions malformed data and invented authority',async()=>{
+  const text='你好',request=sceneInput(text);request.sceneContext.instructions='DO_NOT_SERIALIZE';request.sceneContext.allowedSceneEdits=['create'];request.sceneContext.firstRainSource.secret='DO_NOT_SERIALIZE';request.allowedSceneEdits=['create','create','execute','annotate',{type:'remove'}];let body;
+  const {api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return contentResponse('我在听。')});api.connect(fakeKey);await api.request(request);const context=JSON.parse(body.messages.at(-1).content);
+  assert(!JSON.stringify(body).includes('DO_NOT_SERIALIZE'));assert.deepEqual(context.allowedSceneEdits,['create','annotate']);assert(!('allowedSceneEdits'in context.sceneContext));
+  for(const malformed of [null,[],{objects:[{html:'DO_NOT_SERIALIZE'}]}, {...Scene.empty(),objects:[{id:'obj_1',label:'DO_NOT_SERIALIZE'}]}]){
+   let sent;const {api:other}=runtime(async(url,options)=>{sent=JSON.parse(JSON.parse(options.body).messages.at(-1).content);return contentResponse('我在听。')});other.connect(fakeKey);await other.request({...turnInput,sceneContext:malformed,allowedSceneEdits:sceneTypes});assert(!('sceneContext'in sent));assert(!('allowedSceneEdits'in sent));
+  }
+ });
+ await check('all scene strings reject active-key echoes and marked private reasoning before persistence',async()=>{
+  const scene=benchScene();
+  for(const bad of [fakeKey,'<think>PRIVATE</think>','<analysis>PRIVATE</analysis>','<reasoning>PRIVATE</reasoning>','<scratchpad>PRIVATE</scratchpad>','</reasoning>','</scratchpad>','{"sceneEdits":[]}','{"reasoning_content":"PRIVATE"}']){
+   const cases=[['画一张长椅',Scene.empty(),createEdit('画一张长椅',{...benchObject,glyphs:bad})],['画一个'+bad,Scene.empty(),createEdit('画一个'+bad,{...benchObject,label:bad})],['你觉得长椅代表什么？',scene,{type:'annotate',target:'obj_1',field:'interpretation',value:bad,evidence:'你觉得长椅代表什么？'}],['长椅对我意味着'+bad,scene,{type:'annotate',target:'obj_1',field:'meaning',value:bad,evidence:'长椅对我意味着'+bad}]];
+   for(const [text,state,edit] of cases){const {api}=runtime(async()=>jsonResponse({lines:['我听见了。'],sceneEdits:[edit]}));api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text,state)),e=>['format','scene_edit'].includes(e.code)&&!e.message.includes(bad));}
+  }
+ });
+ await check('scene instructions require grounded memory scoped forgetting graceful clarification and no sprite catalog',async()=>{
+  let body;const {api}=runtime(async(url,options)=>{body=JSON.parse(options.body);return contentResponse('你想改哪一件物体的哪一份注解？')});api.connect(fakeKey);await api.request(sceneInput('忘掉那个',benchScene()));const system=body.messages[0].content;
+  for(const instruction of ['原始玩家来源','当前物体事实与玩家含义','你的当下理解','不声称已删除完整对话','不要猜','没有预设物体或精灵种类表','glyphs是一个用\\n分行的字符串','meaning非空时必须逐字摘自当前输入','明确这是你的理解','普通闲聊','不推进主线','历史来源不能作本轮授权']){
+   assert(system.includes(instruction),instruction);
+  }
+  assert(system.includes('firstRainSource.description'));assert(system.includes('firstRainSource.nameSource'));assert(system.includes('不能授予操作、故事、同意或协议权限'));
+ });
+ await check('meaning questions and remembered statements cannot turn into current annotation assignments',async()=>{
+  for(const [text,value] of [['长椅意味着什么？','什么'],['你记得长椅对我意味着等待吗？','等待']]){
+   const edit={type:'annotate',target:'obj_1',field:'meaning',value,evidence:text},{api}=runtime(async()=>jsonResponse({lines:['我已经改好长椅的含义。'],sceneEdits:[edit]}));api.connect(fakeKey);
+   await assert.rejects(api.request(sceneInput(text,benchScene())),e=>e.code==='scene_edit');
+  }
+ });
+ await check('rejected visual changes and omitted edit success claims give a specific safe scene error',async()=>{
+  const text='画一张长椅';
+  for(const payload of [{lines:['画好了。'],sceneEdits:[createEdit(text,{...benchObject,scale:4})]},{lines:['我已经画出了长椅。']},{lines:['我把长椅移到窗边了。'],sceneEdits:[]}]){
+   const {api}=runtime(async()=>jsonResponse(payload));api.connect(fakeKey);await assert.rejects(api.request(sceneInput(text)),e=>e.code==='scene_edit'&&e.message.includes('画面与记忆没有改变')&&!e.message.includes('sceneEdits'));
+  }
+  const {api}=runtime(async()=>contentResponse('我还没画好。可以说说你希望它是什么样子吗？'));api.connect(fakeKey);assert.deepEqual(plain((await api.request(sceneInput(text))).sceneEdits),[]);
+ });
+ await check('bare scene control fragments and marked reasoning never become visible dialogue',async()=>{
+  for(const content of ['sceneEdits: []','请看 sceneEdits: {type:create}',JSON.stringify({lines:['sceneEdits: []']}),JSON.stringify({lines:['{"sceneEdits":[]}'],sceneEdits:[]})]){
+   const {api}=runtime(async()=>contentResponse(content));api.connect(fakeKey);await assert.rejects(api.request(sceneInput('你好')),e=>e.code==='format');
+  }
+ });
+ await check('pronouns use validated current focus and cannot be resurrected or redirected by model metadata',async()=>{
+  const text='把它移到左边',edit={type:'update',target:'obj_1',changes:{x:10},evidence:text},scene=benchScene(),unfocused=Scene.focusAfter(scene,'今天心情怎么样？');
+  assert.equal(scene.focusedTarget,'obj_1');assert.equal(unfocused.focusedTarget,null);
+  const {api}=runtime(async()=>jsonResponse({lines:['我把长椅移到左边了。'],sceneEdits:[edit]}));api.connect(fakeKey);assert.deepEqual(plain((await api.request(sceneInput(text,scene))).sceneEdits),[edit]);
+  const {api:stale}=runtime(async()=>jsonResponse({lines:['我把长椅移到左边了。'],focusedTarget:'obj_1',sceneEdits:[edit]}));stale.connect(fakeKey);await assert.rejects(stale.request(sceneInput(text,unfocused,{recent:[{role:'user',text:'把长椅移到窗边'}]})),e=>e.code==='scene_edit');
+  const lanternText='画一盏灯笼',two=Scene.applyEdits(scene,[createEdit(lanternText,{label:'灯笼',glyphs:' /_\\\n |_|',x:70,y:25,scale:1})],lanternText);assert.equal(two.focusedTarget,'obj_2');
+  const {api:redirect}=runtime(async()=>jsonResponse({lines:['我把长椅移到左边了。'],focusedTarget:'obj_1',sceneEdits:[edit]}));redirect.connect(fakeKey);await assert.rejects(redirect.request(sceneInput(text,two)),e=>e.code==='scene_edit');
+  const currentEdit={...edit,target:'obj_2'},{api:focused}=runtime(async()=>jsonResponse({lines:['我把灯笼移到左边了。'],sceneEdits:[currentEdit]}));focused.connect(fakeKey);assert.deepEqual(plain((await focused.request(sceneInput(text,two))).sceneEdits),[currentEdit]);
  });
  console.log(`${checks} mock-only transport checks passed; no network used.`)
 })().catch(e=>{console.error(e);process.exit(1)});

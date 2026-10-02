@@ -64,8 +64,11 @@
     if (!input || typeof input !== 'object') return [];
     const messages = completedMessages(input.messages);
     const turns = dialogueTurns(messages);
+    const visibleObjects = Array.isArray(input.scene?.objects) ? input.scene.objects.slice(0, 8).filter(item => item && /^obj_[1-9][0-9]{0,2}$/.test(item.id) && typeof item.label === 'string' && item.label && [...item.label].length <= 40) : [];
+    const objects = visibleObjects.filter((item, index) => visibleObjects.findIndex(other => other.id === item.id) === index);
+    const entities = ENTITIES.concat(objects.map(item => ({ id: `object:${item.id}`, label: [...item.label].slice(0, 8).join(''), object: item })));
     const encountered = new Set();
-    const scores = Object.fromEntries(ENTITIES.map(entity => [entity.id, 0]));
+    const scores = Object.fromEntries(entities.map(entity => [entity.id, 0]));
     const actualName = validText(input.name).trim();
     const named = Boolean(actualName && actualName !== '未命名的雨');
     const namedMilestone = hasMilestone(input.milestones, 'rain_name')
@@ -74,13 +77,13 @@
 
     turns.forEach((turn, index) => {
       const age = turns.length - 1 - index;
-      const evidence = Object.fromEntries(ENTITIES.map(entity => [entity.id, 0]));
+      const evidence = Object.fromEntries(entities.map(entity => [entity.id, 0]));
       turn.forEach(message => {
         const text = message.text;
         const question = message === last && message.role !== 'user' && /[?？]\s*$/.test(text);
         const weight = question ? .55 : 1.5;
-        ENTITIES.forEach(entity => {
-          let mentioned = entity.pattern.test(text);
+        entities.forEach(entity => {
+          let mentioned = entity.object ? text.includes(entity.object.label) || text === entity.object.source?.createdBy || text === entity.object.source?.lastChangedBy || new RegExp(`\\b${entity.object.id}\\b`).test(text) : entity.pattern.test(text);
           // Quoting the assigned name is earned evidence even without saying 名字.
           if (entity.id === 'name' && named && text.includes(actualName)) mentioned = true;
           // Only pronouns that refer to the player count, not the player's 你 (= her).
@@ -98,7 +101,7 @@
           if (/我(?:给|起|取|来|的)|\bI\b/.test(text) && /名|记得|来过|\bname\b/i.test(text)) evidence.player += .55;
         }
       });
-      ENTITIES.forEach(entity => {
+      entities.forEach(entity => {
         scores[entity.id] += Math.min(TURN_CAP, evidence[entity.id]) * Math.pow(DECAY, age);
       });
     });
@@ -118,10 +121,11 @@
       encountered.add('player');
       scores.player += .2;
     }
+    for (const item of objects) { encountered.add(`object:${item.id}`); scores[`object:${item.id}`] += .4; }
     const topicEntity = TOPICS[input.topic];
     if (encountered.has(topicEntity)) scores[topicEntity] += .2;
 
-    const selected = ENTITIES.map((entity, order) => ({
+    const selected = entities.map((entity, order) => ({
       id: entity.id,
       label: entity.label,
       // A tiny persistent floor records an encounter without erasing history.
