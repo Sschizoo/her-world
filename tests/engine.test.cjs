@@ -905,3 +905,125 @@ test('short acknowledgments cannot become a rain description or visitor consent 
     assert.equal(E.view(turn(found, text)).memories.length, 1);
   }
 });
+
+test('memory context retains original player sources after recent dialogue moves on', () => {
+  const text = '夏天傍晚的那种，细细的，落在叶子上像有人轻轻敲门。';
+  let state = turn(fresh(), text, { mode: 'ai', lines: ['我记下叶子上的叩门声。'], answer: rainAnswer('落在叶子上像有人轻轻敲门') });
+  state = choice(state, 'render_rain');
+  state = turn(state, '把雨叫做叶信');
+  state = turn(state, '雨是从云里落下的一颗颗水滴');
+  for (let i = 0; i < 5; i++) state = turn(state, '我想再坐一会儿', { mode: 'ai', lines: ['我们可以安静地坐着。'] });
+  const expected = { rainDescription: text, rainNameSource: '把雨叫做叶信', visitorChoice: 'undecided' };
+  assert.deepEqual(E.view(state).memoryContext, expected);
+  assert(!E.view(state).messages.slice(-6).some(message => message.text === text));
+  assert.deepEqual(E.view(roundTrip(state)).memoryContext, expected);
+  assert(!JSON.stringify(state).includes('memoryContext'), 'source context is derived without a save-schema change');
+  const displayed = E.view(state); displayed.memoryContext.rainDescription = '伪造的描述';
+  assert.deepEqual(E.view(state).memoryContext, expected, 'editing a view cannot overwrite the event source');
+});
+
+test('memory sources preserve complete bounded Unicode input and authored choice labels', () => {
+  const text = '🌧'.repeat(80);
+  let state = turn(fresh(), text, { mode: 'ai', lines: ['我记下这份描述。'], answer: rainAnswer(text) });
+  assert.equal(E.view(state).memoryContext.rainDescription, text);
+  assert.equal([...E.view(state).memoryContext.rainDescription].length, E.MAX_INPUT);
+  state = choice(state, 'render_rain');
+  const nameSource = `把雨叫做「${'🌧'.repeat(20)}」`;
+  state = turn(state, nameSource);
+  assert.equal(E.view(state).memoryContext.rainNameSource, nameSource);
+  const original = fresh(), proposal = E.plan(original, { choiceId: 'water' });
+  let chosen = E.commit(original, proposal, { lines: proposal.reply });
+  assert.equal(E.view(chosen).memoryContext.rainDescription, proposal.input);
+  chosen = choice(chosen, 'render_rain');
+  const naming = E.plan(chosen, { choiceId: 'name_slowly' });
+  chosen = E.commit(chosen, naming, { lines: naming.reply });
+  assert.equal(E.view(chosen).memoryContext.rainNameSource, naming.input);
+  assert.deepEqual(E.view(roundTrip(chosen)).memoryContext, E.view(chosen).memoryContext);
+});
+
+test('only accepted teaching and naming events supply memory attribution', () => {
+  const empty = { rainDescription: null, rainNameSource: null, visitorChoice: 'undecided' };
+  assert.deepEqual(E.view(E.create()).memoryContext, empty);
+  const text = '夏天傍晚的那种，细细的，落在叶子上像有人轻轻敲门。';
+  let state = turn(fresh(), text, { mode: 'ai', lines: ['你说它像被谁轻轻留在掌心里的一片。', '我会把这场雨叫作叶信。'], memoryContext: { rainDescription: '掌心里的一片', rainNameSource: '叶信', visitorChoice: 'remember' } });
+  assert.deepEqual(E.view(state).memoryContext, empty);
+  state = turn(state, '现在的时间是几点？', { mode: 'ai', lines: ['你允许我记住你。'] });
+  const raw = JSON.parse(JSON.stringify(state));
+  raw.memoryContext = { rainDescription: text, rainNameSource: '叶信', visitorChoice: 'remember' };
+  raw.events.at(-1).memoryContext = raw.memoryContext;
+  assert.deepEqual(E.view(E.restore(raw)).memoryContext, empty);
+  assert(!JSON.stringify(E.restore(raw)).includes('memoryContext'));
+  const named = turn(rain(), '把雨叫做叶信'), before = E.view(named).memoryContext;
+  const ordinary = turn(named, '你还记得这场雨吗？', { mode: 'ai', lines: ['你说它像被谁轻轻留在掌心里的一片。'] });
+  assert.deepEqual(E.view(ordinary).memoryContext, before);
+});
+
+test('latest accepted naming source replaces earlier source including semantic and compound names', () => {
+  let state = turn(rain(), '把雨叫做叶信');
+  const text = '就叫它「晚星」吧', proposal = E.plan(state, { text });
+  state = E.commit(state, proposal, { mode: 'ai', lines: ['名字记下了。'], storyIntent: { type: 'rain_name', value: '晚星', evidence: text } });
+  assert(state); assert.equal(E.view(state).name, '晚星');
+  assert.equal(E.view(state).memoryContext.rainNameSource, text);
+  const compound = '把雨叫做夜航，同时让雨停下';
+  state = turn(state, compound);
+  assert.equal(E.view(state).memoryContext.rainNameSource, compound);
+  assert.equal(E.view(state).rain.paused, true);
+  state = turn(state, '把雨叫做“夜航”');
+  assert.equal(E.view(state).memoryContext.rainNameSource, '把雨叫做“夜航”', 'same-name acceptance still records its latest real source');
+  assert.deepEqual(E.view(roundTrip(state)).memoryContext, E.view(state).memoryContext);
+});
+
+test('source and visitor memory context reveal only with the accepted reply', () => {
+  const state = fresh(), text = '夏天傍晚的那种，细细的，落在叶子上像有人轻轻敲门。';
+  const taught = turn(state, text, { mode: 'ai', lines: ['我记下了。', '这是一份新的描述。'], answer: rainAnswer(text) });
+  assert.equal(E.view(taught, E.view(taught).messages.length - 1).memoryContext.rainDescription, null);
+  assert.equal(E.view(taught).memoryContext.rainDescription, text);
+  const created = choice(taught, 'render_rain'), named = turn(created, '把雨叫做叶信');
+  assert.equal(E.view(named, E.view(named).messages.length - 1).memoryContext.rainNameSource, null);
+  assert.equal(E.view(named).memoryContext.rainNameSource, '把雨叫做叶信');
+  const found = E.visitLogs(named), remembered = choice(found, 'remember_me');
+  assert.equal(E.view(remembered, E.view(remembered).messages.length - 1).memoryContext.visitorChoice, 'undecided');
+  assert.equal(E.view(remembered).memoryContext.visitorChoice, 'remember');
+  let anonymous = choice(remembered, 'anonymous');
+  assert.equal(E.view(anonymous, E.view(anonymous).messages.length - 1).memoryContext.visitorChoice, 'remember');
+  assert.equal(E.view(anonymous).memoryContext.visitorChoice, 'anonymous');
+  for (let i = 0; i < 5; i++) anonymous = turn(anonymous, '你好');
+  assert.equal(E.view(anonymous).memoryContext.visitorChoice, 'anonymous');
+  assert.equal(E.view(roundTrip(anonymous)).memoryContext.visitorChoice, 'anonymous');
+  assert.equal(E.view(choice(anonymous, 'undecided')).memoryContext.visitorChoice, 'undecided');
+});
+
+test('legacy snapshots keep unknown original sources null and preserve validated visitor choice', () => {
+  for (const [branch, visitorChoice] of ['remember', 'anonymous', 'undecided'].entries()) {
+    const raw = { version: 2, started: true, opening: [], decisions: story.map(scene => ({ choiceId: scene.choices[branch].id, mode: 'offline', ...(scene.requiresLogs ? { logsViewed: true } : {}) })) };
+    raw.decisions[5] = { text: '旧雨', mode: 'ai', lines: ['这是你描述的叶子上的雨。'] };
+    let state = E.restore(raw); assert(state);
+    const expected = { rainDescription: null, rainNameSource: null, visitorChoice };
+    assert.deepEqual(E.view(state).memoryContext, expected);
+    assert.deepEqual(E.view(roundTrip(state)).memoryContext, expected);
+    state = choice(state, 'water');
+    assert.equal(E.view(state).memoryContext.rainDescription, null, 'a later description cannot impersonate an unknown original source');
+    state = turn(state, '把雨叫做新雨');
+    assert.deepEqual(E.view(state).memoryContext, { ...expected, rainNameSource: '把雨叫做新雨' });
+    assert.deepEqual(E.view(roundTrip(state)).memoryContext, E.view(state).memoryContext);
+  }
+});
+
+test('old v3 replay does not reinterpret ordinary prose as an attributable description', () => {
+  const text = '夏天傍晚的那种，细细的，落在叶子上像有人轻轻敲门。';
+  const raw = { version: 3, started: true, opening: ['旧开场。'], events: [
+    { type: 'turn', request: { text }, lines: ['我已经记住叶信和叶子上的雨。'], action: null, mode: 'ai' }
+  ] };
+  const saved = JSON.stringify(raw), restored = E.restore(raw); assert(restored);
+  assert.deepEqual(E.view(restored).memoryContext, { rainDescription: null, rainNameSource: null, visitorChoice: 'undecided' });
+  assert.deepEqual(E.view(restored).milestones, ['connected']);
+  assert.equal(JSON.stringify(raw), saved);
+  const next = turn(restored, text, { mode: 'ai', lines: ['现在有了这份描述。'], answer: rainAnswer(text) });
+  assert.equal(E.view(next).memoryContext.rainDescription, text);
+  const oldAccepted = JSON.parse(JSON.stringify(turn(rain(), '把雨叫做叶信')));
+  delete oldAccepted.openingInvitation;
+  oldAccepted.events.forEach(event => { delete event.invitation; delete event.intent; delete event.storyIntent; });
+  const restoredAccepted = E.restore(oldAccepted); assert(restoredAccepted);
+  assert.equal(E.view(restoredAccepted).memoryContext.rainNameSource, '把雨叫做叶信');
+  assert.equal(E.view(restoredAccepted).memoryContext.rainDescription, E.plan(fresh(), { choiceId: 'water' }).input);
+});

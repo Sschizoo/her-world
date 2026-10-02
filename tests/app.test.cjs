@@ -35,7 +35,7 @@ function runtime(options={}){
   let ai={connected:()=>connected,connect:k=>(connected=k.length>=8),disconnect:()=>{connected=false;},calls:()=>requestCount,request:async data=>{requestCount++;if(options.request)return options.request(data);return data.opening ? ['这是模拟模型的一句回应。'] : {lines:['这是模拟模型的一句回应。'],action:data.requireActionEvidence?null:data.allowedActions?.[0]||null,structured:true};}};
   const mediaEvents=[];const media={matches:options.reducedMotion!==false,addEventListener:(name,fn)=>mediaEvents.push(fn)};
   const window={HER_STORY:story,HerEngine:engine,HerFocus:focus,matchMedia:()=>media,addEventListener:(e,fn)=>(events[e]||=[]).push(fn)};
-  const context={window,document,HerAI:ai,HerWorld:{setProgress(){},setRain(){},pause(){}},localStorage:{getItem:k=>{if(options.blockStorage)throw Error('blocked');return storage.get(k)||null;},setItem:(k,v)=>{if(options.blockStorage)throw Error('blocked');storage.set(k,v);},removeItem:k=>{if(options.blockStorage||options.storageRemovalFails)throw Error('blocked');storage.delete(k);}},setTimeout:options.clock?options.clock.setTimeout:(fn,ms)=>ms>1000?1:setTimeout(fn,0),clearTimeout:options.clock?options.clock.clearTimeout:clearTimeout,requestAnimationFrame:fn=>fn(),console};if(options.provider){context.AbortController=AbortController;context.TextEncoder=TextEncoder;context.TextDecoder=TextDecoder;context.fetch=async(url,settings)=>{requestCount++;const body=JSON.parse(settings.body),payload=JSON.parse(body.messages.at(-1).content),content=await options.provider(payload);return new Response(JSON.stringify({choices:[{message:{content:typeof content==='string'?content:JSON.stringify(content)},finish_reason:'stop'}]}),{status:200});};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../ai.js'),'utf8'),context);ai=window.HerAI;context.HerAI=ai;}vm.runInNewContext(source,context);
+  const context={window,document,HerAI:ai,HerWorld:{setProgress(){},setRain(){},pause(){}},localStorage:{getItem:k=>{if(options.blockStorage)throw Error('blocked');return storage.get(k)||null;},setItem:(k,v)=>{if(options.blockStorage)throw Error('blocked');storage.set(k,v);},removeItem:k=>{if(options.blockStorage||options.storageRemovalFails)throw Error('blocked');storage.delete(k);}},setTimeout:options.clock?options.clock.setTimeout:(fn,ms)=>ms>1000?1:setTimeout(fn,0),clearTimeout:options.clock?options.clock.clearTimeout:clearTimeout,requestAnimationFrame:fn=>fn(),console};if(options.provider){context.AbortController=AbortController;context.TextEncoder=TextEncoder;context.TextDecoder=TextDecoder;context.fetch=async(url,settings)=>{requestCount++;const body=JSON.parse(settings.body),payload=JSON.parse(body.messages.at(-1).content),content=await options.provider(payload,body);return new Response(JSON.stringify({choices:[{message:{content:typeof content==='string'?content:JSON.stringify(content)},finish_reason:'stop'}]}),{status:200});};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../ai.js'),'utf8'),context);ai=window.HerAI;context.HerAI=ai;}vm.runInNewContext(source,context);
   return {ids,storage,ai,events,all,setReduced(value){media.matches=value;mediaEvents.forEach(fn=>fn({matches:value}));},async key(event){for(const fn of events.keydown||[])await fn({preventDefault(){},...event});},count:()=>requestCount,async click(id){await ids[id].emit('click');},async choose(n=0){const buttons=ids.choices.children.filter(x=>x.dataset.choice);await buttons[n].emit('click');await new Promise(r=>setTimeout(r,5));},async offline(){await ids['start-button'].emit('click');await ids['offline-button'].emit('click');},async say(text){ids['free-input'].value=text;await ids['free-form'].emit('submit');await new Promise(r=>setTimeout(r,5));},async action(id){const button=[...ids.choices.children,...ids['weather-controls'].children,...all].find(x=>x.dataset.choice===id||x.dataset.skill===id||x.dataset.choiceId===id);assert(button,`missing button ${id}`);await button.emit('click');if(button.dataset.skill)await ids['free-form'].emit('submit');await new Promise(r=>setTimeout(r,5));},get saved(){return JSON.parse(storage.get('her-world.prologue.v3')||'null');}};
 }
 
@@ -178,4 +178,22 @@ test('a player can follow visible invitations through the prologue using ordinar
   }
   assert.equal(view(r).index,9);assert(view(r).ended);assert.equal(view(r).name,'晚风');assert.equal(view(r).memories.length,1);
   assert.deepEqual(visited,['rain_description','rain_create','rain_change','rain_name','own_reason','visitor_choice','farewell']);
+});
+
+test('validated first-rain and latest naming sources survive recent-context eviction and anonymous consent',async()=>{
+  const description='夏天傍晚的那种，细细的，落在叶子上像有人轻轻敲门。';
+  let state=engine.start(engine.create());
+  const proposal=engine.plan(state,{text:description});
+  state=engine.commit(state,proposal,{mode:'ai',lines:['我记住你描述的雨了。'],answer:{type:'rain_definition',question:'teach_rain',evidence:description}});
+  state=advance(state,{choiceId:'render_rain'});state=advance(state,{text:'把雨叫做叶信'});state=engine.visitLogs(state);
+  state=advance(state,{choiceId:'enough'});state=advance(state,{choiceId:'anonymous'});
+  state=advance(state,{text:'把雨叫做归舟'});
+  for(let i=0;i<5;i++)state=advance(state,{text:'我想在这里待一会儿'});
+  let received, sentBody;
+  const r=withState(state,{provider:async (ctx,body)=>{received=ctx;sentBody=body;return '这场雨现在叫归舟。';}});
+  await r.click('ai-status-button');r.ids['api-key'].value='MOCK_ONLY_KEY';await r.ids['connect-form'].emit('submit');
+  await r.say('你还记得这场雨的名字吗？');
+  assert(received);assert(!sentBody.messages.slice(1,-1).some(item=>item.content.includes(description)));assert.equal(received.memoryContext.rainDescription,description);assert.equal(received.memoryContext.rainNameSource,'把雨叫做归舟');assert.equal(received.memoryContext.visitorChoice,'anonymous');
+  assert.equal(received.world.rain.name,'归舟');assert.equal(view(r).memories.length,1);assert(!JSON.stringify(r.saved).includes('MOCK_ONLY_KEY'));
+  const restored=runtime({storage:r.storage});assert.equal(view(restored).memoryContext.rainDescription,description);assert.equal(restored.count(),0);
 });

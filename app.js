@@ -214,7 +214,7 @@
   function renderPresentation() {
     const view = snapshot(revealedCount), progress = view.index / view.maxMilestones;
     softText('connection-label', state.started ? 'PROCESS / STILL LEARNING' : 'WAITING FOR YOU');
-    softText('progress-label', state.started ? 'PROLOGUE v0.3.4 / 不必赶路' : 'PROLOGUE v0.3.4 / 初次相遇');
+    softText('progress-label', state.started ? 'PROLOGUE v0.3.5 / 不必赶路' : 'PROLOGUE v0.3.5 / 初次相遇');
     softText('world-caption', view.name !== '未命名的雨' ? `「${view.name}」` : view.rain.created ? '第一次一起看雨' : '一扇尚未被命名的窗');
     softText('world-status', view.rain.created ? `rain.${view.rain.paused ? 'paused' : view.rain.density} / persistent` : 'world.build = incomplete');
     softText('world-code', view.memories.length ? 'gc.retain("first_rain");' : view.rain.created ? 'skills.rain = reusable;' : 'const world = await you;');
@@ -243,7 +243,7 @@
     if (busy) return; busy = true; pending = { opening: true }; $('request-error').hidden = true;
     if (mode === 'offline') { state = ENGINE.start(state); busy = false; pending = null; save(); render(); return; }
     const version = ++operation; render();
-    try { const view = ENGINE.view(state); const lines = await HerAI.request({ scene: STORY[0], input: '', rainName: '', recent: [], opening: true, world: { rain: view.rain, name: view.name, milestones: view.milestones }, guidance: ENGINE.guidance(state) }); if (version !== operation) return; state = ENGINE.start(state, lines); mode = 'ai'; busy = false; pending = null; save(); render(); }
+    try { const view = ENGINE.view(state); const lines = await HerAI.request({ scene: STORY[0], input: '', rainName: '', recent: [], opening: true, world: { rain: view.rain, name: view.name, milestones: view.milestones }, guidance: ENGINE.guidance(state), memoryContext: view.memoryContext }); if (version !== operation) return; state = ENGINE.start(state, lines); mode = 'ai'; busy = false; pending = null; save(); render(); }
     catch (error) { if (version !== operation) return; busy = false; mode = 'error'; render(); showError(error); }
   }
   function showError(error) { $('request-error-text').textContent = error.message; $('request-error').hidden = false; $('retry-button').disabled = !HerAI.connected(); $('free-form').hidden = true; document.querySelectorAll('.choice').forEach(b => { b.disabled = true; }); updateStatus(); }
@@ -265,7 +265,7 @@
     let result;
     if (mode === 'offline') { result = { lines: proposal.reply, action: proposal.action, mode: 'offline' }; await new Promise(resolve => setTimeout(resolve, paused ? 80 : 260)); }
     else {
-      try { result = await HerAI.request({ scene: STORY.find(scene => scene.id === proposal.topic) || STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion, requireActionEvidence: proposal.requireActionEvidence, allowedStoryIntents: proposal.allowedStoryIntents, acceptedStoryIntent: proposal.acceptedStoryIntent, guidance: proposal.guidance }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
+      try { result = await HerAI.request({ scene: STORY.find(scene => scene.id === proposal.topic) || STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion, requireActionEvidence: proposal.requireActionEvidence, allowedStoryIntents: proposal.allowedStoryIntents, acceptedStoryIntent: proposal.acceptedStoryIntent, guidance: proposal.guidance, memoryContext: view.memoryContext }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
       catch (error) { if (version !== operation) return; busy = false; mode = 'error'; render(); showError(error); return; }
     }
     if (version !== operation) return;

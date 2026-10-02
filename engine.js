@@ -227,10 +227,16 @@
     if (description.navigation && ((description.topic === 'teach_rain' && !state.milestones.includes('rain_taught')) || (description.topic === 'rain_name' && !state.milestones.includes('rain_named')))) state.pendingTopic = description.topic;
     if ((teach && state.pendingTopic === 'teach_rain') || (description.name && state.pendingTopic === 'rain_name')) state.pendingTopic = null;
     if (state.ended && !description.goodbye) { state.ended = false; logs.push('conversation.resume()  // 无需重头开始'); }
-    if (teach) { mark(state, 'rain_taught'); logs.push('rain.definition.source = "conversation"'); }
+    if (teach) {
+      // Keep the first validated player description, never a model paraphrase.
+      // A legacy milestone with no source must remain unknown on later turns.
+      if (!state.milestones.includes('rain_taught')) state.memoryContext.rainDescription = event.request.text || label(event.request.choiceId);
+      mark(state, 'rain_taught'); logs.push('rain.definition.source = "conversation"');
+    }
     applyWeather(state, event.action, description.render, logs);
     if (description.name) {
       state.name = description.name; mark(state, 'rain_named'); logs.push(`rain.name = ${JSON.stringify(state.name)}`);
+      state.memoryContext.rainNameSource = event.request.text || label(event.request.choiceId);
       const remembered = state.memories.find(item => item.id === 'first_rain');
       if (remembered) remembered.title = state.name;
     }
@@ -255,6 +261,9 @@
   }
   function initial(state) {
     const value = state.legacy ? copy(state.legacy.state) : base();
+    // Derived only from validated turns; old snapshots and prose do not supply
+    // an attributable source. These bounded strings are never persisted anew.
+    value.memoryContext = { rainDescription: null, rainNameSource: null };
     if (state.started) mark(value, 'connected');
     if (state.openingInvitation) value.invitation = copy(state.openingInvitation);
     return value;
@@ -517,7 +526,8 @@
       });
     }
     const rain = { name: visible.name, density: visible.density, paused: visible.paused, created: visible.created };
-    return { messages, logs: visible.logs || [], memories: visible.memories, name: visible.name, effect: !visible.created || visible.paused ? 'pause_rain' : { gentle: 'soft_rain', normal: 'normal', heavy: 'heavy_rain' }[visible.density], rain, index: visible.milestones.length, sceneIndex: TOPICS.indexOf(visible.topic), milestones: visible.milestones, maxMilestones: MILESTONES.length, topic: visible.topic, pendingTopic: pendingQuestion(visible), invitation: invitationDetails(visible.invitation), ended: visible.ended, neutralHints: visible.neutralHints, logsEligible: eligible(visible), tone: 'quiet', status: !state.started ? '等待连接' : visible.ended ? '暂别 · 随时可以继续聊' : visible.created ? `雨${visible.paused ? '暂时停着' : '正在落下'} · 可以自由交谈` : '第一次相遇 · 不必急着往下走' };
+    const memoryContext = { ...visible.memoryContext, visitorChoice: ['remember', 'anonymous', 'undecided'].includes(visible.visitor) ? visible.visitor : 'undecided' };
+    return { messages, logs: visible.logs || [], memories: visible.memories, memoryContext, name: visible.name, effect: !visible.created || visible.paused ? 'pause_rain' : { gentle: 'soft_rain', normal: 'normal', heavy: 'heavy_rain' }[visible.density], rain, index: visible.milestones.length, sceneIndex: TOPICS.indexOf(visible.topic), milestones: visible.milestones, maxMilestones: MILESTONES.length, topic: visible.topic, pendingTopic: pendingQuestion(visible), invitation: invitationDetails(visible.invitation), ended: visible.ended, neutralHints: visible.neutralHints, logsEligible: eligible(visible), tone: 'quiet', status: !state.started ? '等待连接' : visible.ended ? '暂别 · 随时可以继续聊' : visible.created ? `雨${visible.paused ? '暂时停着' : '正在落下'} · 可以自由交谈` : '第一次相遇 · 不必急着往下走' };
   }
   function guidance(state) {
     if (!state || state.version !== 3) return null;

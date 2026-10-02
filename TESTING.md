@@ -94,3 +94,21 @@ New mocked application coverage includes the exact observed organic-question/met
 This iteration's automated tests use mocks only. The four live requests above verified the v0.3.3 defect, not the repaired v0.3.4 model experience. Publication and an explicitly reconnected live session are needed for that subsequent check.
 
 Pre-publication aggregate: 218 checks pass (37 application, 69 engine, 20 focus, 5 world, 87 transport), plus syntax checks for all six scripts. The complete invitation-driven mock route additionally checks that every question sent to the model exactly matches the one visible to the player. Direct offline help requests return the current invitation without completing it; ambiguous acknowledgments or deferrals do not count as learning rain, literal names, or consenting to a visitor reference. Explicit and quoted literal names remain valid, including words such as 随便 when deliberately named.
+
+## v0.3.4 published and live novice-style route
+
+The published build, all script/style version tags and desktop invitation layout were verified in a separate key-free tab. The returning save gained only its validated resume-invitation boundary; transcript and world state were preserved.
+
+After the player personally reconnected, the actual page contained a fresh v0.3.4 opening. Testing continued without reset. Twelve requests were initiated: eleven completed replies and one 30-second timeout, which was manually retried once successfully. No automatic retry or credential inspection/entry occurred. All nine milestones were reached by responding naturally to her dialogue and the visible invitation. No story or weather choice buttons were used; actual log viewing was the discovery action.
+
+The exact summer/leaf description that stalled in v0.3.3 now taught rain without creating it. A clock question left state alone; “好呀，就试试看。” created the first rain; a request for more space between drops changed density to gentle. Deferring the name preserved it unresolved, and the bare answer “叶信” became the accepted name. The visible log invitation led to first_rain, a normal opinion about keeping something without needing utility completed her reason, explicit permission created the visitor reference, and a natural goodnight completed the prologue. Reopening preserved the gentle rain, name and two memories. Pacing and drawer layout were visibly checked.
+
+One non-blocking model issue was observed: the clock reply appended another rain invitation despite the no-nag instruction; the later request to stay quietly was respected. More materially, final name recall returned 叶信 correctly but invented a player-attributed description about a leaf in a palm. That sentence was not in the conversation. Paid requests stopped after the twelfth request, and the connected session was preserved.
+
+## v0.3.5 — retained source context for attributed memories
+
+Adds only a small event-derived memory context: first accepted rain-description source, latest actual naming source, and current visitor choice. Historical model prose cannot provide these facts. Original source evidence survives the six-message recent-context limit; renamed rain uses its latest naming source; legacy unknown sources remain null; anonymous consent stays explicit. The output protocol and state-changing permissions are unchanged. Prompt rules forbid inventing prior player quotations and distinguish her current imagery from something the player actually said.
+
+Tests use mocked requests and validate source provenance, reveal gating, restore, history eviction, renaming, absent sources and anonymous context. This is a focused grounding improvement; it does not establish that arbitrary future model prose cannot hallucinate. No live provider call has been made on v0.3.5.
+
+Final pre-publication validation: 235 checks pass (38 application, 76 engine, 20 focus, 5 world, 96 transport), plus six script syntax checks. Independent review reran the aggregate and checked legacy/source/consent boundaries without browser or provider access. The existing fabricated recent-assistant quotation is covered as untrusted attribution evidence; only accepted player-event sources supply the retained facts.
