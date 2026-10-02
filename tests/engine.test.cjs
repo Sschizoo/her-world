@@ -1156,3 +1156,15 @@ test('explicit canonical weather naming farewell and consent keep precedence ove
   state = turn(state, '晚安'); assert.equal(E.view(state).ended, true); assert.deepEqual(E.view(state).scene.objects, before); assert.deepEqual(roundTrip(state), state);
   const rename = E.plan(turn(fresh(), '画一张长椅'), { text: '把长椅的名字改成雨' }); assert.equal(rename.sceneEdits.length, 0);
 });
+
+
+test('offline here-placement creates a named bench that can be moved and restored', () => {
+  const input = '在这里放一张能坐两个人的长椅';
+  let state = turn(fresh(), input);
+  assert.equal(E.view(state).scene.objects[0].label, '长椅');
+  assert.equal(E.view(state).scene.objects[0].source.createdBy, input);
+  state = turn(state, '把长椅移到窗边');
+  assert.equal(E.view(state).scene.objects[0].x, 27); assert.equal(E.view(state).scene.objects[0].y, 43);
+  assert.deepEqual(E.view(state).milestones, ['connected']);
+  assert.deepEqual(roundTrip(state), state);
+});

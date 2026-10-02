@@ -122,3 +122,13 @@ Local integration routes use the real mocked transport and engine: a novel two-s
 Renderer checks cover arbitrary patterns, movement/scale/pattern/removal transitions, reduced motion, defensive malformed payloads, bounded replacement layers, resize, and continued monochrome text-only rendering. All requests in this implementation pass are mocked. No real credential, provider generation or paid test was used for v0.4.0; deployed desktop playtests follow publication.
 
 Final pre-publication aggregate: 297 checks pass (45 application, 85 engine, 15 shared scene validator, 22 focus, 13 renderer, 117 transport), plus all seven script syntax checks. Independent review ran a separate real-parser bench route and adversarial checks. Regressions include exact object-ID boundaries, singular focus versus stale/plural/excluded references, negation and historical questions, annotation refusal and clear-only requests, protocol/key/reasoning leakage, reserved weather labels, and ordinary rain descriptions mentioning a bench. Explicit rain naming, weather, farewell and visitor consent retain their own authority even when object labels overlap. A partial script load cannot overwrite an existing save.
+
+## v0.4.0 desktop playtest and v0.4.1 polish
+
+The cloud browser had restarted and displayed a fresh introductory screen, with no restored dialogue or AI session. The offline QA playthrough was created from that visible empty state without resetting an existing save. Published v0.4.0 and its four-panel navigation were verified.
+
+Actual desktop checks confirmed creation, gradual movement to the window, scaling and a newly supplied multiline ASCII pattern; the player meaning and character interpretation could be set separately, and revising the meaning retained the interpretation. A side question cleared the active referent: a stale “它” request clarified without moving the object, while explicitly recalling the bench restored an unambiguous singular reference. All of those edits left the rain-learning question pending. No provider or paid request was made.
+
+The playtest found an offline extraction defect: “在这里放一张能坐两个人的长椅” used the entire utterance as its object label. v0.4.1 fixes leading location phrases while retaining the exact original input as provenance. A single-object drawer now uses the available width to show appearance, player meaning and character interpretation together. This does not alter scene authority or history.
+
+v0.4.1 pre-publication aggregate: 299 checks pass (45 application, 86 engine, 16 scene validator, 22 focus, 13 renderer, 117 transport). Actual refresh/replay and the follow-up layout are verified separately after deployment.

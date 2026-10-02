@@ -142,7 +142,7 @@
   }
   function appendMeaning(target, annotation) {
     for (const [field, title] of [['meaning', '你赋予的意义'], ['interpretation', '她目前的理解']]) {
-      const row = element('div', 'meaning-row'); row.append(element('span', 'meaning-label', title), element('p', '', annotation?.[field] || '还没有写下，可以继续聊。'));
+      const row = element('div', 'meaning-row'); row.dataset.field = field; row.append(element('span', 'meaning-label', title), element('p', '', annotation?.[field] || '还没有写下，可以继续聊。'));
       if (annotation?.sources?.[field]) row.append(element('p', 'source-evidence', `来自这句话：${annotation.sources[field]}`));
       target.append(row);
     }
@@ -154,6 +154,7 @@
     $('objects-help').textContent = `最多 8 件，每件最多 24×10 个字符。${mode === 'offline' ? '离线会先画可调整的字符框，联机可按描述生成新图案。' : '说出你想放进窗外的东西，再移动、改形状或重新解释它。'} 清除意义或理解时，原始对白仍保留。`;
     const signature = JSON.stringify([view.scene, view.name, view.memoryContext, locked]); if (objectSignature === signature) return; objectSignature = signature;
     const target = $('objects-list'); target.replaceChildren();
+    target.classList.toggle('single', objects.length + (view.scene?.annotations?.first_rain ? 1 : 0) === 1);
     if (!objects.length) target.append(element('p', 'objects-empty', '窗外还没有你们添上的物件。可以说：“在窗边放一张能坐两个人的长椅。”'));
     if (view.scene?.annotations?.first_rain) {
       const rainCard = element('article', 'object-card'); rainCard.append(element('div', 'memory-id', 'first_rain · 当前注解'), element('h3', '', view.name)); appendMeaning(rainCard, view.scene.annotations.first_rain);
@@ -257,7 +258,7 @@
   function renderPresentation() {
     const view = snapshot(revealedCount), progress = view.index / view.maxMilestones;
     softText('connection-label', state.started ? 'PROCESS / STILL LEARNING' : 'WAITING FOR YOU');
-    softText('progress-label', state.started ? 'PROLOGUE v0.4.0 / 不必赶路' : 'PROLOGUE v0.4.0 / 初次相遇');
+    softText('progress-label', state.started ? 'PROLOGUE v0.4.1 / 不必赶路' : 'PROLOGUE v0.4.1 / 初次相遇');
     softText('world-caption', view.name !== '未命名的雨' ? `「${view.name}」` : view.rain.created ? '第一次一起看雨' : '一扇尚未被命名的窗');
     softText('world-status', view.rain.created ? `rain.${view.rain.paused ? 'paused' : view.rain.density} / persistent` : 'world.build = incomplete');
     softText('world-code', view.memories.length ? 'gc.retain("first_rain");' : view.rain.created ? 'skills.rain = reusable;' : 'const world = await you;');

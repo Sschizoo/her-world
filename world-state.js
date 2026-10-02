@@ -256,7 +256,7 @@
       return success({ type: 'update', target, changes, evidence }, [`“${item.label}”的当前样子改好了。`, '它的原始来历和已有的意义注解仍然分开保留。']);
     }
     if (operationAllowed('create', text) && !refs.length) {
-      let label = text.replace(/[。！!]+$/u, '').replace(/^(?:请|帮我|给我|你可以|能不能|可不可以|我想要|我想有|我想看|我想|想要|想有|想看|在窗边|窗边|这里|现在|那就)+/u, '').replace(/^(?:画|绘制|创建|建造|添加|加上|做|造|摆|放)(?:出|上)?/u, '').replace(/^一[个张把盏只座盆幅块件]/u, '').replace(/^(?:能坐(?:下)?(?:两|二|2)个?人|供(?:两|二|2)个?人坐)的/u, '').replace(/(?:[，,].*|(?:放在|放到|摆在|摆到).*|吧|好吗|好么|可以吗|行吗)$/u, '').trim();
+      let label = text.replace(/[。！!]+$/u, '').replace(/^(?:请|帮我|给我|你可以|能不能|可不可以|我想要|我想有|我想看|我想|想要|想有|想看|在这里|在那边|在这边|在那里|在窗边|窗边|这里|那边|这边|那里|现在|那就)+/u, '').replace(/^(?:画|绘制|创建|建造|添加|加上|做|造|摆|放)(?:出|上)?/u, '').replace(/^一[个张把盏只座盆幅块件]/u, '').replace(/^(?:能坐(?:下)?(?:两|二|2)个?人|供(?:两|二|2)个?人坐)的/u, '').replace(/(?:[，,].*|(?:放在|放到|摆在|摆到).*|吧|好吗|好么|可以吗|行吗)$/u, '').trim();
       const position = /窗边|窗旁|靠窗/u.test(text) ? { x: 30, y: 43 } : { x: 35, y: 42 };
       if (!string(label, MAX_LABEL) || !text.includes(label) || /雨$|^天气|^(?:它|这个|那个)$/u.test(label)) return failure('离线模式需要一个清楚的物件名，例如“画一张长椅”。');
       const width = /两|双|2/u.test(text) ? 16 : 10, glyphs = '+' + '-'.repeat(width) + '+\n|' + ' '.repeat(width) + '|\n+' + '-'.repeat(width) + '+\n |' + ' '.repeat(width - 2) + '|';

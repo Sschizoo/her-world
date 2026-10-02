@@ -170,3 +170,13 @@ test('an explicit character interpretation invitation still reaches the scene an
   assert(S.isSceneRequest(text, context(state))); assert(S.allowedEdits(text, context(state)).includes('annotate'));
   assert(S.validateEdits([annotation(text, 'interpretation', '一起停留的位置')], context(state), text));
 });
+
+
+test('offline placement prefixes keep the object noun separate from its exact creation source', () => {
+  for (const prefix of ['在这里', '在那边', '在这边', '在那里', '这里', '那边', '这边', '那里']) {
+    const text = `${prefix}放一张能坐两个人的长椅`, result = S.offline(context(), text);
+    assert.equal(result.edits.length, 1, text); assert.equal(result.edits[0].object.label, '长椅', text);
+    const state = S.applyEdits(S.empty(), result.edits, text); assert(state);
+    assert.equal(state.objects[0].source.createdBy, text); assert.equal(state.objects[0].glyphs.split('\n')[0].length, 18);
+  }
+});
