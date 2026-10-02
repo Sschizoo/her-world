@@ -13,7 +13,8 @@
   const count = v => [...v].length;
   const keys = (v, list) => object(v) && Object.keys(v).sort().join(',') === list.split(',').sort().join(',');
   const hidden = v => typeof v === 'string' && /<\/?(?:think|analysis|reasoning|scratchpad)\b|["'](?:lines|action|answer|intent|storyIntent|sceneEdits|reasoning_content|reasoning|analysis|thinking|debug|metadata)["']\s*:/iu.test(v);
-  const string = (v, max) => typeof v === 'string' && !hidden(v) && v.length > 0 && v === v.normalize('NFC').trim() && count(v) <= max && !/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/u.test(v);
+  const sourceText = (v, max) => typeof v === 'string' && v.length > 0 && v === v.normalize('NFC').trim() && count(v) <= max && !/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/u.test(v);
+  const string = (v, max) => sourceText(v, max) && !hidden(v);
   const reservedLabel = label => /^(?:雨|这场雨|第一场雨|天气|rain|weather)$/iu.test(label);
   const id = v => typeof v === 'string' && /^obj_[1-9][0-9]{0,2}$/u.test(v) && Number(v.slice(4)) <= 600;
   function empty() { return { grid: { cols: COLS, rows: ROWS }, nextId: 1, objects: [], annotations: {}, focusedTarget: null }; }
@@ -32,14 +33,14 @@
     for (const item of scene.objects) {
       if (!keys(item, 'id,label,glyphs,x,y,scale,source') || !id(item.id) || ids.has(item.id) || Number(item.id.slice(4)) >= scene.nextId ||
         !shape({ label: item.label, glyphs: item.glyphs, x: item.x, y: item.y, scale: item.scale }) ||
-        !keys(item.source, 'createdBy,lastChangedBy') || !string(item.source.createdBy, 80) || !string(item.source.lastChangedBy, 80)) return false;
+        !keys(item.source, 'createdBy,lastChangedBy') || !sourceText(item.source.createdBy, 80) || !sourceText(item.source.lastChangedBy, 80)) return false;
       ids.add(item.id);
     }
     if (!(scene.focusedTarget === null || (id(scene.focusedTarget) && ids.has(scene.focusedTarget)))) return false;
     for (const target of Object.keys(scene.annotations)) {
       const value = scene.annotations[target];
       if (!(ids.has(target) || target === 'first_rain') || !keys(value, 'meaning,interpretation,sources') || !keys(value.sources, 'meaning,interpretation')) return false;
-      for (const field of ['meaning', 'interpretation']) if (!(value[field] === null || string(value[field], MAX_ANNOTATION)) || !(value.sources[field] === null || string(value.sources[field], 80)) || (value[field] !== null && value.sources[field] === null)) return false;
+      for (const field of ['meaning', 'interpretation']) if (!(value[field] === null || string(value[field], MAX_ANNOTATION)) || !(value.sources[field] === null || sourceText(value.sources[field], 80)) || (value[field] !== null && value.sources[field] === null)) return false;
     }
     return true;
   }
@@ -47,13 +48,13 @@
     if (!validScene(scene)) return null;
     const source = object(options.firstRainSource) ? options.firstRainSource : {};
     return { ...copy(scene), firstRainAvailable: options.firstRainAvailable === true, firstRainSource: {
-      description: string(source.description, 80) ? source.description : null,
-      nameSource: string(source.nameSource, 80) ? source.nameSource : null
+      description: sourceText(source.description, 80) ? source.description : null,
+      nameSource: sourceText(source.nameSource, 80) ? source.nameSource : null
     } };
   }
   function contextScene(ctx) {
     if (!object(ctx) || !keys(ctx, 'grid,nextId,objects,annotations,focusedTarget,firstRainAvailable,firstRainSource') || typeof ctx.firstRainAvailable !== 'boolean' || !keys(ctx.firstRainSource, 'description,nameSource')) return null;
-    for (const field of ['description', 'nameSource']) if (!(ctx.firstRainSource[field] === null || string(ctx.firstRainSource[field], 80))) return null;
+    for (const field of ['description', 'nameSource']) if (!(ctx.firstRainSource[field] === null || sourceText(ctx.firstRainSource[field], 80))) return null;
     const scene = { grid: ctx.grid, nextId: ctx.nextId, objects: ctx.objects, annotations: ctx.annotations, focusedTarget: ctx.focusedTarget };
     return validScene(scene) && (ctx.firstRainAvailable || !own(scene.annotations, 'first_rain')) ? copy(scene) : null;
   }
@@ -185,6 +186,51 @@
     if (valid.length) next.focusedTarget = targets.size === 1 && next.objects.some(item => targets.has(item.id)) ? [...targets][0] : null;
     return next;
   }
+  // Online turns have already been interpreted as one coherent plan. Here the
+  // model chooses meaning and references; this boundary owns only typed data,
+  // existing targets, local IDs, source attribution and geometric limits.
+  // Keep validateEdits/applyEdits above unchanged for offline and v3 replay.
+  function semanticResult(edits, ctx, input) {
+    const scene = contextScene(ctx);
+    if (!scene || !sourceText(input, 80) || !Array.isArray(edits) || edits.length > MAX_EDITS) return null;
+    const refs = new Map(), targets = new Set(), normalized = [];
+    for (const edit of edits) {
+      if (!object(edit) || !TYPES.includes(edit.type)) return null;
+      if (edit.type === 'create') {
+        if (!(keys(edit, 'type,object') || keys(edit, 'type,ref,object')) || !shape(edit.object) || scene.objects.length >= MAX_OBJECTS || scene.nextId > 600) return null;
+        if (own(edit, 'ref') && (!/^new_[123]$/u.test(edit.ref) || refs.has(edit.ref))) return null;
+        const target = `obj_${scene.nextId++}`;
+        if (own(edit, 'ref')) refs.set(edit.ref, target);
+        scene.objects.push({ id: target, ...copy(edit.object), source: { createdBy: input, lastChangedBy: input } });
+        targets.add(target);
+      } else {
+        if (typeof edit.target !== 'string') return null;
+        const target = refs.get(edit.target) || edit.target;
+        const at = scene.objects.findIndex(item => item.id === target);
+        if (at < 0 && !(edit.type === 'annotate' && target === 'first_rain' && ctx.firstRainAvailable)) return null;
+        if (edit.type === 'update') {
+          if (!keys(edit, 'type,target,changes') || !object(edit.changes) || !Object.keys(edit.changes).length || !Object.keys(edit.changes).every(key => ['label', 'glyphs', 'x', 'y', 'scale'].includes(key))) return null;
+          const current = scene.objects[at], next = { label: current.label, glyphs: current.glyphs, x: current.x, y: current.y, scale: current.scale, ...edit.changes };
+          if (!shape(next)) return null;
+          scene.objects[at] = { id: target, ...copy(next), source: { createdBy: current.source.createdBy, lastChangedBy: input } };
+        } else if (edit.type === 'remove') {
+          if (!keys(edit, 'type,target')) return null;
+          scene.objects.splice(at, 1); delete scene.annotations[target];
+        } else {
+          if (!keys(edit, 'type,target,field,value') || !['meaning', 'interpretation'].includes(edit.field) || !(edit.value === null || string(edit.value, MAX_ANNOTATION))) return null;
+          if (!own(scene.annotations, target)) scene.annotations[target] = { meaning: null, interpretation: null, sources: { meaning: null, interpretation: null } };
+          scene.annotations[target][edit.field] = edit.value;
+          scene.annotations[target].sources[edit.field] = input;
+        }
+        targets.add(target);
+      }
+      normalized.push(copy(edit));
+    }
+    if (edits.length) scene.focusedTarget = targets.size === 1 && scene.objects.some(item => targets.has(item.id)) ? [...targets][0] : null;
+    return validScene(scene) ? { edits: normalized, scene } : null;
+  }
+  function validateSemanticEdits(edits, ctx, input) { return semanticResult(edits, ctx, input)?.edits || null; }
+  function applySemanticEdits(scene, edits, input, options = {}) { return semanticResult(edits, context(scene, options), input)?.scene || null; }
   function focusAfter(scene, input) {
     if (!validScene(scene)) return null;
     const next = copy(scene), text = typeof input === 'string' ? input : '';
@@ -270,5 +316,5 @@
     if (!target && (refs.length > 1 || /它|这个|那个|忘掉|忘记|清空|所有|全部/u.test(text))) return failure('请说清是哪一个物件，以及要移走它、修改它的意义，还是清掉我的解释。原始对话仍会保留。');
     return failure('我还不能确定这句话要怎样改变物件，可以说出物件名称和具体变化。');
   }
-  return Object.freeze({ empty, context, validateEdits, applyEdits, offline, isSceneRequest, allowedEdits, referenceIds, focusAfter, validScene, COLS, ROWS, MAX_OBJECTS, MAX_EDITS });
+  return Object.freeze({ empty, context, validateEdits, applyEdits, validateSemanticEdits, applySemanticEdits, offline, isSceneRequest, allowedEdits, referenceIds, focusAfter, validScene, COLS, ROWS, MAX_OBJECTS, MAX_EDITS });
 });

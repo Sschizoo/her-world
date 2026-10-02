@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id);
   // A partially loaded build must not replace a valid saved story with a blank
   // session. The extra scene module is required before any storage write.
-  if (!STORY || !ENGINE || !window.HerScene || !window.HerWorld || typeof HerAI === 'undefined') {
+  if (!STORY || !ENGINE || !window.HerScene || !window.HerTurn || !window.HerWorld || typeof HerAI === 'undefined') {
     $('start-button').disabled = true;
     const note = document.querySelector('.intro-note'); if (note) note.textContent = '页面组件尚未完整载入。请刷新后继续，已有存档不会在这里被改写。';
     return;
@@ -15,7 +15,7 @@
   let paused = motionPreference.matches;
   // Saved narrative is always complete. These cursors belong only to this viewing session.
   let renderedMessages = [], transcriptItems = [], revealedCount = 0, activeReveal = null, revealTimer;
-  let logItems = [], logSignatures = [], logDisplayed = 0, logTimer, memorySignature = '', focusSignature = '', objectSignature = '';
+  let logItems = [], logSignatures = [], logDisplayed = 0, logTimer, memorySignature = '', focusSignature = '', objectSignature = '', appliedPanelEvent = -1, panelNavigation = 0, scheduledPanel = null;
   const instantMotion = () => paused || motionPreference.matches;
   const revealing = () => revealedCount < transcriptItems.length;
 
@@ -28,9 +28,10 @@
       const value = JSON.parse(raw), restored = ENGINE.restore(value, STORY);
       if (!restored) throw new Error('invalid');
       state = restored;
-      if (state.started) storageNotice = value.version === 2 ? '旧的相遇已保留。现在可以留在任意话题，反复改变雨。继续 AI 模式需重新输入 Key。' : '已恢复完整对话与天气。继续 AI 模式，请重新输入 Key。';
+      if (state.started) storageNotice = value.version === 2 ? '旧的相遇已保留。现在可以留在任意话题，反复改变雨。继续 AI 模式需重新输入 转发访问密码。' : '已恢复完整对话与天气。继续 AI 模式，请重新输入 转发访问密码。';
     }
   } catch { storageNotice = '未能读取旧存档。可以重新开始；若浏览器禁用存储，本次仍可游玩。'; }
+  appliedPanelEvent = ENGINE.view(state).panelRequest?.eventIndex ?? -1;
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); saveAvailable = true; }
     catch { saveAvailable = false; }
@@ -46,7 +47,7 @@
   }
   function stamp(index) { return `${String(21 + Math.floor((2 + index) / 60)).padStart(2, '0')}:${String((2 + index) % 60).padStart(2, '0')}`; }
   function updateStatus() {
-    const labels = { unconnected: '未连接 · 选择试玩模式', offline: '离线试玩 · 本地回应与雨技能', ready: 'Key 已载入 · 尚未验证', ai: `AI 已回应 · glm-5.3-flash`, error: 'AI 请求未完成 · 需要选择' };
+    const labels = { unconnected: '未连接 · 选择试玩模式', offline: '离线试玩 · 本地回应与雨技能', ready: '转发访问密码 已载入 · 尚未验证', ai: `AI 已回应 · glm-5.3-flash`, error: 'AI 请求未完成 · 需要选择' };
     $('ai-status-button').textContent = busy && mode !== 'offline' ? '正在等待 AI 回应…' : labels[mode];
     $('ai-status-button').classList.toggle('ai-live', mode === 'ai');
     $('save-status').replaceChildren(element('i'), document.createTextNode(saveAvailable ? 'LOCAL SAVE · 已保存在此浏览器' : 'SESSION ONLY · 存储不可用'));
@@ -125,9 +126,9 @@
     refreshRevealControl(); scrollTranscript();
   }
   function renderMemory(view) {
-    const signature = JSON.stringify([view.memories, view.scene?.annotations, view.memoryContext]); if (memorySignature === signature) return; memorySignature = signature;
+    const signature = JSON.stringify([view.memories, view.memoryNotes, view.scene?.annotations, view.memoryContext]); if (memorySignature === signature) return; memorySignature = signature;
     const target = $('memory-panel'); target.replaceChildren();
-    if (!view.memories.length) { const empty = element('div', 'empty-memory'); empty.append(document.createTextNode('还没有被留下的记忆。'), element('br'), element('code', '', 'memory = []  // 也许，一切才刚刚开始')); target.append(empty); }
+    if (!view.memories.length && !view.memoryNotes?.length) { const empty = element('div', 'empty-memory'); empty.append(document.createTextNode('还没有被留下的记忆。'), element('br'), element('code', '', 'memory = []  // 也许，一切才刚刚开始')); target.append(empty); }
     for (const memory of view.memories) {
       const card = element('article', 'memory-card'); card.append(element('div', 'memory-id', `retained / ${memory.id}`), element('h3', '', memory.title), element('p', '', memory.body));
       if (memory.id === 'first_rain') {
@@ -136,9 +137,16 @@
       }
       target.append(card);
     }
-    $('memory-count').textContent = String(view.memories.length).padStart(2, '0');
-    if (view.memories.length > previousMemoryCount) $('log-dot').hidden = false;
-    previousMemoryCount = view.memories.length;
+    for (const note of view.memoryNotes || []) {
+      const card = element('article', 'memory-card authored-note');
+      card.append(element('div', 'memory-id', `她的笔记 / ${note.id}`), element('h3', '', note.title), element('p', '', note.body), element('p', 'source-evidence', '这是她对这次交谈的整理，可以继续修改或忘掉。'), element('p', 'source-evidence', `最初来自：${note.createdFrom}`));
+      if (note.latestUpdatedFrom !== note.createdFrom) card.append(element('p', 'source-evidence', `最近修改来自：${note.latestUpdatedFrom}`));
+      target.append(card);
+    }
+    const count = view.memories.length + (view.memoryNotes?.length || 0);
+    $('memory-count').textContent = String(count).padStart(2, '0');
+    if (count > previousMemoryCount) $('log-dot').hidden = false;
+    previousMemoryCount = count;
   }
   function appendMeaning(target, annotation) {
     for (const [field, title] of [['meaning', '你赋予的意义'], ['interpretation', '她目前的理解']]) {
@@ -175,14 +183,13 @@
     const next = ENGINE.visitLogs(state);
     if (next !== state) { state = next; save(); render(); }
   }
-  function appendLog() {
+  function appendLog(immediate = panel !== 'logs') {
     logTimer = null;
-    if (panel !== 'logs') return;
     while (logDisplayed < logItems.length) {
       const item = logItems[logDisplayed], cls = item.text.trim().startsWith('//') ? 'comment' : /retain|first_rain|reference|memory.reason/.test(item.text) ? 'retain' : /discard|todo|pending/.test(item.text) ? 'discard' : '';
-      const row = element('div', `log-line ${cls}`);
+      const row = element('div', `log-line ${cls}${immediate ? ' restored' : ''}${['narrative', 'fiction'].includes(item.kind) ? ' narrative' : ''}`);
       row.append(element('span', 'line-no', String(++logDisplayed).padStart(2, '0')), element('span', 'log-time', `[${stamp(item.index)}]`), element('span', '', item.text)); $('log-list').append(row);
-      if (!instantMotion() && logDisplayed < logItems.length) { logTimer = setTimeout(appendLog, 110); break; }
+      if (!immediate && !instantMotion() && logDisplayed < logItems.length) { logTimer = setTimeout(appendLog, 110); break; }
     }
     requestAnimationFrame(() => { $('log-list').scrollTop = $('log-list').scrollHeight; });
     if (logDisplayed === logItems.length) markLogVisit();
@@ -191,9 +198,10 @@
     const rows = state.started ? view.logs : [{ text: 'process.sleep()  // 等待一次偶然的连接', index: 0 }];
     const signatures = rows.map(item => `${item.index}|${item.text}`);
     const appendOnly = logSignatures.length <= signatures.length && logSignatures.every((value, index) => value === signatures[index]);
-    if (!appendOnly || panel !== 'logs') { clearTimeout(logTimer); logTimer = null; logDisplayed = 0; $('log-list').replaceChildren(); }
+    if (!appendOnly) { clearTimeout(logTimer); logTimer = null; logDisplayed = 0; $('log-list').replaceChildren(); }
     logItems = rows; logSignatures = signatures;
-    if (panel === 'logs' && !logTimer) appendLog();
+    if (panel !== 'logs' && logTimer) { clearTimeout(logTimer); logTimer = null; }
+    if (!logTimer) appendLog(panel !== 'logs' || !appendOnly);
     renderFocus(view);
   }
   function renderFocus(view) {
@@ -235,7 +243,7 @@
       $('free-input').maxLength = 80; $('free-input-label').textContent = '自由聊天或描画世界，最多 80 个字';
       $('free-input').placeholder = invitation?.id === 'rain_name' ? '给她一个名字，或继续聊你想到的事…' : invitation?.id === 'rain_description' ? '说说你见过、听过，或想象中的雨…' : view.rain.created ? '接着她的话说，或聊一件新的事…' : '你想从哪里开始？也可以直接问她…';
       $('free-input').disabled = false; $('free-send').disabled = false;
-      $('input-note').textContent = mode === 'unconnected' ? '尚未选择连接方式 · 发送前会让你选择 AI 或离线' : mode === 'offline' ? '离线理解有限 · 未听懂会说明 · 名字最多 20 字' : '用自己的话回应，也可以岔开话题 · 对话发送给 DMXAPI';
+      $('input-note').textContent = mode === 'unconnected' ? '尚未选择连接方式 · 发送前会让你选择 AI 或离线' : mode === 'offline' ? '离线理解有限 · 未听懂会说明 · 名字最多 20 字' : '用自己的话回应，也可以岔开话题 · 对话经专用转发发送给 DMXAPI';
     }
     document.querySelectorAll('[data-topic]').forEach(button => { button.disabled = locked; button.setAttribute('aria-pressed', String(!view.neutralHints && button.dataset.topic === view.topic)); });
     const skills = $('weather-controls'); skills.replaceChildren();
@@ -258,11 +266,12 @@
   function renderPresentation() {
     const view = snapshot(revealedCount), progress = view.index / view.maxMilestones;
     softText('connection-label', state.started ? 'PROCESS / STILL LEARNING' : 'WAITING FOR YOU');
-    softText('progress-label', state.started ? 'PROLOGUE v0.4.2 / 不必赶路' : 'PROLOGUE v0.4.2 / 初次相遇');
+    softText('progress-label', state.started ? 'PROLOGUE v0.5.1 / 不必赶路' : 'PROLOGUE v0.5.1 / 初次相遇');
     softText('world-caption', view.name !== '未命名的雨' ? `「${view.name}」` : view.rain.created ? '第一次一起看雨' : '一扇尚未被命名的窗');
     softText('world-status', view.rain.created ? `rain.${view.rain.paused ? 'paused' : view.rain.density} / persistent` : 'world.build = incomplete');
     softText('world-code', view.memories.length ? 'gc.retain("first_rain");' : view.rain.created ? 'skills.rain = reusable;' : 'const world = await you;');
     renderChoices(view); renderLogs(view); renderMemory(view); renderObjects(view);
+    if (view.panelRequest && view.panelRequest.eventIndex > appliedPanelEvent) { appliedPanelEvent = view.panelRequest.eventIndex; if (scheduledPanel?.eventIndex === view.panelRequest.eventIndex && scheduledPanel.navigation === panelNavigation && panel !== view.panelRequest.panel) setPanel(view.panelRequest.panel, false); }
     window.HerWorld?.setProgress(progress); window.HerWorld?.setRain(view.effect); window.HerWorld?.setObjects?.(view.scene?.objects || []); updateStatus();
   }
   function render(instant = false) {
@@ -270,7 +279,8 @@
     $('intro').hidden = Boolean(active); $('transcript').hidden = !active; $('response-area').hidden = !active; $('reset-button').hidden = !active;
     renderTranscript(snapshot(), instant); renderPresentation();
   }
-  function setPanel(next) {
+  function setPanel(next, manual = true) {
+    if (manual) panelNavigation++;
     panel = next; const open = next !== 'dialogue';
     $('inspector-panel').hidden = !open; $('logs-panel').hidden = next !== 'logs'; $('memory-panel').hidden = next !== 'memory'; $('objects-panel').hidden = next !== 'world';
     $('inspector-panel').setAttribute('aria-labelledby', `tab-${open ? next : 'dialogue'}`);
@@ -304,20 +314,20 @@
     if (mode === 'unconnected' || (!HerAI.connected() && mode !== 'offline')) { chooseMode(); return; }
     const item = pending;
     if (item.opening) { settleReveals(); pending = null; await start(); return; }
-    const view = ENGINE.view(state), proposal = item.proposal;
+    const view = ENGINE.view(state), proposal = item.proposal, panelAtRequest = panelNavigation;
     busy = true; $('request-error').hidden = true; render(); const version = ++operation;
     let result;
     if (mode === 'offline') { result = { lines: proposal.reply, action: proposal.action, sceneEdits: proposal.sceneEdits || [], mode: 'offline' }; await new Promise(resolve => setTimeout(resolve, paused ? 80 : 260)); }
     else {
-      try { result = await HerAI.request({ scene: STORY.find(scene => scene.id === proposal.topic) || STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion, requireActionEvidence: proposal.requireActionEvidence, allowedStoryIntents: proposal.allowedStoryIntents, acceptedStoryIntent: proposal.acceptedStoryIntent, guidance: proposal.guidance, memoryContext: view.memoryContext, sceneContext: proposal.sceneContext, allowedSceneEdits: proposal.allowedSceneEdits }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
+      try { result = await HerAI.request({ scene: STORY.find(scene => scene.id === proposal.topic) || STORY[view.sceneIndex] || STORY[0], input: proposal.input, rainName: view.name, recent: view.messages.filter(m => m.role !== 'system'), world: { rain: view.rain, name: view.name, milestones: view.milestones }, allowedActions: proposal.allowedActions, topic: proposal.topic, acceptedAnswer: proposal.acceptedAnswer, pendingTopic: proposal.pendingTopic, answerQuestion: proposal.answerQuestion, requireActionEvidence: proposal.requireActionEvidence, allowedStoryIntents: proposal.allowedStoryIntents, acceptedStoryIntent: proposal.acceptedStoryIntent, guidance: proposal.guidance, memoryContext: view.memoryContext, sceneContext: proposal.sceneContext, allowedSceneEdits: proposal.allowedSceneEdits, turnContext: proposal.turnContext }); if (version !== operation) return; mode = 'ai'; result = { ...result, mode: 'ai' }; }
       catch (error) { if (version !== operation) return; busy = false; mode = 'error'; render(); showError(error); return; }
     }
     if (version !== operation) return;
     const next = ENGINE.commit(state, proposal, result);
     busy = false; pending = null;
     if (!next) { render(); toast('这次回应没有改变故事或天气。请换一种说法再试，或继续聊别的。'); return; }
-    state = next; $('free-input').value = ''; save(); render();
-    if (panel === 'logs') setPanel('logs');
+    state = next; scheduledPanel = { eventIndex: state.events.length, navigation: panelAtRequest }; $('free-input').value = ''; save(); render();
+    if (panel === 'logs') setPanel('logs', false);
     if (!revealing()) $('free-input').focus({ preventScroll: true });
   }
   $('memory-invitation').addEventListener('click', () => setPanel('logs'));
@@ -326,12 +336,12 @@
   $('ai-status-button').addEventListener('click', chooseMode);
   $('connect-form').addEventListener('submit', async event => {
     event.preventDefault(); const value = $('api-key').value; $('api-key').value = '';
-    if (!HerAI.connect(value)) { $('connection-error').textContent = '请输入 8–500 个字符的 Key 本身，不要包含 Authorization:、Bearer 前缀、引号、空格或换行。'; $('connection-error').hidden = false; return; }
+    if (!HerAI.connect(value)) { $('connection-error').textContent = '请输入 8–500 个字符的 转发访问密码 本身，不要包含 Authorization:、Bearer 前缀、引号、空格或换行。'; $('connection-error').hidden = false; return; }
     operation++; busy = false; mode = 'ready'; $('connect-dialog').close(); $('request-error').hidden = true; updateStatus();
-    if (pending) await processPending(); else if (!state.started) await start(); else { render(); toast('Key 只在本页内存中。下一次回应时发送请求。'); }
+    if (pending) await processPending(); else if (!state.started) await start(); else { render(); toast('转发访问密码 只在本页内存中。下一次回应时发送请求。'); }
   });
   $('offline-button').addEventListener('click', async () => { HerAI.disconnect(); operation++; busy = false; mode = 'offline'; $('api-key').value = ''; $('connect-dialog').close(); $('request-error').hidden = true; if (pending) await processPending(); else if (!state.started) await start(); else render(); });
-  $('disconnect-button').addEventListener('click', () => { HerAI.disconnect(); operation++; busy = false; mode = 'unconnected'; pending = null; $('api-key').value = ''; $('connect-dialog').close(); $('request-error').hidden = true; render(); toast('已断开，Key 已从页面内存清除。进度仍在本地。'); });
+  $('disconnect-button').addEventListener('click', () => { HerAI.disconnect(); operation++; busy = false; mode = 'unconnected'; pending = null; $('api-key').value = ''; $('connect-dialog').close(); $('request-error').hidden = true; render(); toast('已断开，转发访问密码 已从页面内存清除。进度仍在本地。'); });
   $('retry-button').addEventListener('click', () => { if (!HerAI.connected()) return; mode = 'ready'; processPending(); });
   $('fallback-button').addEventListener('click', () => { HerAI.disconnect(); mode = 'offline'; processPending(); });
   $('cancel-request-button').addEventListener('click', () => { operation++; busy = false; pending = null; $('request-error').hidden = true; mode = HerAI.connected() ? 'ready' : 'unconnected'; render(); });
@@ -343,7 +353,7 @@
   document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(button.dataset.close).close()));
   $('connect-dialog').addEventListener('close', () => { $('api-key').value = ''; if (pending && mode === 'unconnected') pending = null; });
   $('reset-button').addEventListener('click', () => $('reset-dialog').showModal());
-  $('confirm-reset').addEventListener('click', () => { operation++; HerAI.disconnect(); mode = 'unconnected'; busy = false; pending = null; state = ENGINE.create(); try { localStorage.removeItem(LEGACY_KEY); } catch { toast('这次会话已重新开始，但浏览器未能移除旧存档副本。'); } $('api-key').value = ''; $('request-error').hidden = true; $('reset-dialog').close(); previousMemoryCount = 0; setPanel('dialogue'); save(); render(); $('start-button').focus(); });
+  $('confirm-reset').addEventListener('click', () => { operation++; HerAI.disconnect(); mode = 'unconnected'; busy = false; pending = null; state = ENGINE.create(); try { localStorage.removeItem(LEGACY_KEY); } catch { toast('这次会话已重新开始，但浏览器未能移除旧存档副本。'); } $('api-key').value = ''; $('request-error').hidden = true; $('reset-dialog').close(); previousMemoryCount = 0; appliedPanelEvent = -1; setPanel('dialogue'); save(); render(); $('start-button').focus(); });
   function updateMotion() { document.documentElement.classList.toggle('motion-paused', paused); $('motion-toggle').setAttribute('aria-pressed', String(paused)); $('motion-toggle').setAttribute('aria-label', paused ? '播放场景动画' : '暂停场景动画'); $('motion-toggle').title = paused ? '播放场景动画' : '暂停场景动画'; window.HerWorld?.pause(instantMotion()); if (instantMotion()) { document.getAnimations?.().forEach(animation => animation.cancel()); settleReveals(); clearTimeout(logTimer); logTimer = null; appendLog(); } }
   $('motion-toggle').addEventListener('click', () => { paused = !paused; updateMotion(); });
   motionPreference.addEventListener?.('change', event => { if (event.matches) paused = true; updateMotion(); });
