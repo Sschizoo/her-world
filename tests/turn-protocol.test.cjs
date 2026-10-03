@@ -176,3 +176,138 @@ test('new protocol does not reinterpret old offline or old v3 replay events', ()
   assert.equal(E.view(state).scene.objects[0].x, 50);
   assert.equal(JSON.stringify(state.events[0]), oldEvent); assert.deepEqual(restored(state), state);
 });
+
+const diagnosticPaths = Object.freeze({
+  CONTEXT_INVALID: 'context', INPUT_INVALID: 'input', ROOT_INVALID: '$', PROTOCOL_TEXT: '$',
+  SCHEMA_INVALID: 'schema', ROOT_FIELDS: '$', LINES_INVALID: 'lines', TIMELINE_INVALID: 'applyAfterLine', PANEL_INVALID: 'panel',
+  ANSWER_INVALID: 'answer', ANSWER_PREREQUISITE: 'answer', ACTION_INVALID: 'action', ACTION_PREREQUISITE: 'action',
+  STORY_INVALID: 'storyIntent', STORY_PREREQUISITE: 'storyIntent', VISITOR_CONSENT: 'storyIntent.evidence',
+  SCENE_EDITS_INVALID: 'sceneEdits', MEMORY_EDITS_INVALID: 'memoryEdits', MEMORY_CAPACITY: 'memoryEdits',
+  MEMORY_TARGET: 'memoryEdits', LOG_ENTRIES_INVALID: 'logEntries'
+});
+const contextFor = state => E.planOnline(state, { text: '继续' }).turnContext;
+function assertDiagnostic(result, code) {
+  assert.equal(result.value, null);
+  assert.deepEqual(Object.keys(result).sort(), ['diagnostic', 'value']);
+  assert.deepEqual(Object.keys(result.diagnostic).sort(), ['code', 'path']);
+  assert(Object.hasOwn(diagnosticPaths, result.diagnostic.code));
+  assert.equal(result.diagnostic.path, diagnosticPaths[result.diagnostic.code]);
+  if (code) assert.deepEqual(result.diagnostic, { code, path: diagnosticPaths[code] });
+}
+
+test('inspection preserves normalized valid plans and does not alter model output or context', () => {
+  const context = contextFor(fresh()), input = '我们继续';
+  const minimal = payload(), before = JSON.stringify({ context, minimal });
+  const expected = { ...minimal, applyAfterLine: 0, action: null, answer: null, storyIntent: null, sceneEdits: [], memoryEdits: [], logEntries: [], panel: null };
+  assert.deepEqual(T.inspect(minimal, context, input), { value: expected, diagnostic: null });
+  assert.deepEqual(T.validate(minimal, context, input), expected);
+  assert.equal(JSON.stringify({ context, minimal }), before);
+  const compound = payload({ applyAfterLine: 1, answer: { type: 'rain_definition' }, action: { type: 'rain_start' },
+    storyIntent: { type: 'rain_name', value: '回声' }, sceneEdits: [create('留给彼此的座位')],
+    memoryEdits: [{ type: 'upsert', id: 'note_seat', title: '一个位置', body: '今夜可以坐一会儿' }], logEntries: ['我留下一张椅子'], panel: 'world' });
+  for (const value of [compound, payload({ action: null, answer: null, storyIntent: null, sceneEdits: null, memoryEdits: null, logEntries: null, panel: null })]) {
+    const raw = JSON.stringify(value), result = T.inspect(value, context, input);
+    assert(result.value); assert.equal(result.diagnostic, null);
+    assert.deepEqual(result.value, T.validate(value, context, input));
+    result.value.lines[0] = '只是返回的副本';
+    assert.equal(JSON.stringify(value), raw);
+  }
+  const remembered = payload({ storyIntent: { type: 'visitor_choice', value: 'remember', evidence: '你可以记住我' } });
+  assert.equal(T.inspect(remembered, contextFor(E.visitLogs(namedRain())), '你可以记住我').diagnostic, null);
+});
+
+test('inspection localizes every rejection category without changing rejected acceptance', () => {
+  const context = contextFor(fresh()), discovered = contextFor(E.visitLogs(namedRain()));
+  const fullNotes = { ...context, memories: Array.from({ length: 12 }, (_, i) => ({ id: `note_${i}`, kind: 'world_note', title: '夜', body: '记下这一刻', source: '当前来源', createdFrom: '最初来源', latestUpdatedFrom: '当前来源' })) };
+  const cases = [
+    ['CONTEXT_INVALID', payload(), null],
+    ['INPUT_INVALID', payload(), context, ' '],
+    ['ROOT_INVALID', []],
+    ['PROTOCOL_TEXT', payload({ lines: ['<think>不可显示的内容</think>'] })],
+    ['SCHEMA_INVALID', payload({ schema: 'unknown' })],
+    ['ROOT_FIELDS', payload({ unexpected: true })],
+    ['LINES_INVALID', payload({ lines: [] })],
+    ['TIMELINE_INVALID', payload({ applyAfterLine: 2 })],
+    ['PANEL_INVALID', payload({ panel: 'unexpected' })],
+    ['ANSWER_INVALID', payload({ answer: { type: 'unknown' } })],
+    ['ANSWER_PREREQUISITE', payload({ answer: { type: 'rain_definition' } }), { ...context, milestones: [] }],
+    ['ACTION_INVALID', payload({ action: { type: 'rain_density', value: 'storm' } })],
+    ['ACTION_PREREQUISITE', payload({ action: { type: 'rain_start' } })],
+    ['STORY_INVALID', payload({ storyIntent: { type: 'unknown' } })],
+    ['STORY_PREREQUISITE', payload({ storyIntent: { type: 'own_reason' } })],
+    ['VISITOR_CONSENT', payload({ storyIntent: { type: 'visitor_choice', value: 'remember', evidence: '你可以记住我' } }), discovered, '不要保存我，但你可以记住我这个例子'],
+    ['SCENE_EDITS_INVALID', payload({ sceneEdits: [{ type: 'remove', target: 'obj_999' }] })],
+    ['MEMORY_EDITS_INVALID', payload({ memoryEdits: [{ type: 'upsert', id: 'player_reference', title: '夜', body: '记下' }] })],
+    ['MEMORY_CAPACITY', payload({ memoryEdits: [{ type: 'upsert', id: 'note_extra', title: '夜', body: '记下' }] }), fullNotes],
+    ['MEMORY_TARGET', payload({ memoryEdits: [{ type: 'remove', id: 'note_missing' }] })],
+    ['LOG_ENTRIES_INVALID', payload({ logEntries: [''] })]
+  ];
+  for (const [code, value, ctx = context, input = '继续'] of cases) {
+    const before = JSON.stringify({ value, ctx, input });
+    assertDiagnostic(T.inspect(value, ctx, input), code);
+    assert.equal(T.validate(value, ctx, input), null, code);
+    assert.equal(JSON.stringify({ value, ctx, input }), before, code);
+  }
+  assert.deepEqual(new Set(cases.map(([code]) => code)), new Set(Object.keys(diagnosticPaths)));
+});
+
+test('inspection retains line, timeline, weather, story, note and log boundaries', () => {
+  const context = contextFor(fresh()), rainy = contextFor(namedRain()), discovered = contextFor(E.visitLogs(namedRain()));
+  const cases = [
+    ...[undefined, null, '对白', [], ['a', 'b', 'c', 'd'], [' '], ['x'.repeat(501)], ['e\u0301'], ['a\nb']].map(lines => ['LINES_INVALID', { lines }]),
+    ...[null, -1, 0.5, '0', 2].map(applyAfterLine => ['TIMELINE_INVALID', { applyAfterLine }]),
+    ...['rain_pause', 'rain_resume', 'rain_density'].map(type => ['ACTION_PREREQUISITE', { action: { type, ...(type === 'rain_density' ? { value: 'heavy' } : {}) } }]),
+    ['ACTION_PREREQUISITE', { action: { type: 'rain_start' } }, rainy],
+    ['ACTION_INVALID', { action: { type: 'rain_start', value: true } }],
+    ['ANSWER_INVALID', { answer: { type: 'rain_definition', evidence: '引用' } }],
+    ...['first_drop', 'modify_rain', 'rain_name', 'shared_silence', 'memory_discovery', 'her_choice', 'visitor_reference'].map(value => ['STORY_PREREQUISITE', { storyIntent: { type: 'topic', value } }]),
+    ['STORY_PREREQUISITE', { storyIntent: { type: 'rain_name', value: '回声' } }],
+    ['STORY_INVALID', { storyIntent: { type: 'rain_name', value: '名'.repeat(21) } }, rainy],
+    ['STORY_INVALID', { storyIntent: { type: 'own_reason', extra: true } }, discovered],
+    ['STORY_INVALID', { storyIntent: { type: 'visitor_choice', value: 'remember' } }, discovered],
+    ['STORY_INVALID', { storyIntent: { type: 'visitor_choice', value: 'anonymous', evidence: '无须引用' } }, discovered],
+    ['STORY_INVALID', { storyIntent: { type: 'farewell', extra: true } }],
+    ['MEMORY_EDITS_INVALID', { memoryEdits: 'invalid' }],
+    ['MEMORY_EDITS_INVALID', { memoryEdits: Array(4).fill({ type: 'remove', id: 'note_x' }) }],
+    ['MEMORY_EDITS_INVALID', { memoryEdits: [{ type: 'upsert', id: 'note_x', title: '名'.repeat(41), body: '内容' }] }],
+    ['MEMORY_EDITS_INVALID', { memoryEdits: [{ type: 'upsert', id: 'note_x', title: '名字', body: '文'.repeat(241) }] }],
+    ['MEMORY_EDITS_INVALID', { memoryEdits: [{ type: 'remove', id: 'note_x', extra: true }] }],
+    ...['text', ['x'.repeat(161)], ['一', '二', '三', '四']].map(logEntries => ['LOG_ENTRIES_INVALID', { logEntries }])
+  ];
+  for (const [code, fields, ctx = context] of cases) {
+    assertDiagnostic(T.inspect(payload(fields), ctx, '继续'), code);
+    assert.equal(T.validate(payload(fields), ctx, '继续'), null, code);
+  }
+});
+
+test('diagnostics never reflect arbitrary keys, IDs, values, player text or hidden reasoning', () => {
+  const context = contextFor(fresh()), discovered = contextFor(E.visitLogs(namedRain()));
+  const marker = 'private_marker_only_for_test';
+  const maliciousKeys = [marker, '__proto__', 'constructor', `storyIntent.${marker}`, `lines[${marker}]`, `<think>${marker}</think>`];
+  for (const key of maliciousKeys) {
+    const cases = [
+      payload(Object.fromEntries([[key, marker]])),
+      payload({ action: { type: 'rain_start', [key]: marker } }),
+      payload({ answer: { type: 'rain_definition', [key]: marker } }),
+      payload({ storyIntent: { type: 'farewell', [key]: marker } }),
+      payload({ sceneEdits: [{ type: 'remove', target: marker, [key]: marker }] }),
+      payload({ memoryEdits: [{ type: 'remove', id: `note_${marker}`, [key]: marker }] })
+    ];
+    for (const value of cases) {
+      const result = T.inspect(value, context, marker);
+      assertDiagnostic(result);
+      assert(!JSON.stringify(result).includes(marker));
+    }
+  }
+  for (const value of [
+    payload({ lines: [`<think>${marker}</think>`] }),
+    payload({ logEntries: [`{"reasoning_content":"${marker}"}`] }),
+    payload({ memoryEdits: [{ type: 'upsert', id: 'note_x', title: marker, body: `analysis: ${marker}` }] })
+  ]) assertDiagnostic(T.inspect(value, context, marker), 'PROTOCOL_TEXT');
+  const result = T.inspect(payload({ storyIntent: { type: 'visitor_choice', value: 'remember', evidence: marker } }), discovered, marker);
+  assertDiagnostic(result, 'VISITOR_CONSENT');
+  assert(!JSON.stringify(result).includes(marker));
+  assert(Object.isFrozen(result.diagnostic));
+  assert.throws(() => Object.assign(result.diagnostic, { path: marker }), TypeError);
+  assertDiagnostic(T.inspect(payload({ lines: [] }), context, '继续'), 'LINES_INVALID');
+});

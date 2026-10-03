@@ -765,5 +765,59 @@ const onlineInput=(text,context=planContext())=>({input:text,recent:[],turnConte
   const consent='我同意你记住我。';await act(consent,{storyIntent:{type:'visitor_choice',value:'remember',evidence:consent}});assert(E.view(state).memories.some(m=>m.id==='player_reference'));
   await act('那今晚先说晚安，我们以后再聊。',{storyIntent:{type:'farewell'}});assert.equal(E.view(state).ended,true);assert.deepEqual(E.view(E.restore(plain(state))),E.view(state));assert.equal(calls,10);
  });
+ await check('diagnostics separate local context from an unreadable HTTP envelope without content leakage',async()=>{
+  let calls=0;const {api}=runtime(async()=>{calls++;return new Response('PRIVATE_ENVELOPE_'+fakeKey,{status:200})});api.connect(fakeKey);
+  await assert.rejects(api.request({input:'你好',turnContext:null}),e=>e.code==='format'&&e.diagnostic.stage==='LOCAL_CONTEXT'&&e.diagnostic.path==='context'&&e.httpStatus===undefined);
+  assert.equal(calls,0);
+  await assert.rejects(api.request(onlineInput('你好')),e=>e.code==='format'&&e.diagnostic.stage==='ENVELOPE'&&e.httpStatus===200&&e.message.includes('HTTP 200')&&!e.message.includes(fakeKey)&&!e.message.includes('PRIVATE_ENVELOPE'));
+  assert.equal(calls,1);
+ });
+ await check('diagnostics identify final JSON and protocol fields while retaining only fixed metadata',async()=>{
+  const cases=[
+   ['{"schema":"her-world-turn-v1","lines":', 'JSON', 'JSON_UNTERMINATED', 'content'],
+   ['{"lines":["hello"],"lines":["PRIVATE_DUPLICATE"]}', 'JSON', 'JSON_DUPLICATE_KEY', 'content'],
+   ['PRIVATE_PROSE', 'JSON', 'PAYLOAD_REQUIRED', 'content'],
+   [JSON.stringify(planReply({schema:'PRIVATE_SCHEMA'})), 'TURN_FIELD', 'SCHEMA_INVALID', 'schema'],
+   [JSON.stringify({...planReply(),['PRIVATE_FIELD_'+fakeKey]:true}), 'TURN_FIELD', 'ROOT_FIELDS', '$'],
+   [JSON.stringify(planReply({lines:[]})), 'TURN_FIELD', 'LINES_INVALID', 'lines'],
+   [JSON.stringify(planReply({sceneEdits:[{type:'create',object:{...benchObject,x:100}}]})), 'TURN_FIELD', 'SCENE_EDITS_INVALID', 'sceneEdits'],
+   [JSON.stringify(planReply({memoryEdits:[{type:'remove',id:'note_absent'}]})), 'TURN_FIELD', 'MEMORY_TARGET', 'memoryEdits']
+  ];
+  for(const [content,stage,code,path] of cases){const {api}=runtime(async()=>contentResponse(content));api.connect(fakeKey);await assert.rejects(api.request(onlineInput('画一把伞')),e=>{
+   assert.equal(e.code,'format');assert.equal(e.httpStatus,200);assert.deepEqual(plain(e.diagnostic),{stage,code,path});assert(!e.message.includes(fakeKey));assert(!e.message.includes('PRIVATE'));assert(!JSON.stringify(e).includes('PRIVATE'));return true;
+  });}
+ });
+ await check('diagnostic metadata is allowlisted again before being shown',async()=>{
+  const {api,window}=runtime(async()=>jsonResponse(planReply()));window.HerTurn={...Turn,inspect:()=>({value:null,diagnostic:{code:fakeKey,path:'PRIVATE_PATH',body:'PRIVATE_BODY'}})};api.connect(fakeKey);
+  await assert.rejects(api.request(onlineInput('你好')),e=>{assert.deepEqual(plain(e.diagnostic),{stage:'TURN_FIELD'});assert(!JSON.stringify(e).includes(fakeKey));assert(!JSON.stringify(e).includes('PRIVATE'));assert(!e.message.includes('PRIVATE'));return true;});
+ });
+ await check('known HTTP failures and unknown network failures keep distinct safe stages',async()=>{
+  const {api:denied}=runtime(async()=>new Response('PRIVATE_'+fakeKey,{status:401}));denied.connect(fakeKey);await assert.rejects(denied.request(onlineInput('你好')),e=>e.httpStatus===401&&e.diagnostic.stage==='HTTP'&&!e.message.includes(fakeKey));
+  const {api:offline}=runtime(async()=>{throw new Error('PRIVATE_'+fakeKey)});offline.connect(fakeKey);await assert.rejects(offline.request(onlineInput('你好')),e=>e.httpStatus===undefined&&e.diagnostic.stage==='NETWORK'&&!e.message.includes(fakeKey));
+ });
+ await check('JSON syntax families remain rejected and reveal only a fixed category',async()=>{
+  const cases=[
+   ['{"lines":["PRIVATE\\q'+fakeKey+'"]}', 'JSON_BAD_ESCAPE'],
+   ['{"lines":["PRIVATE\\uQQQQ'+fakeKey+'"]}', 'JSON_BAD_ESCAPE'],
+   ['{"lines":["PRIVATE\n'+fakeKey+'"]}', 'JSON_CONTROL_CHARACTER'],
+   ['{"lines":["PRIVATE_'+fakeKey, 'JSON_UNTERMINATED'],
+   [JSON.stringify(planReply())+'PRIVATE_'+fakeKey, 'JSON_TRAILING_CONTENT'],
+   ['{"lines":[PRIVATE_'+fakeKey+']}', 'JSON_SYNTAX']
+  ];
+  for(const [content,code] of cases){const {api}=runtime(async()=>contentResponse(content));api.connect(fakeKey);await assert.rejects(api.request(onlineInput('画一把伞')),e=>{assert.equal(e.code,'format');assert.equal(e.httpStatus,200);assert.deepEqual(plain(e.diagnostic),{stage:'JSON',code,path:'content'});assert(!JSON.stringify(e).includes(fakeKey));assert(!JSON.stringify(e).includes('PRIVATE'));assert(!e.message.includes('PRIVATE'));return true;});}
+ });
+ await check('production prompt contains a valid literal glyph encoding example and scoped correction guidance',async()=>{
+  let body;const {api}=runtime(async(_url,options)=>{body=JSON.parse(options.body);return jsonResponse(planReply())});api.connect(fakeKey);await api.request(onlineInput('把伞面画得宽一点'));
+  const system=body.messages[0].content,marker='以下是合法的字形编码示例（仅示意转义，不是要你复制的物件）：';
+  const encoded=system.split(marker)[1].split('\n')[0];assert.deepEqual(JSON.parse(encoded),{glyphs:'  /\\\n / *\\\n|"*"|'});
+  assert(encoded.includes('\\n'));assert(encoded.includes('\\\\'));assert(encoded.includes('\\"'));
+  assert(system.includes('玩家只改外形、位置或大小时保留现有label'));
+  assert(!('response_format' in body));assert.equal(body.max_tokens,2048);assert.equal(body.reasoning_effort,'low');
+ });
+ await check('properly encoded backslashes quotation marks and rows remain unrestricted ASCII data',async()=>{
+  const glyphs='  /\\\n / *\\\n|"*"|',object={...benchObject,label:'星空伞',glyphs};
+  const {api}=runtime(async()=>jsonResponse(planReply({sceneEdits:[{type:'create',object}]})));api.connect(fakeKey);
+  const plan=await api.request(onlineInput('画一把星空伞'));assert.equal(plan.sceneEdits[0].object.glyphs,glyphs);assert.equal(plan.sceneEdits[0].object.label,'星空伞');
+ });
  console.log(`${checks} mock-only transport checks passed; no network used.`)
 })().catch(e=>{console.error(e);process.exit(1)});

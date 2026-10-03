@@ -170,3 +170,9 @@ Scoped validation:54 application checks,136 mocked transport groups and3 isolate
 The first authenticated proxy gameplay request on v0.5.1 failed with the generic format message after a natural umbrella creation request. The player had personally entered the access password. Only one request was attempted; no retry, credential inspection, reset or state mutation followed. The old error merges pre-request context failures and several response-validation paths, so the exact failure stage is not established from the visible UI.
 
 The diagnostic patch preserves acceptance predicates, request contents and atomic failure. It adds fixed stage/code/path metadata, retains a known HTTP status, and never includes raw response text, reasoning, arbitrary field names, player text, headers or credentials. Existing GPT raw fixtures are regression data, not evidence that GLM generated a valid reply.
+
+## v0.5.3 — literal JSON encoding guidance
+
+Live proxy evidence: opening and umbrella creation succeeded. In the next session, reshaping the umbrella succeeded but changed its label without a naming request; the combined correction plus bench request failed with HTTP200 / JSON / JSON_SYNTAX / content. A separate bench request succeeded and its completed state was recovered after the cloud browser restarted. No request was resubmitted during that unknown-outcome interval.
+
+The patch keeps JSON.parse and validation acceptance strict. The system prompt adds a JSON.stringify-built glyph example with backslashes, quotation marks and newline encoding, preserves labels for shape-only edits, and clarifies the program/player subject in the opening. Native parser error text is never displayed or saved: only fixed prefix-derived categories are allowed. The waiting-message layout no longer inherits the transcript grid. Existing15-response playback remains a historical v0.5.2 artifact because the production prompt changed.
