@@ -1,13 +1,15 @@
 /* An original character-drawn world. Every visible mark is an ASCII glyph. */
 (() => {
   'use strict';
+  const layout = window.HerScene?.layout?.();
+  if (!layout) return;
   const canvas = document.getElementById('world-canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
   const INK = '#c4c4c4';
-  const COLUMNS = 100;
-  const OBJECT_ROWS = 60, MAX_OBJECTS = 8, MAX_GLYPH_WIDTH = 24, MAX_GLYPH_HEIGHT = 10;
+  const COLUMNS = layout.grid.cols;
+  const OBJECT_ROWS = layout.grid.rows, MAX_OBJECTS = 8, MAX_GLYPH_WIDTH = 24, MAX_GLYPH_HEIGHT = 10;
   // Object state is data only. At most eight live objects and eight departing
   // objects are kept; repeated edits keep only one previous glyph pattern.
   let objects = [];
@@ -140,7 +142,10 @@
       if (x >= 0 && x < COLUMNS && y >= 0 && y < rows) map[y][x] = { glyph, alpha, light };
     };
     const at = (fraction) => Math.round(fraction * rows);
-    const shore = at(.76);
+    // Background cells stay aspect-adaptive, but every placement landmark is
+    // derived from the same logical map supplied to model and validator.
+    const logicalRow = y => Math.round(y * rows / OBJECT_ROWS);
+    const shore = logicalRow(layout.ground.baseline);
 
     // Distant haze is made of sparse punctuation, with empty black sky above it.
     for (let y = 3; y < shore; y++) for (let x = 0; x < COLUMNS; x++) {
@@ -197,7 +202,8 @@
 
     // The window's light is a field of @ # % +, with its own ASCII frame.
     // Its brightness follows story progress; the neutral ink hue never changes.
-    const wx = 30, ww = 13, wy = at(.49), wh = Math.max(8, at(.19));
+    const wx = layout.window.x, ww = layout.window.width;
+    const wy = logicalRow(layout.window.y), wh = Math.max(1, logicalRow(layout.window.height));
     for (let y = wy - 2; y < wy + wh + 2; y++) for (let x = wx - 3; x < wx + ww + 3; x++) {
       const inside = x >= wx && x < wx + ww && y >= wy && y < wy + wh;
       if (inside) {

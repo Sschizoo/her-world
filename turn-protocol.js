@@ -53,7 +53,10 @@
       if (!(value.memoryContext[field] === null || safeText(value.memoryContext[field], 80))) return null;
       memoryContext[field] = value.memoryContext[field];
     }
-    return freeze({ rain: copy(value.rain), milestones: [...new Set(value.milestones)], topic: value.topic, pendingTopic: value.pendingTopic, invitation, visitor: value.visitor, memories, memoryContext, sceneContext: scene });
+    // Layout is derived locally, never accepted from a saved or model-provided
+    // context. It describes the renderer's unchanged normalized coordinate grid.
+    if (typeof SCENE.layout !== 'function') return null;
+    return freeze({ rain: copy(value.rain), milestones: [...new Set(value.milestones)], topic: value.topic, pendingTopic: value.pendingTopic, invitation, visitor: value.visitor, memories, memoryContext, sceneContext: scene, layout: SCENE.layout() });
   }
   // Remembering the visitor is the one operation that needs local consent
   // evidence in addition to the model's semantic decision. Check the complete

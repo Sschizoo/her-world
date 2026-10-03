@@ -266,7 +266,7 @@
   function renderPresentation() {
     const view = snapshot(revealedCount), progress = view.index / view.maxMilestones;
     softText('connection-label', state.started ? 'PROCESS / STILL LEARNING' : 'WAITING FOR YOU');
-    softText('progress-label', state.started ? 'PROLOGUE v0.5.3 / 不必赶路' : 'PROLOGUE v0.5.3 / 初次相遇');
+    softText('progress-label', state.started ? 'PROLOGUE v0.5.4 / 不必赶路' : 'PROLOGUE v0.5.4 / 初次相遇');
     softText('world-caption', view.name !== '未命名的雨' ? `「${view.name}」` : view.rain.created ? '第一次一起看雨' : '一扇尚未被命名的窗');
     softText('world-status', view.rain.created ? `rain.${view.rain.paused ? 'paused' : view.rain.density} / persistent` : 'world.build = incomplete');
     softText('world-code', view.memories.length ? 'gc.retain("first_rain");' : view.rain.created ? 'skills.rain = reusable;' : 'const world = await you;');

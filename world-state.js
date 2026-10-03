@@ -17,6 +17,11 @@
   const string = (v, max) => sourceText(v, max) && !hidden(v);
   const reservedLabel = label => /^(?:雨|这场雨|第一场雨|天气|rain|weather)$/iu.test(label);
   const id = v => typeof v === 'string' && /^obj_[1-9][0-9]{0,2}$/u.test(v) && Number(v.slice(4)) <= 600;
+  const SCENE_LAYOUT = {
+    grid: { cols: COLS, rows: ROWS }, origin: 'top_left', xDirection: 'right', yDirection: 'down', objectAnchor: 'top_left',
+    sky: { x: 4, y: 3, width: 92, height: 14 }, window: { x: 30, y: 29, width: 13, height: 12 }, ground: { centerX: 50, baseline: 46 }
+  };
+  function layout() { return copy(SCENE_LAYOUT); }
   function empty() { return { grid: { cols: COLS, rows: ROWS }, nextId: 1, objects: [], annotations: {}, focusedTarget: null }; }
   function shape(value) {
     if (!keys(value, 'label,glyphs,x,y,scale') || !string(value.label, MAX_LABEL) || typeof value.glyphs !== 'string' || hidden(value.glyphs) || !/^[\x20-\x7e\n]+$/u.test(value.glyphs) || !/[\x21-\x7e]/u.test(value.glyphs)) return false;
@@ -190,13 +195,74 @@
   // model chooses meaning and references; this boundary owns only typed data,
   // existing targets, local IDs, source attribution and geometric limits.
   // Keep validateEdits/applyEdits above unchanged for offline and v3 replay.
+  function footprint(item) {
+    const rows = item.glyphs.split('\n');
+    return { x: item.x, y: item.y, width: Math.max(...rows.map(row => row.length)) * item.scale, height: rows.length * item.scale };
+  }
+  function placedObject(item, placement, scene, refs, current) {
+    if (!shape({ ...item, x: 0, y: 0 }) || !object(placement) || typeof placement.anchor !== 'string') return null;
+    const { width, height } = footprint(item), anchor = placement.anchor;
+    const center = (start, size, length) => Math.round(start + (size - length) / 2);
+    const clamp = (value, limit) => Math.max(0, Math.min(value, limit));
+    let x, y;
+    if (['sky', 'ground', 'keep_center', 'keep_base'].includes(anchor)) {
+      if (!keys(placement, 'anchor')) return null;
+      if (anchor === 'sky') {
+        const sky = SCENE_LAYOUT.sky;
+        if (width > sky.width || height > sky.height) return null;
+        x = center(sky.x, sky.width, width); y = center(sky.y, sky.height, height);
+      } else if (anchor === 'ground') {
+        x = clamp(Math.round(SCENE_LAYOUT.ground.centerX - width / 2), COLS - width); y = SCENE_LAYOUT.ground.baseline - height;
+      } else {
+        if (!current) return null;
+        const previous = footprint(current);
+        // Keep one integer anchor stable across odd/even resize round trips.
+        x = previous.x + Math.floor(previous.width / 2) - Math.floor(width / 2);
+        y = anchor === 'keep_base' ? previous.y + previous.height - height : previous.y + Math.floor(previous.height / 2) - Math.floor(height / 2);
+      }
+    } else {
+      const fixed = { window_left: 'left_of', window_right: 'right_of', window_below: 'below' };
+      let side = own(fixed, anchor) ? fixed[anchor] : null, target, gap = 2;
+      if (side) {
+        if (!keys(placement, 'anchor')) return null;
+        target = SCENE_LAYOUT.window;
+      } else {
+        if (!['above', 'below', 'left_of', 'right_of'].includes(anchor) || !(keys(placement, 'anchor,target') || keys(placement, 'anchor,target,gap')) || typeof placement.target !== 'string') return null;
+        if (own(placement, 'gap')) gap = placement.gap;
+        if (!Number.isInteger(gap) || gap < 0 || gap > 10) return null;
+        side = anchor;
+        const targetId = refs.get(placement.target) || placement.target;
+        if (current && targetId === current.id) return null;
+        const found = scene.objects.find(object => object.id === targetId);
+        target = placement.target === 'window' ? SCENE_LAYOUT.window : found && footprint(found);
+        if (!target) return null;
+      }
+      x = center(target.x, target.width, width); y = center(target.y, target.height, height);
+      if (side === 'left_of' || side === 'right_of') {
+        x = side === 'left_of' ? target.x - gap - width : target.x + target.width + gap;
+        y = clamp(y, ROWS - height);
+      } else {
+        y = side === 'above' ? target.y - gap - height : target.y + target.height + gap;
+        x = clamp(x, COLS - width);
+      }
+    }
+    const next = { ...item, x, y };
+    return shape(next) ? next : null;
+  }
   function semanticResult(edits, ctx, input) {
     const scene = contextScene(ctx);
     if (!scene || !sourceText(input, 80) || !Array.isArray(edits) || edits.length > MAX_EDITS) return null;
     const refs = new Map(), targets = new Set(), normalized = [];
-    for (const edit of edits) {
+    for (const original of edits) {
+      let edit = original;
       if (!object(edit) || !TYPES.includes(edit.type)) return null;
       if (edit.type === 'create') {
+        if (own(edit, 'placement')) {
+          if (!(keys(edit, 'type,object,placement') || keys(edit, 'type,ref,object,placement')) || !keys(edit.object, 'label,glyphs,scale')) return null;
+          const placed = placedObject(edit.object, edit.placement, scene, refs);
+          if (!placed) return null;
+          edit = { ...edit, object: placed }; delete edit.placement;
+        }
         if (!(keys(edit, 'type,object') || keys(edit, 'type,ref,object')) || !shape(edit.object) || scene.objects.length >= MAX_OBJECTS || scene.nextId > 600) return null;
         if (own(edit, 'ref') && (!/^new_[123]$/u.test(edit.ref) || refs.has(edit.ref))) return null;
         const target = `obj_${scene.nextId++}`;
@@ -209,6 +275,13 @@
         const at = scene.objects.findIndex(item => item.id === target);
         if (at < 0 && !(edit.type === 'annotate' && target === 'first_rain' && ctx.firstRainAvailable)) return null;
         if (edit.type === 'update') {
+          if (own(edit, 'placement')) {
+            if (!keys(edit, 'type,target,changes,placement') || !object(edit.changes) || !Object.keys(edit.changes).every(key => ['label', 'glyphs', 'scale'].includes(key))) return null;
+            const current = scene.objects[at];
+            const placed = placedObject({ label: current.label, glyphs: current.glyphs, x: current.x, y: current.y, scale: current.scale, ...edit.changes }, edit.placement, scene, refs, current);
+            if (!placed) return null;
+            edit = { ...edit, changes: { ...edit.changes, x: placed.x, y: placed.y } }; delete edit.placement;
+          }
           if (!keys(edit, 'type,target,changes') || !object(edit.changes) || !Object.keys(edit.changes).length || !Object.keys(edit.changes).every(key => ['label', 'glyphs', 'x', 'y', 'scale'].includes(key))) return null;
           const current = scene.objects[at], next = { label: current.label, glyphs: current.glyphs, x: current.x, y: current.y, scale: current.scale, ...edit.changes };
           if (!shape(next)) return null;
@@ -316,5 +389,5 @@
     if (!target && (refs.length > 1 || /它|这个|那个|忘掉|忘记|清空|所有|全部/u.test(text))) return failure('请说清是哪一个物件，以及要移走它、修改它的意义，还是清掉我的解释。原始对话仍会保留。');
     return failure('我还不能确定这句话要怎样改变物件，可以说出物件名称和具体变化。');
   }
-  return Object.freeze({ empty, context, validateEdits, applyEdits, validateSemanticEdits, applySemanticEdits, offline, isSceneRequest, allowedEdits, referenceIds, focusAfter, validScene, COLS, ROWS, MAX_OBJECTS, MAX_EDITS });
+  return Object.freeze({ empty, layout, context, validateEdits, applyEdits, validateSemanticEdits, applySemanticEdits, offline, isSceneRequest, allowedEdits, referenceIds, focusAfter, validScene, COLS, ROWS, MAX_OBJECTS, MAX_EDITS });
 });

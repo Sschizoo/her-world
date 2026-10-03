@@ -819,5 +819,21 @@ const onlineInput=(text,context=planContext())=>({input:text,recent:[],turnConte
   const {api}=runtime(async()=>jsonResponse(planReply({sceneEdits:[{type:'create',object}]})));api.connect(fakeKey);
   const plan=await api.request(onlineInput('画一把星空伞'));assert.equal(plan.sceneEdits[0].object.glyphs,glyphs);assert.equal(plan.sceneEdits[0].object.label,'星空伞');
  });
+ await check('spatial model context is authoritative and semantic sky coordinates are normalized before return',async()=>{
+  let body;const edits=[{type:'create',ref:'new_1',object:{label:'云',glyphs:' CCC\nCCCCC',scale:2},placement:{anchor:'sky'}},{type:'create',object:{label:'小云',glyphs:'CCC',scale:1},placement:{anchor:'right_of',target:'new_1',gap:3}}];
+  const request=onlineInput('在天上加一些云吧');request.turnContext.layout={sky:{y:45},secret:'FORGED_LAYOUT'};
+  const {api}=runtime(async(_url,settings)=>{body=JSON.parse(settings.body);return jsonResponse(planReply({sceneEdits:edits}));});api.connect(fakeKey);
+  const result=await api.request(request),context=JSON.parse(body.messages.at(-1).content).context;
+  assert.deepEqual(context.layout,Scene.layout());assert(!JSON.stringify(body).includes('FORGED_LAYOUT'));
+  assert(body.messages[0].content.includes('原点在左上'));
+  const [cloud,small]=result.sceneEdits;assert(!('placement'in cloud));assert(!('placement'in small));
+  assert(cloud.object.y>=3&&cloud.object.y+4<=17);assert.equal(small.object.x,cloud.object.x+10+3);
+ });
+ await check('invalid or conflicting semantic placements reject the complete turn without broadening the protocol',async()=>{
+  for(const placement of [{anchor:'sky',x:2},{anchor:'above',target:'missing'},{anchor:'right_of',target:'new_3'},{anchor:'above',target:'window',gap:11}]){
+   const edits=[{type:'create',object:{label:'云',glyphs:'CCC',scale:1},placement}],{api}=runtime(async()=>jsonResponse(planReply({sceneEdits:edits,memoryEdits:[{type:'upsert',id:'note_cloud',title:'云',body:'一朵云'}]})));api.connect(fakeKey);
+   await assert.rejects(api.request(onlineInput('画云')),e=>e.code==='format'&&e.diagnostic.code==='SCENE_EDITS_INVALID');
+  }
+ });
  console.log(`${checks} mock-only transport checks passed; no network used.`)
 })().catch(e=>{console.error(e);process.exit(1)});

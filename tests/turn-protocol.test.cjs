@@ -15,6 +15,30 @@ const create = (label, ref = 'new_1') => ({ type: 'create', ref, object: object(
 const namedRain = () => turn(turn(fresh(), '雨像从天空散落的细小笔画，试着画给我看吧', { answer: { type: 'rain_definition' }, action: { type: 'rain_start' } }), '叫它雁归，可以顺便打开实际记录吗', { storyIntent: { type: 'rain_name', value: '雁归' }, panel: 'logs' });
 const restored = state => E.restore(JSON.parse(JSON.stringify(state)));
 
+test('semantic positions save only canonical coordinates and leave historical coordinates unchanged', () => {
+  const historical = turn(fresh(), '过去按坐标画的云', { sceneEdits: [{ type: 'create', object: { label: '旧云', glyphs: 'CCC', x: 31, y: 32, scale: 1 } }] });
+  const current = turn(historical, '再在天上加一朵云，在地上放张长椅', { sceneEdits: [
+    { type: 'create', object: { label: '天上的云', glyphs: ' CCC\nCCCCC', scale: 1 }, placement: { anchor: 'sky' } },
+    { type: 'create', object: { label: '长椅', glyphs: 'BBBBBB\nB    B', scale: 2 }, placement: { anchor: 'ground' } }
+  ] });
+  const scene = E.view(current).scene;
+  assert.equal(scene.objects[0].x, 31); assert.equal(scene.objects[0].y, 32);
+  assert(scene.objects[1].y >= 3 && scene.objects[1].y + 2 <= 17);
+  assert.equal(scene.objects[2].y + 4, 46);
+  for (const edit of current.events.at(-1).turnPlan.sceneEdits) { assert(!Object.hasOwn(edit, 'placement')); assert(Number.isInteger(edit.object.x)); }
+  assert.deepEqual(restored(current), current);
+  assert.deepEqual(E.view(current).milestones, ['connected']);
+});
+
+test('layout context is authoritative and immutable instead of accepting a caller supplied map', () => {
+  const context = E.planOnline(fresh(), { text: '在天上画云' }).turnContext;
+  assert.deepEqual(context.layout, S.layout()); assert(Object.isFrozen(context.layout.sky));
+  const forged = JSON.parse(JSON.stringify(context)); forged.layout.sky.y = 40; forged.layout.secret = 'UNTRUSTED_MAP';
+  const snapshot = T.snapshot(forged);
+  assert.equal(snapshot.layout.sky.y, 3); assert(!JSON.stringify(snapshot).includes('UNTRUSTED_MAP'));
+  const detached = S.layout(); detached.window.x = 90; assert.equal(S.layout().window.x, 30);
+});
+
 test('one semantic turn can learn and render rain together without a forced extra command', () => {
   const original = fresh();
   const input = '雨像从天空散落的细小笔画，试着画给我看吧';

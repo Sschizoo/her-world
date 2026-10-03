@@ -180,3 +180,164 @@ test('offline placement prefixes keep the object noun separate from its exact cr
     assert.equal(state.objects[0].source.createdBy, text); assert.equal(state.objects[0].glyphs.split('\n')[0].length, 18);
   }
 });
+
+const placed = (placement, overrides = {}) => ({ type: 'create', object: { label: '新物件', glyphs: '[][]\n||||', scale: 1, ...overrides }, placement });
+const position = item => ({ x: item.x, y: item.y });
+
+test('layout is a serializable independent map of the renderer coordinate system', () => {
+  const expected = {
+    grid: { cols: 100, rows: 60 }, origin: 'top_left', xDirection: 'right', yDirection: 'down', objectAnchor: 'top_left',
+    sky: { x: 4, y: 3, width: 92, height: 14 }, window: { x: 30, y: 29, width: 13, height: 12 }, ground: { centerX: 50, baseline: 46 }
+  };
+  const layout = S.layout(); assert.deepEqual(JSON.parse(JSON.stringify(layout)), expected);
+  layout.grid.cols = 1; layout.sky.x = 99; layout.window.width = 0; layout.ground.baseline = 0;
+  assert.deepEqual(S.layout(), expected);
+});
+
+test('sky and ground placement use the full scaled footprint including blank padding', () => {
+  const clouds = placed({ anchor: 'sky' }, { label: '地上的云', glyphs: '  __  \n(____)\n      ', scale: 2 });
+  const bench = placed({ anchor: 'ground' }, { label: '天空长椅', glyphs: '+----+\n |  | ', scale: 2 });
+  const edits = S.validateSemanticEdits([clouds, bench], context(), '按指定位置画出来');
+  assert.deepEqual(position(edits[0].object), { x: 44, y: 7 });
+  assert.deepEqual(position(edits[1].object), { x: 44, y: 42 });
+  assert.equal(edits[0].object.glyphs, clouds.object.glyphs);
+  assert.deepEqual(Object.keys(edits[0]).sort(), ['object', 'type']);
+  assert.deepEqual(Object.keys(edits[0].object).sort(), ['glyphs', 'label', 'scale', 'x', 'y']);
+  assert.equal(S.applySemanticEdits(S.empty(), [clouds, bench], '按指定位置画出来').objects[1].y + 4, S.layout().ground.baseline);
+});
+
+test('window sides have a two-cell gap and orthogonal center alignment', () => {
+  for (const [anchor, expected] of [['window_left', { x: 24, y: 34 }], ['window_right', { x: 45, y: 34 }], ['window_below', { x: 35, y: 43 }]]) {
+    const edit = S.validateSemanticEdits([placed({ anchor })], context(), '把物件放在窗边')[0];
+    assert.deepEqual(position(edit.object), expected, anchor);
+  }
+  for (const [anchor, expected] of [['above', { x: 35, y: 25 }], ['below', { x: 35, y: 43 }], ['left_of', { x: 24, y: 34 }], ['right_of', { x: 45, y: 34 }]]) {
+    const edit = S.validateSemanticEdits([placed({ anchor, target: 'window' })], context(), '按窗户的位置摆放')[0];
+    assert.deepEqual(position(edit.object), expected, anchor);
+  }
+});
+
+test('relative placement uses existing objects and earlier new refs in batch order', () => {
+  const state = bench();
+  const edits = [
+    { ...placed({ anchor: 'left_of', target: 'obj_1', gap: 1 }), ref: 'new_1' },
+    { ...placed({ anchor: 'above', target: 'new_1', gap: 0 }, { glyphs: '<>' }), ref: 'new_2' },
+    { type: 'update', target: 'new_1', changes: {}, placement: { anchor: 'below', target: 'new_2', gap: 3 } }
+  ];
+  const normalized = S.validateSemanticEdits(edits, context(state), '按顺序摆放这些物件');
+  assert.deepEqual(position(normalized[0].object), { x: 30, y: 43 });
+  assert.deepEqual(position(normalized[1].object), { x: 31, y: 42 });
+  assert.deepEqual(normalized[2], { type: 'update', target: 'new_1', changes: { x: 30, y: 46 } });
+  const next = S.applySemanticEdits(state, edits, '按顺序摆放这些物件');
+  assert.deepEqual(position(next.objects[1]), { x: 30, y: 46 });
+  assert.deepEqual(position(next.objects[2]), { x: 31, y: 42 });
+});
+
+test('scale and glyph changes retain the prior center or bottom-center when requested', () => {
+  const state = S.applySemanticEdits(S.empty(), [{ type: 'create', object: { label: '画框', glyphs: '+----+\n+----+', x: 10, y: 20, scale: 1 } }], '放一个画框');
+  for (const [anchor, changes, expected] of [
+    ['keep_center', { scale: 3 }, { x: 4, y: 18 }], ['keep_base', { scale: 3 }, { x: 4, y: 16 }],
+    ['keep_center', { glyphs: ' [] \n [] \n [] \n [] ', scale: 2 }, { x: 9, y: 17 }],
+    ['keep_base', { glyphs: ' [] \n [] \n [] \n [] ', scale: 2 }, { x: 9, y: 14 }]
+  ]) {
+    const edit = { type: 'update', target: 'obj_1', changes, placement: { anchor } };
+    const next = S.applySemanticEdits(state, [edit], '改一下画框的大小');
+    assert.deepEqual(position(next.objects[0]), expected, anchor);
+    assert.equal(next.objects[0].source.createdBy, '放一个画框');
+  }
+  const raw = S.applySemanticEdits(state, [{ type: 'update', target: 'obj_1', changes: { scale: 3 } }], '改一下画框的大小');
+  assert.deepEqual(position(raw.objects[0]), { x: 10, y: 20 });
+});
+
+test('retained integer anchors do not drift across repeated odd/even glyph and scale round trips', () => {
+  const dimensions = item => ({ width: Math.max(...item.glyphs.split('\n').map(row => row.length)) * item.scale, height: item.glyphs.split('\n').length * item.scale });
+  const retained = (item, anchor) => {
+    const { width, height } = dimensions(item);
+    return { x: item.x + Math.floor(width / 2), y: item.y + (anchor === 'keep_base' ? height : Math.floor(height / 2)) };
+  };
+  for (const anchor of ['keep_center', 'keep_base']) {
+    for (const [original, resized] of [
+      [{ glyphs: '@', scale: 1 }, { glyphs: '@', scale: 2 }],
+      [{ glyphs: '# #\n # \n# #', scale: 1 }, { glyphs: '####\n####', scale: 2 }],
+      [{ glyphs: '####\n####', scale: 1 }, { glyphs: '# #\n # \n# #', scale: 3 }],
+      [{ glyphs: '[]', scale: 2 }, { glyphs: '[]', scale: 3 }]
+    ]) {
+      let state = S.applySemanticEdits(S.empty(), [{ type: 'create', object: { label: '轮廓', x: 40, y: 20, ...original } }], '画一个轮廓');
+      const fixed = retained(state.objects[0], anchor);
+      for (let cycle = 0; cycle < 3; cycle++) {
+        for (const changes of [resized, original]) {
+          const edits = [{ type: 'update', target: 'obj_1', changes, placement: { anchor } }];
+          const normalized = S.validateSemanticEdits(edits, context(state), '调整大小');
+          const next = S.applySemanticEdits(state, edits, '调整大小');
+          assert(next); assert.deepEqual(retained(next.objects[0], anchor), fixed);
+          assert.deepEqual(S.applySemanticEdits(state, normalized, '调整大小'), next);
+          state = next;
+        }
+        assert.deepEqual(position(state.objects[0]), { x: 40, y: 20 }, `${anchor} cycle ${cycle}`);
+      }
+    }
+    const edge = S.applySemanticEdits(S.empty(), [{ type: 'create', object: { label: '边角', glyphs: '@', x: 0, y: 0, scale: 1 } }], '放在边角');
+    assert.equal(S.applySemanticEdits(edge, [{ type: 'update', target: 'obj_1', changes: { scale: 2 }, placement: { anchor } }], '放大'), null);
+  }
+});
+
+test('relative placement clamps only its free axis and rejects impossible requested sides', () => {
+  const raw = (x, y) => S.applySemanticEdits(S.empty(), [{ type: 'create', object: { label: '参照', glyphs: '@', x, y, scale: 1 } }], '放一个参照');
+  const topLeft = raw(0, 0), bottomRight = raw(99, 59), large = { glyphs: 'x'.repeat(24) + '\n' + 'x'.repeat(24), scale: 3 };
+  for (const [state, anchor, expected] of [
+    [topLeft, 'below', { x: 0, y: 3 }], [topLeft, 'right_of', { x: 3, y: 0 }],
+    [bottomRight, 'above', { x: 28, y: 51 }], [bottomRight, 'left_of', { x: 25, y: 54 }]
+  ]) {
+    const edits = S.validateSemanticEdits([placed({ anchor, target: 'obj_1' }, large)], context(state), '紧挨参照摆放');
+    assert.deepEqual(position(edits[0].object), expected, anchor);
+  }
+  for (const [state, anchor] of [[topLeft, 'above'], [topLeft, 'left_of'], [bottomRight, 'below'], [bottomRight, 'right_of']]) {
+    assert.equal(S.applySemanticEdits(state, [placed({ anchor, target: 'obj_1' })], '紧挨参照摆放'), null, anchor);
+  }
+  assert.equal(S.validateSemanticEdits([placed({ anchor: 'window_left' }, large)], context(), '放在左边'), null);
+  assert.equal(S.validateSemanticEdits([placed({ anchor: 'window_below' }, { glyphs: Array(10).fill('x').join('\n'), scale: 3 })], context(), '放在下面'), null);
+  const edge = S.applySemanticEdits(S.empty(), [{ type: 'create', object: { label: '边缘', glyphs: 'xxxx', x: 95, y: 1, scale: 1 } }], '放在边缘');
+  for (const anchor of ['keep_center', 'keep_base']) assert.equal(S.applySemanticEdits(edge, [{ type: 'update', target: 'obj_1', changes: { scale: 3 }, placement: { anchor } }], '放大'), null);
+});
+
+test('invalid placement schemas, targets and oversized sky objects reject an entire batch without mutation', () => {
+  const state = bench(), before = JSON.stringify(state), good = { type: 'update', target: 'obj_1', changes: {}, placement: { anchor: 'ground' } };
+  const invalid = [
+    placed({ anchor: 'unknown' }), placed({ anchor: 'toString' }), placed({ anchor: {} }), placed({ anchor: 'ground', gap: 2 }),
+    placed({ anchor: 'sky', target: 'window' }), placed({ anchor: 'keep_center' }), placed({ anchor: 'keep_base' }),
+    placed({ anchor: 'above' }), placed({ anchor: 'above', target: 'obj_999' }), placed({ anchor: 'above', target: 'new_1' }),
+    placed({ anchor: 'above', target: 'window', gap: -1 }), placed({ anchor: 'above', target: 'window', gap: 11 }),
+    placed({ anchor: 'above', target: 'window', gap: 0.5 }), placed({ anchor: 'above', target: 'window', extra: true }),
+    placed({ anchor: 'sky' }, { glyphs: Array(5).fill('x').join('\n'), scale: 3 }),
+    placed({ anchor: 'ground' }, { x: 10 }), placed({ anchor: 'ground' }, { y: 10 }), placed({ anchor: 'ground' }, { color: 'red' }),
+    { ...good, changes: { x: 1 } }, { ...good, changes: { y: 1 } }, { ...good, changes: { source: 'invented' } },
+    { ...good, placement: { anchor: 'above', target: 'obj_1' } },
+    { ...good, placement: { anchor: 'ground' }, extra: true }
+  ];
+  for (const bad of invalid) {
+    const edits = [good, bad], original = JSON.stringify(edits), ctx = context(state), oldContext = JSON.stringify(ctx);
+    assert.equal(S.validateSemanticEdits(edits, ctx, '调整摆放'), null, JSON.stringify(bad));
+    assert.equal(S.applySemanticEdits(state, edits, '调整摆放'), null, JSON.stringify(bad));
+    assert.equal(JSON.stringify(edits), original); assert.equal(JSON.stringify(ctx), oldContext); assert.equal(JSON.stringify(state), before);
+  }
+  const forward = [{ ...placed({ anchor: 'above', target: 'new_2' }), ref: 'new_1' }, { ...placed({ anchor: 'ground' }), ref: 'new_2' }];
+  assert.equal(S.validateSemanticEdits(forward, context(), '按顺序摆放'), null);
+  assert.equal(S.validateSemanticEdits([{ type: 'remove', target: 'obj_1' }, placed({ anchor: 'above', target: 'obj_1' })], context(state), '换掉参照'), null);
+});
+
+test('placement normalization revalidates and replays identically without changing legacy edits', () => {
+  const input = '画好以后放大并写下注解', state = S.empty(), ctx = context(state);
+  const edits = [{ ...placed({ anchor: 'ground' }), ref: 'new_1' }, { type: 'update', target: 'new_1', changes: { scale: 2 }, placement: { anchor: 'keep_base' } }, { type: 'annotate', target: 'new_1', field: 'meaning', value: '一起停留' }];
+  const before = JSON.stringify({ state, ctx, edits }), normalized = S.validateSemanticEdits(edits, ctx, input);
+  assert.deepEqual(S.validateSemanticEdits(normalized, ctx, input), normalized);
+  assert.deepEqual(S.applySemanticEdits(state, normalized, input), S.applySemanticEdits(state, edits, input));
+  assert(!JSON.stringify(normalized).includes('placement'));
+  assert.equal(JSON.stringify({ state, ctx, edits }), before);
+  const raw = [{ type: 'create', object: { label: '云', glyphs: '.--.', x: 10, y: 50, scale: 1 } }];
+  assert.deepEqual(S.validateSemanticEdits(raw, context(), '画朵云'), raw);
+  assert.deepEqual(position(S.applySemanticEdits(state, raw, '画朵云').objects[0]), { x: 10, y: 50 });
+  assert.equal(S.validateEdits([{ ...placed({ anchor: 'ground' }), evidence: '画一张新物件' }], context(), '画一张新物件'), null);
+  const offline = S.offline(context(), '画一张长椅');
+  assert.deepEqual(S.validateEdits(offline.edits, context(), '画一张长椅'), offline.edits);
+  assert.deepEqual(position(offline.edits[0].object), { x: 35, y: 42 });
+});

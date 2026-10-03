@@ -4,13 +4,14 @@ const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const source = fs.readFileSync(path.join(__dirname, '../world.js'), 'utf8');
+const Scene = require('../world-state.js');
 function runtime(width=680,height=660) {
   let draws=0,frameId=0,marks=[],clears=[],resize;
   const frames=new Map(),listeners={};
   const ctx={globalAlpha:1,fillStyle:'',setTransform(){},fillRect(x,y,w,h){draws++;marks=[];clears.push({x,y,w,h,color:this.fillStyle,alpha:this.globalAlpha});},fillText(text,x,y){marks.push({text,x,y,color:this.fillStyle,alpha:this.globalAlpha,font:this.font});}};
   const canvas={getContext:()=>ctx,getBoundingClientRect:()=>({width,height})};
   const document={hidden:false,getElementById:()=>canvas};
-  const window={devicePixelRatio:1,addEventListener(type,fn){listeners[type]=fn;}};
+  const window={HerScene:Scene,devicePixelRatio:1,addEventListener(type,fn){listeners[type]=fn;}};
   vm.runInNewContext(source,{window,document,ResizeObserver:class{constructor(fn){resize=fn;}observe(){}},requestAnimationFrame(fn){const id=++frameId;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);}});
   return{world:window.HerWorld,document,listeners,light:()=>marks.find(m=>m.text==='@').alpha,marks:()=>marks,clears:()=>clears,draws:()=>draws,queued:()=>frames.size,resize(w,h){width=w;height=h;resize();},tick(time){const[id,fn]=frames.entries().next().value;frames.delete(id);fn(time);}};
 }
@@ -24,6 +25,27 @@ function object(overrides={}) {
   return {id:'obj_1',label:'a novel drawing',glyphs:'Q',x:10,y:12,scale:1,source:{createdBy:1,lastChangedBy:1},...overrides};
 }
 function mark(r,text='Q') { return r.marks().find(m=>m.text===text); }
+
+test('sky and ground placements stay aligned with rendered landmarks across desktop sizes',()=>{
+  const scene = Scene.applySemanticEdits(Scene.empty(), [
+    {type:'create',object:{label:'云',glyphs:' CCC\nCCCCC',scale:3},placement:{anchor:'sky'}},
+    {type:'create',object:{label:'长椅',glyphs:'BBBBBBB\nB     B',scale:2},placement:{anchor:'ground'}}
+  ], '在天上画云，在地上放长椅');
+  assert(scene); const r=runtime();r.world.pause(true);r.world.setObjects(scene.objects);
+  for(const [width,height] of [[948,715],[550,340],[550,500],[1000,260],[300,1000]]){
+    r.resize(width,height);
+    const clouds=r.marks().filter(m=>m.text==='C'),bench=r.marks().filter(m=>m.text==='B'),window=r.marks().filter(m=>m.text==='@');
+    assert(clouds.length&&bench.length&&window.length);
+    assert(Math.max(...clouds.map(m=>m.y))+height/60*1.5 <= 17*height/60+1e-9);
+    assert(Math.max(...clouds.map(m=>m.y)) < Math.min(...window.map(m=>m.y)));
+    // The last scaled bench cell ends on the same logical ground line.
+    close(Math.max(...bench.map(m=>m.y))+height/60,46*height/60);
+    const rows=Math.max(40,Math.min(90,Math.round(height/((width/100)*1.44))));
+    const sill=r.marks().filter(m=>m.text==='='&&m.x>28*width/100&&m.x<45*width/100&&m.alpha>.4);
+    assert(sill.length);const expected=(Math.round(29*rows/60)+Math.round(12*rows/60)+.5)*height/rows;
+    assert(sill.some(m=>Math.abs(m.y-expected)<1e-9));
+  }
+});
 function settle(r,start=0) { for(let i=1;i<=80;i++)r.tick(start+i*100); }
 function close(actual,expected) { assert(Math.abs(actual-expected)<1e-9,`${actual} != ${expected}`); }
 
