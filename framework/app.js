@@ -22,7 +22,7 @@
   });
   const DIAGNOSTIC_STAGES = new Set(['LOCAL_CONTEXT', 'REQUEST', 'NETWORK', 'HTTP', 'RESPONSE_READ', 'ENVELOPE', 'FINAL_CONTENT', 'JSON', 'CANCELLED']);
   const DIAGNOSTIC_CODES = new Set(['CONTEXT_INVALID', 'INPUT_INVALID', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE', 'ROOT_INVALID', 'PAYLOAD_REQUIRED', 'PAYLOAD_MIXED', 'OUTPUT_UNSAFE', 'JSON_SYNTAX', 'JSON_BAD_ESCAPE', 'JSON_CONTROL_CHARACTER', 'JSON_UNTERMINATED', 'JSON_TRAILING_CONTENT', 'JSON_DUPLICATE_KEY']);
-  ['TURN_ROOT_FIELDS', 'TURN_LINES_INVALID', 'TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT', 'REPORT_SUPPORT_REQUIRED', 'REPORT_SUPPORT_INVALID', 'REPORT_SUPPORT_AMBIGUOUS'].forEach(code => DIAGNOSTIC_CODES.add(code));
+  ['TURN_ROOT_FIELDS', 'TURN_LINES_INVALID', 'TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_MODE', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT', 'REPORT_SUPPORT_REQUIRED', 'REPORT_SUPPORT_INVALID', 'REPORT_SUPPORT_AMBIGUOUS', 'WORLD_INTENT_INVALID', 'WORLD_INTENT_SUPPORT_INVALID', 'WORLD_INTENT_SUPPORT_AMBIGUOUS', 'WORLD_INTENT_REQUIRED', 'WORLD_INTENT_DISCUSSION'].forEach(code => DIAGNOSTIC_CODES.add(code));
   const DIAGNOSTIC_PATHS = new Set(['context', 'input', 'request', 'response', 'content', 'root']);
   const OP_LABELS = Object.freeze({ 'world.create': '新增物件', 'world.update': '修改物件', 'world.remove': '移除物件', 'world.annotate': '更新注解', 'weather.set': '改变天气', 'memory.upsert': '写入记忆', 'memory.remove': '移除记忆', 'story.answer': '记录回答', 'story.defer': '暂放问题', 'character.update': '更新角色状态', 'log.note': '记录想法', 'panel.open': '打开面板' });
   function runtimeDiagnostic(detail, rule) {
@@ -50,6 +50,13 @@
     }
     // Rebuild the display object; never copy model/provider metadata wholesale.
     if (typeof detail.path !== 'string' || detail.path !== path) return null;
+    if (['world.create','world.update'].includes(result.operationType) && ['OPERATION_INVALID','TARGET_MISSING','PLACEMENT_INVALID','PLACEMENT_TARGET','PLACEMENT_CAPACITY','GEOMETRY_INVALID','WORLD_CAPACITY'].includes(rule)) {
+      if (['SCHEMA_INVALID','OBJECT_TARGET_MISSING','OBJECT_LABEL_USED','REFERENCE_TARGET_MISSING','REFERENCE_LABEL_USED','LANDMARK_MISSING','SELF_TARGET','FOOTPRINT_INVALID','LANDMARK_FOOTPRINT','OUT_OF_BOUNDS','POSITION_OCCUPIED','NO_FREE_POSITION','SEARCH_BUDGET','SEARCH_CHOICE','WORLD_CAPACITY'].includes(detail.geometryReason)) result.geometryReason = detail.geometryReason;
+      if (['sky','ground','keep_center','keep_base','window_left','window_right','window_below','above','below','left_of','right_of'].includes(detail.placementAnchor)) result.placementAnchor = detail.placementAnchor;
+      if (['auto','exact'].includes(detail.placementPolicy)) result.placementPolicy = detail.placementPolicy;
+      if (Number.isInteger(detail.footprintCols) && detail.footprintCols >= 1 && detail.footprintCols <= 72 && Number.isInteger(detail.footprintRows) && detail.footprintRows >= 1 && detail.footprintRows <= 30) { result.footprintCols = detail.footprintCols; result.footprintRows = detail.footprintRows; }
+      if (Number.isInteger(detail.occupiedCount) && detail.occupiedCount >= 0 && detail.occupiedCount <= 8) result.occupiedCount = detail.occupiedCount;
+    }
     return { ...result, reason: detail.reason, path };
   }
   function list(value) { return Array.isArray(value) ? value : value && typeof value === 'object' ? Object.values(value) : []; }
@@ -150,11 +157,21 @@
       if (role !== 'system') node.append(el('span', role === 'user' ? '你' : (visible.character && visible.character.name) || '她', 'speaker'));
       node.append(body); return { node, body };
     }
+    function changeReceipt(row, eventId, line) {
+      const event = state.events.find(item => item.id === eventId && item.type === 'turn');
+      const beat = event && event.plan.beats.find(item => item.afterLine === line);
+      const counts = new Map();
+      for (const op of (beat && beat.operations) || []) if (['world.create','world.update','world.remove','weather.set'].includes(op.type)) counts.set(op.type, (counts.get(op.type) || 0) + 1);
+      if (!counts.size) return;
+      const label = [...counts].map(([type,count]) => OP_LABELS[type] + (count > 1 ? ' ×' + count : '')).join(' · ');
+      const receipt = el('small', '本句已落实：' + label, 'change-receipt');
+      receipt.setAttribute('aria-label', '本句已验证的世界变化'); row.node.append(receipt);
+    }
     function scroll() { const t = $('transcript'); t.scrollTop = t.scrollHeight; }
     function renderTranscript() {
       const transcript = $('transcript'); transcript.replaceChildren();
       if (!(visible.transcript || []).length) transcript.append(message('system', '内容包说明 · ' + ((pack.character && [pack.character.role, pack.character.stance].filter(Boolean).join('。')) || pack.title)).node);
-      list(visible.transcript).forEach(item => transcript.append(message(item.role, item.text).node));
+      list(visible.transcript).forEach(item => { const row = message(item.role, item.text); if (item.role === 'character') changeReceipt(row, item.eventId, item.line); transcript.append(row.node); });
       scroll();
     }
     function renderWorld(view) {
@@ -319,7 +336,7 @@
         lastFailure.stage = detail.stage;
         if (DIAGNOSTIC_CODES.has(detail.code)) lastFailure.detail = detail.code;
         if (DIAGNOSTIC_PATHS.has(detail.path)) lastFailure.path = detail.path;
-        if (detail.stage === 'JSON' && detail.path === 'content' && ['TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT', 'REPORT_SUPPORT_REQUIRED', 'REPORT_SUPPORT_INVALID', 'REPORT_SUPPORT_AMBIGUOUS'].includes(detail.code) && Number.isInteger(detail.rowIndex) && detail.rowIndex >= 0 && detail.rowIndex <= 3) lastFailure.rowIndex = detail.rowIndex;
+        if (detail.stage === 'JSON' && detail.path === 'content' && ['TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_MODE', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT', 'REPORT_SUPPORT_REQUIRED', 'REPORT_SUPPORT_INVALID', 'REPORT_SUPPORT_AMBIGUOUS', 'WORLD_INTENT_REQUIRED', 'WORLD_INTENT_DISCUSSION'].includes(detail.code) && Number.isInteger(detail.rowIndex) && detail.rowIndex >= 0 && detail.rowIndex <= 3) lastFailure.rowIndex = detail.rowIndex;
       }
       const runtimeDetail = runtimeDiagnostic(detail, lastFailure.rule);
       if (runtimeDetail) Object.assign(lastFailure, runtimeDetail);
@@ -365,6 +382,8 @@
           if (r.timer) clearTimer(r.timer);
           r.row.body.textContent = r.lines[r.index];
           const frame = r.frames[r.index] || runtime.view(state); renderView(frame);
+          const spoken = list(frame.transcript).filter(item => item.role === 'character').slice(-1)[0];
+          if (spoken) changeReceipt(r.row, spoken.eventId, spoken.line);
           currentBeat = { line: r.index + 1, total: r.lines.length, phase: 'accepted' }; renderDeveloper();
           if (frame.panel && navigation === r.requestNavigation) selectPanel(frame.panel, false);
           text('reveal-announcement', r.lines[r.index]); scroll();

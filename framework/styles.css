@@ -7,3 +7,5 @@
 
 /* The connection introduction occupies its own space before play starts. */
 .intro{overflow:auto;justify-content:safe center}
+
+.change-receipt{grid-column:2;font:10px/1.6 var(--mono);color:var(--blue);margin-top:-6px;opacity:.85}

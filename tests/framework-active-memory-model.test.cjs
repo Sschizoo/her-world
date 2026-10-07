@@ -10,10 +10,12 @@ const plan = (operations, lines = ['我听懂了。']) => ({ schema: 'her-world-
 const fresh = () => Runtime.create(Packs.get('rain-lab'));
 async function modeledTurn(state, input, operations, lines) {
   const supplied = plan(operations, lines);
+  const physical = operations.some(op => ['world.create','world.update','world.remove','weather.set'].includes(op.type));
+  const wire = physical ? {schema:'her-world-turn-v4',requestedChanges:[{domain:'scene',support:{quote:input}}],lines:supplied.lines.map((text,index)=>({text,mode:'apply_now',operations:supplied.beats.find(beat=>beat.afterLine===index)?.operations||[]})),topic:supplied.topic} : supplied;
   let request;
   const model = Model.create({ fetch: async (_url, options) => {
     request = JSON.parse(options.body);
-    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(supplied) }, finish_reason: 'stop' }] }));
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(wire) }, finish_reason: 'stop' }] }));
   } });
   assert(model.connect('MOCK_ACTIVE_MEMORY_PASSWORD'));
   const actual = await model.request({ context: Runtime.context(state), input });

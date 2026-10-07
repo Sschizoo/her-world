@@ -70,6 +70,14 @@ test('salient memory without a remember command reveals at its sentence and labe
   const restored=runtime.restore(r.store.get(r.app.snapshot().storageKey),packs.get('rain-lab'));assert(restored.ok);assert.equal(restored.state.memories[0].perspective,'player_report');
 });
 
+test('locally derived change receipts appear only with their accepted sentence and survive refresh',async()=>{
+  const r=setup({reduced:false,request:async()=>plan(['先听你说。','这朵云放好了。'],[{afterLine:1,operations:[addObject]}])});
+  await r.online();await r.say('放一只纸船');assert(!r.ids.transcript.textContent.includes('本句已落实'));
+  await r.ids['skip-reveal'].emit('click');assert(!r.ids.transcript.textContent.includes('本句已落实'));
+  await r.timers.advance(360);await r.ids['skip-reveal'].emit('click');assert.match(r.ids.transcript.textContent,/本句已落实：新增物件/);
+  const next=setup({store:r.store});assert.match(next.ids.transcript.textContent,/本句已落实：新增物件/);assert.equal(next.model.calls(),0);
+});
+
 test('forgetting removes the current card while audit remains and later learning shows a fresh source generation',async()=>{
   const r=setup();await r.offline();await r.say('/记住 note_visit 来访 | 一起看天亮');
   await r.say('/忘记 note_visit');assert.equal(r.ids['memory-count'].textContent,'00');assert.match(r.ids.transcript.textContent,/一起看天亮/);
@@ -137,7 +145,7 @@ test('a full placement area explains how to make room without displaying or savi
   await r.online();const before=r.app.snapshot().state;await r.say('添两朵大云');
   assert.equal(r.app.snapshot().state,before);assert.equal(r.app.snapshot().visible.world.objects.length,0);assert.equal(r.app.snapshot().visible.memories.length,0);assert.equal(r.store.size,0);assert.equal(r.app.snapshot().revealing,false);
   assert.equal(r.ids['request-error'].hidden,false);assert.match(r.ids['request-error-text'].textContent,/没有找到能安全放下/);assert.match(r.ids['request-error-text'].textContent,/缩小物件、换个位置/);assert.match(r.ids['request-error-text'].textContent,/没有保存或改变/);
-  assert.deepEqual(r.app.snapshot().lastFailure,{code:'invalid',rule:'PLACEMENT_CAPACITY',stage:'RUNTIME',reason:'OPERATION_REJECTED',path:'beats[0].operations[2]',beatIndex:0,operationIndex:2,operationType:'world.create'});assert.match(r.ids['developer-content'].textContent,/PLACEMENT_CAPACITY/);assert(!r.ids.transcript.textContent.includes(success));assert.equal(r.ids['reveal-announcement'].textContent,'');
+  assert.deepEqual(r.app.snapshot().lastFailure,{code:'invalid',rule:'PLACEMENT_CAPACITY',stage:'RUNTIME',reason:'OPERATION_REJECTED',path:'beats[0].operations[2]',beatIndex:0,operationIndex:2,operationType:'world.create',geometryReason:'NO_FREE_POSITION',placementAnchor:'sky',placementPolicy:'auto',footprintCols:72,footprintRows:12,occupiedCount:1});assert.match(r.ids['developer-content'].textContent,/PLACEMENT_CAPACITY/);assert(!r.ids.transcript.textContent.includes(success));assert.equal(r.ids['reveal-announcement'].textContent,'');
 });
 test('manual retry and explicit offline fallback never happen automatically',async()=>{
   const r=setup({request:async()=>{throw {code:'network',message:'UNSAFE_DETAIL'};}});await r.online();await r.say('/新建 长椅');assert.equal(r.model.calls(),1);assert.equal(r.app.snapshot().visible.world.objects.length,0);assert(!r.ids['request-error-text'].textContent.includes('UNSAFE_DETAIL'));await r.ids['fallback-button'].emit('click');assert.equal(r.model.calls(),1);assert.equal(r.app.snapshot().mode,'offline');assert.equal(r.app.snapshot().visible.world.objects.length,1);assert(!r.model.connected());

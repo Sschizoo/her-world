@@ -530,7 +530,7 @@ test('shared budget counts escaped context and duplicated definitions exactly', 
   for (const text of ['\\', '"', '\ud800', '🌟']) {
     const state = turn(rain(), text.repeat(200), [{ type: 'memory.upsert', id: 'note_escaping', title: text.repeat(60), body: text.repeat(240) }]);
     const context = R.context(state), definition = CAPS.modelDefinition(context);
-    assert.deepEqual(Object.keys(definition), ['pack', 'persona', 'guidance', 'topics', 'capabilities']);
+    assert.deepEqual(Object.keys(definition), ['pack', 'persona', 'guidance', 'topics', 'capabilities', 'referenceCatalog']);
     assert.equal(CAPS.requestContextBytes(context), Buffer.byteLength(JSON.stringify({ context: JSON.stringify(context), definition: JSON.stringify(definition) })));
     assert.ok(CAPS.requestContextBytes(context) > Buffer.byteLength(JSON.stringify(context)));
     assert.equal(context.memories[0].body, text.repeat(240));

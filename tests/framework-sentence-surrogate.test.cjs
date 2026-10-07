@@ -1,15 +1,14 @@
 'use strict';
-const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
-const R=require('../framework/runtime.js'),P=require('../framework/packs.js'),M=require('../framework/model.js');
+const test=require('node:test'),assert=require('node:assert/strict');
+const R=require('../framework/runtime.js'),P=require('../framework/packs.js');
+const {historicalCanonicalTurn,assertCurrentModelBoundary}=require('./fixtures/historical-turn.cjs');
 const fixture=require('./fixtures/framework-sentence-surrogate.json');
-const sha=value=>crypto.createHash('sha256').update(value).digest('hex');
-test('three historical v0.1.6 v3 outputs remain readable with strict sources and canonical saves',async()=>{
+test('three historical v0.1.6 canonical plans preserve sources, frames and saves; current model physical proposals fail closed',async()=>{
   let state=R.create(P.get(fixture.pack));assert.equal(fixture.modelProtocol,'her-world-turn-v3');assert.equal(fixture.records.length,3);
   for(const [index,record] of fixture.records.entries()){
-    assert.equal(sha(record.raw),record.sha256);assert.match(record.requestSha256,/^[a-f0-9]{64}$/); // Captured v0.1.6 request hash, not the current prompt.
+    const proposed=historicalCanonicalTurn(record,fixture.rulesVersion);
     const original=JSON.parse(record.raw);assert.equal(original.schema,'her-world-turn-v3');assert(!Object.hasOwn(original,'beats'));
-    const adapter=M.create({fetch:async()=>new Response(JSON.stringify({choices:[{message:{content:record.raw},finish_reason:'stop'}]}),{status:200})});adapter.connect('DUMMY_FRAMEWORK_TEST_ONLY');
-    const proposed=await adapter.request({context:R.context(state),input:record.input});adapter.disconnect();assert.equal(proposed.schema,'her-world-turn-v2');
+    await assertCurrentModelBoundary(record,R.context(state),proposed);assert.equal(proposed.schema,'her-world-turn-v2');
     const result=R.commit(state,R.propose(state,{text:record.input}),proposed);assert.equal(result.ok,true,JSON.stringify(result.error));state=result.state;
     assert.deepEqual(R.restore(R.serialize(state),P.get(fixture.pack)).state,state);
     assert(state.events.filter(event=>event.type==='turn').every(event=>event.plan.schema==='her-world-turn-v2'));

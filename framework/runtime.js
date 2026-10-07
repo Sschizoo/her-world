@@ -6,9 +6,9 @@
   if (root) root.HerFramework = api;
 })(typeof window !== 'undefined' ? window : null, function (CAPS, PACKS, MEMORY) {
   'use strict';
-  // Reserve 32 KiB of the fixed 128 KiB transport for its prompt/envelope and
+  // Reserve 16 KiB of the fixed 128 KiB transport for its prompt/envelope and
   // at most 200 double-escaped input code points (verified by model tests).
-  const MAX_INPUT = 200, MAX_EVENTS = 1000, MAX_MEMORIES = 14, MAX_OPERATIONS = 12, MAX_CONTEXT_BYTES = 96 * 1024;
+  const MAX_INPUT = 200, MAX_EVENTS = 1000, MAX_MEMORIES = 14, MAX_OPERATIONS = CAPS.MAX_OPERATIONS, MAX_CONTEXT_BYTES = 112 * 1024;
   const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
   const copy = value => JSON.parse(JSON.stringify(value));
   const stage = state => { const { recall, ...data } = state; return { ...copy(data), recall }; };
@@ -76,7 +76,7 @@
   }
   function recallContext(state) {
     const result = projection(state, null, false);
-    const snapshot = { schema: 'her-world-context-v1', pack: result.pack, guidance: state.pack.guidance || '', character: result.character, world: result.world, entities: copy(state.pack.entities), memories: result.memories, story: result.story, facts: result.facts, pendingQuestions: result.pendingQuestions, activeQuestionId: result.activeQuestionId, topics: copy(state.pack.topics), capabilities: CAPS.descriptors(state.pack.capabilities), recentTranscript: copy(state.transcript.slice(-12)), revision: state.revision };
+    const snapshot = { schema: 'her-world-context-v1', pack: result.pack, guidance: state.pack.guidance || '', character: result.character, world: result.world, entities: copy(state.pack.entities), memories: result.memories, story: result.story, facts: result.facts, pendingQuestions: result.pendingQuestions, activeQuestionId: result.activeQuestionId, topics: copy(state.pack.topics), capabilities: CAPS.descriptors(state.pack.capabilities, CAPS.RULES_VERSION, result.world, state.pack.entities), recentTranscript: copy(state.transcript.slice(-12)), revision: state.revision };
     let projected = MEMORY.projectContext(snapshot, state.recall);
     // Brand only the final request projection. Trimmed transcript records must
     // never become dependencies of a model response that could not see them.
@@ -94,13 +94,50 @@
     state.recall = MEMORY.recordDerivation(state.recall, id, { sources, exposure: independent ? null : env?.exposure });
   }
   function dimensions(item) { const rows = item.glyphs.split('\n'); return { width: Math.max(...rows.map(row => row.length)) * item.scale, height: rows.length * item.scale }; }
+  const geometryReasons = ['SCHEMA_INVALID', 'OBJECT_TARGET_MISSING', 'OBJECT_LABEL_USED', 'REFERENCE_TARGET_MISSING', 'REFERENCE_LABEL_USED', 'LANDMARK_MISSING', 'SELF_TARGET', 'FOOTPRINT_INVALID', 'LANDMARK_FOOTPRINT', 'OUT_OF_BOUNDS', 'POSITION_OCCUPIED', 'NO_FREE_POSITION', 'SEARCH_BUDGET', 'SEARCH_CHOICE', 'WORLD_CAPACITY'];
+  const placementAnchors = ['sky', 'ground', 'keep_center', 'keep_base', 'window_left', 'window_right', 'window_below', 'above', 'below', 'left_of', 'right_of'];
+  function assertGeometry(condition, code, geometryReason) {
+    if (!condition) { const error = new Error(code); error.code = code; error.path = '$'; error.geometryReason = geometryReason; throw error; }
+  }
+  function missingGeometryTarget(state, target, reference = false) {
+    // Labels remain visible in the world projection. Count exact matches only;
+    // diagnostics neither resolve a label nor expose the supplied reference.
+    if (typeof target === 'string' && state.world.objects.filter(object => object.label === target).length === 1) return reference ? 'REFERENCE_LABEL_USED' : 'OBJECT_LABEL_USED';
+    if (reference && ['sky', 'ground', 'window'].includes(target)) return 'LANDMARK_MISSING';
+    return reference ? 'REFERENCE_TARGET_MISSING' : 'OBJECT_TARGET_MISSING';
+  }
+  function geometryDiagnostic(error, op, state) {
+    if (!['world.create', 'world.update'].includes(op?.type) || !['OPERATION_INVALID', 'TARGET_MISSING', 'PLACEMENT_INVALID', 'PLACEMENT_TARGET', 'GEOMETRY_INVALID', 'PLACEMENT_CAPACITY', 'WORLD_CAPACITY'].includes(error.code)) return {};
+    const current = op.type === 'world.update' ? state.world.objects.find(object => object.id === op.target) : null;
+    const detail = {};
+    if (geometryReasons.includes(error.geometryReason)) detail.geometryReason = error.geometryReason;
+    else if (error.code === 'OPERATION_INVALID' || error.code === 'PLACEMENT_INVALID') detail.geometryReason = 'SCHEMA_INVALID';
+    else if (error.code === 'TARGET_MISSING') detail.geometryReason = missingGeometryTarget(state, op.target);
+    else if (error.code === 'WORLD_CAPACITY') detail.geometryReason = 'WORLD_CAPACITY';
+    // Preserve historical lookup/validation behavior even for prototype names,
+    // but do not describe an inherited property as a real geometric reference.
+    if (detail.geometryReason === 'OUT_OF_BOUNDS' && ['above', 'below', 'left_of', 'right_of'].includes(op.placement?.anchor) && !state.world.objects.some(object => object.id === op.placement.target) && !own(state.world.landmarks, op.placement.target)) detail.geometryReason = missingGeometryTarget(state, op.placement.target, true);
+    if (placementAnchors.includes(op.placement?.anchor)) detail.placementAnchor = op.placement.anchor;
+    if (!own(op, 'placementPolicy')) detail.placementPolicy = 'auto';
+    else if (['auto', 'exact'].includes(op.placementPolicy)) detail.placementPolicy = op.placementPolicy;
+    const item = op.type === 'world.create' ? op.object : current && { ...current, ...(plain(op.changes) ? op.changes : {}) };
+    if (plain(item) && typeof item.glyphs === 'string' && item.glyphs.length <= 249 && /^[\x20-\x7e\n]+$/u.test(item.glyphs) && /[\x21-\x7e]/u.test(item.glyphs) && Number.isInteger(item.scale) && item.scale >= 1 && item.scale <= 3) {
+      const rows = item.glyphs.split('\n');
+      if (rows.length <= 10 && rows.every(row => row.length <= 24)) {
+        const { width, height } = dimensions(item);
+        detail.footprintCols = width; detail.footprintRows = height;
+      }
+    }
+    detail.occupiedCount = state.world.objects.filter(object => object.id !== current?.id).length;
+    return detail;
+  }
   function shape(item) {
     if (!fields(item, ['label', 'glyphs', 'x', 'y', 'scale']) || !safeText(item.label, 40) || typeof item.glyphs !== 'string' || !/^[\x20-\x7e\n]+$/u.test(item.glyphs) || !/[\x21-\x7e]/u.test(item.glyphs) || item.glyphs.split('\n').length > 10 || item.glyphs.split('\n').some(row => row.length > 24) || !Number.isInteger(item.scale) || item.scale < 1 || item.scale > 3 || !Number.isInteger(item.x) || !Number.isInteger(item.y)) return false;
     const { width, height } = dimensions(item);
     return item.x >= 0 && item.y >= 0 && item.x + width <= 100 && item.y + height <= 60;
   }
   function placed(item, placement, state, current, env) {
-    assert(shape({ ...item, x: 0, y: 0 }), 'GEOMETRY_INVALID');
+    assertGeometry(shape({ ...item, x: 0, y: 0 }), 'GEOMETRY_INVALID', 'FOOTPRINT_INVALID');
     const { width, height } = dimensions(item), anchor = placement.anchor;
     const center = (start, total, size) => start + Math.floor(total / 2) - Math.floor(size / 2);
     const clamp = (value, maximum) => Math.max(0, Math.min(value, maximum));
@@ -112,8 +149,8 @@
         x = current.x + Math.floor(old.width / 2) - Math.floor(width / 2);
         y = anchor === 'keep_base' ? current.y + old.height - height : current.y + Math.floor(old.height / 2) - Math.floor(height / 2);
       } else {
-        const landmark = state.world.landmarks[anchor]; assert(landmark, 'PLACEMENT_TARGET');
-        assert(width <= landmark.width && (anchor === 'ground' || height <= landmark.height), 'GEOMETRY_INVALID');
+        const landmark = state.world.landmarks[anchor]; assertGeometry(landmark, 'PLACEMENT_TARGET', 'LANDMARK_MISSING');
+        assertGeometry(width <= landmark.width && (anchor === 'ground' || height <= landmark.height), 'GEOMETRY_INVALID', 'LANDMARK_FOOTPRINT');
         x = center(landmark.x, landmark.width, width);
         y = anchor === 'ground' ? landmark.y + landmark.height - height : center(landmark.y, landmark.height, height);
       }
@@ -125,31 +162,31 @@
         assert(fields(placement, ['anchor', 'target', 'gap'], ['anchor', 'target']), 'PLACEMENT_INVALID');
         side = anchor; gap = placement.gap ?? 2;
         const object = state.world.objects.find(object => object.id === placement.target);
-        assert(!current || placement.target !== current.id, 'PLACEMENT_INVALID');
+        assertGeometry(!current || placement.target !== current.id, 'PLACEMENT_INVALID', 'SELF_TARGET');
         target = object ? { x: object.x, y: object.y, ...dimensions(object) } : state.world.landmarks[placement.target];
       }
-      assert(target, 'PLACEMENT_TARGET');
+      assertGeometry(target, 'PLACEMENT_TARGET', own(fixed, anchor) ? 'LANDMARK_MISSING' : missingGeometryTarget(state, placement.target, true));
       x = center(target.x, target.width, width); y = center(target.y, target.height, height);
       if (side === 'left_of' || side === 'right_of') { x = side === 'left_of' ? target.x - gap - width : target.x + target.width + gap; y = clamp(y, 60 - height); }
       else { y = side === 'above' ? target.y - gap - height : target.y + target.height + gap; x = clamp(x, 100 - width); }
     }
     const result = { ...item, x, y };
     const movableTarget = env?.rulesVersion !== '2' && state.world.objects.some(object => object.id === placement.target && object.source.createdEventId === env?.eventId);
-    assert(shape(result), movableTarget ? 'PLACEMENT_CAPACITY' : 'GEOMETRY_INVALID'); return result;
+    assertGeometry(shape(result), movableTarget ? 'PLACEMENT_CAPACITY' : 'GEOMETRY_INVALID', 'OUT_OF_BOUNDS'); return result;
   }
   function overlaps(first, second) {
     const a = dimensions(first), b = dimensions(second);
     return first.x < second.x + b.width && first.x + a.width > second.x && first.y < second.y + b.height && first.y + a.height > second.y;
   }
   function resolvePlacement(item, op, state, current, env) {
-    assert(shape(item), 'GEOMETRY_INVALID');
+    assertGeometry(shape(item), 'GEOMETRY_INVALID', 'OUT_OF_BOUNDS');
     const occupied = state.world.objects.filter(other => other.id !== current?.id);
     const clear = candidate => !occupied.some(other => overlaps(candidate, other));
     const anchor = op.placement?.anchor;
     if (op.allowOverlap === true) return item;
     // Fixed resize anchors cannot drift to make room. Explicit coordinates can
     // also opt out of automatic search; neither mode moves neighboring objects.
-    if (op.placementPolicy === 'exact' || ['keep_center', 'keep_base'].includes(anchor)) { assert(clear(item), 'PLACEMENT_CAPACITY'); return item; }
+    if (op.placementPolicy === 'exact' || ['keep_center', 'keep_base'].includes(anchor)) { assertGeometry(clear(item), 'PLACEMENT_CAPACITY', 'POSITION_OCCUPIED'); return item; }
     if (current && clear(item)) return item;
     const { width, height } = dimensions(item);
     let minX = 0, maxX = 100 - width, minY = 0, maxY = 60 - height;
@@ -162,7 +199,7 @@
     else if (['window_below', 'above', 'below'].includes(anchor)) minY = maxY = item.y;
     const candidates = [];
     for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
-      assert(++env.search.work <= 250000, 'PLACEMENT_CAPACITY');
+      assertGeometry(++env.search.work <= 250000, 'PLACEMENT_CAPACITY', 'SEARCH_BUDGET');
       const candidate = { ...item, x, y };
       if (clear(candidate)) candidates.push(candidate);
     }
@@ -171,11 +208,11 @@
       if (!current && env.search.edge === 'bottom') return b.y - a.y || a.x - b.x;
       return Number(a.y !== item.y) - Number(b.y !== item.y) || (!current && env.search.edge === 'left' ? a.x - b.x : 0) || ((a.x - item.x) ** 2 + (a.y - item.y) ** 2) - ((b.x - item.x) ** 2 + (b.y - item.y) ** 2) || a.y - b.y || a.x - b.x;
     });
-    assert(candidates.length, 'PLACEMENT_CAPACITY');
+    assertGeometry(candidates.length, 'PLACEMENT_CAPACITY', 'NO_FREE_POSITION');
     if (current) return candidates[0];
     const index = env.search.decisions.length, selected = env.search.choices[index] || 0;
     env.search.decisions.push({ selected, count: candidates.length });
-    assert(selected < candidates.length, 'PLACEMENT_CAPACITY');
+    assertGeometry(selected < candidates.length, 'PLACEMENT_CAPACITY', 'SEARCH_CHOICE');
     return candidates[selected];
   }
   function needsPlacement(op, current, item) {
@@ -283,7 +320,7 @@
       assert(state.world.objects.length < state.world.capacity && state.world.nextId <= 10000, 'WORLD_CAPACITY');
       assert(!own(op, 'placement') || !own(op.object, 'x') && !own(op.object, 'y'), 'PLACEMENT_INVALID');
       let item = own(op, 'placement') ? placed(op.object, op.placement, state, undefined, env) : op.object;
-      assert(shape(item), 'GEOMETRY_INVALID');
+      assertGeometry(shape(item), 'GEOMETRY_INVALID', shape({ ...item, x: 0, y: 0 }) ? 'OUT_OF_BOUNDS' : 'FOOTPRINT_INVALID');
       if (env.rulesVersion !== '2') {
         assert(!env.replay || !own(op, 'placement') && op.placementPolicy === 'exact', 'EVENT_INVALID');
         item = resolvePlacement(item, op, state, undefined, env);
@@ -301,7 +338,7 @@
       const { id, source: oldSource, ...base } = current;
       const shapeValue = { ...base, ...copy(op.changes) };
       let item = own(op, 'placement') ? placed(shapeValue, op.placement, state, current, env) : shapeValue;
-      assert(shape(item), 'GEOMETRY_INVALID');
+      assertGeometry(shape(item), 'GEOMETRY_INVALID', shape({ ...item, x: 0, y: 0 }) ? 'OUT_OF_BOUNDS' : 'FOOTPRINT_INVALID');
       if (env.rulesVersion !== '2' && needsPlacement(op, current, item)) {
         assert(!env.replay || !own(op, 'placement') && op.placementPolicy === 'exact', 'EVENT_INVALID');
         item = resolvePlacement(item, op, state, current, env);
@@ -384,12 +421,15 @@
   }
   function execute(state, input, plan, rulesVersion = CAPS.RULES_VERSION, replay = false, model = false) {
     const search = { choices: [], decisions: [], work: 0, edge: false };
-    let attempts = 0;
+    const budgetLimited = result => fail(result.error.code, result.error.path, result.error.diagnostic ? { ...result.error.diagnostic, geometryReason: 'SEARCH_BUDGET' } : undefined);
+    let attempts = 0, lastFailure;
     while (attempts < 256) {
       const firstAttempt = attempts++ === 0;
       search.decisions = [];
       const result = executeAttempt(state, input, plan, rulesVersion, search, replay, model);
-      if (result.ok || result.error.code !== 'PLACEMENT_CAPACITY' || search.work >= 250000) return result;
+      if (result.ok || result.error.code !== 'PLACEMENT_CAPACITY') return result;
+      if (search.work >= 250000) return budgetLimited(result);
+      lastFailure = result;
       // Dense batches have equivalent dead ends around either central axis.
       // Boundary seeds share the search budget and the same anchor constraints.
       if (firstAttempt && search.decisions.length) {
@@ -399,7 +439,7 @@
           const packed = executeAttempt(state, input, plan, rulesVersion, edgeSearch, replay, model);
           search.work = edgeSearch.work;
           if (packed.ok) return packed;
-          if (search.work >= 250000) return result;
+          if (search.work >= 250000) return budgetLimited(packed.error.code === 'PLACEMENT_CAPACITY' ? packed : result);
         }
       }
       let index = search.decisions.length - 1;
@@ -408,7 +448,7 @@
       search.choices = search.decisions.slice(0, index + 1).map(decision => decision.selected);
       search.choices[index]++;
     }
-    return fail('PLACEMENT_CAPACITY');
+    return lastFailure ? budgetLimited(lastFailure) : fail('PLACEMENT_CAPACITY');
   }
   function executeAttempt(state, input, plan, rulesVersion, search, replay, model) {
     // Only local reason tokens and validated array coordinates enter diagnostics.
@@ -477,6 +517,7 @@
               const beatIndex = plan.beats.indexOf(beat), op = beat.operations[operationIndex];
               diagnostic = { stage: 'RUNTIME', reason: 'OPERATION_REJECTED', path: 'beats[' + beatIndex + '].operations[' + operationIndex + ']', beatIndex, operationIndex };
               if (typeof op?.type === 'string' && CAPS.ids.includes(op.type)) diagnostic.operationType = op.type;
+              Object.assign(diagnostic, geometryDiagnostic(error, op, next));
               if (error.code === 'EVIDENCE_INVALID') {
                 diagnostic.reason = typeof op?.evidence === 'string' && input.includes(op.evidence) ? 'EVIDENCE_INPUT_EXCERPT' : 'EVIDENCE_INPUT_MISMATCH';
                 diagnostic.path += '.evidence';

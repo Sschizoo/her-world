@@ -1,17 +1,14 @@
 'use strict';
-const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
-const R=require('../framework/runtime.js'),P=require('../framework/packs.js'),M=require('../framework/model.js');
+const test=require('node:test'),assert=require('node:assert/strict');
+const R=require('../framework/runtime.js'),P=require('../framework/packs.js');
+const {historicalCanonicalTurn,assertCurrentModelBoundary}=require('./fixtures/historical-turn.cjs');
 const fixture=require('./fixtures/framework-report-surrogate.json');
-const sha=value=>crypto.createHash('sha256').update(value).digest('hex');
-test('four independent current responses use quoted sources, separate clouds and explicit memory revisions',async()=>{
+test('four historical v0.1.7 canonical plans preserve quoted sources, placement, revisions and replay; current model physical proposals fail closed',async()=>{
   let state=R.create(P.get(fixture.pack));let firstSource;
   assert.equal(fixture.records.length,4);assert.equal(fixture.modelProtocol,'her-world-turn-v3');
   for(const [index,record] of fixture.records.entries()){
-    assert.equal(sha(record.raw),record.sha256);
-    assert.equal(sha(JSON.stringify(M.buildRequest(R.context(state),record.input))),record.requestSha256);
-    const adapter=M.create({fetch:async()=>new Response(JSON.stringify({choices:[{message:{content:record.raw},finish_reason:'stop'}]}),{status:200})});
-    adapter.connect('DUMMY_REPORT_SURROGATE_ONLY');
-    const plan=await adapter.request({context:R.context(state),input:record.input});adapter.disconnect();
+    const plan=historicalCanonicalTurn(record,fixture.rulesVersion);
+    await assertCurrentModelBoundary(record,R.context(state),plan);
     const result=R.commitModel(state,R.propose(state,{text:record.input}),plan);assert(result.ok,JSON.stringify(result.error));state=result.state;
     assert.deepEqual(R.restore(R.serialize(state),P.get(fixture.pack)).state,state);
     if(index===0){

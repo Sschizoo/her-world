@@ -1,27 +1,31 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 const E = require('../framework/runtime.js');
 const P = require('../framework/packs.js');
 const M = require('../framework/model.js');
+const { historicalCanonicalTurn, assertCurrentModelBoundary } = require('./fixtures/historical-turn.cjs');
 const fixture = require('./fixtures/framework-memory-surrogate.json');
-const sha = value => crypto.createHash('sha256').update(value).digest('hex');
-test('five historical v0.1.4 model responses still form, revise and forget memory under current canonical runtime', async () => {
+test('five historical v0.1.4 canonical plans preserve memory creation, revision, forgetting and replay', async () => {
   let state = E.create(P.get(fixture.pack));
   assert.equal(fixture.rulesVersion, '4');assert.equal(fixture.records.length, 5);
   for (const [index, record] of fixture.records.entries()) {
-    assert.equal(sha(record.raw), record.sha256);
     const request = M.buildRequest(E.context(state), record.input);
-    assert.match(record.requestSha256, /^[a-f0-9]{64}$/, 'historical v0.1.4 request hash remains recorded');
     if (index === 4) {
-      assert.doesNotMatch(JSON.stringify(request), /风声|细雨/);
+      // The current static prompt has its own wind-preference example. Check
+      // actual recall data and the forgotten reports, not coincidental words
+      // in protocol instructions that were never sourced from this history.
+      const recall = JSON.parse(request.messages.find(message => message.role === 'user').content);
+      assert.doesNotMatch(JSON.stringify(recall), /风声|细雨/);
+      for (const previous of [fixture.records[0], fixture.records[2]]) {
+        const report = JSON.parse(previous.raw).beats.flatMap(beat => beat.operations).find(operation => operation.type === 'memory.upsert');
+        assert.equal(JSON.stringify(request).includes(report.body), false, 'forgotten exact report must not enter either model message');
+      }
       assert.match(JSON.stringify(E.serialize(state)), /风声/);assert.match(JSON.stringify(E.serialize(state)), /细雨/);
     }
-    const adapter = M.create({fetch: async () => new Response(JSON.stringify({choices: [{message: {content: record.raw}, finish_reason: 'stop'}]}), {status: 200})});
-    adapter.connect('DUMMY_FRAMEWORK_TEST_ONLY');
-    const plan = await adapter.request({context: E.context(state), input: record.input});
-    const result = E.commit(state, E.propose(state, {text: record.input}), plan);adapter.disconnect();
+    const plan = historicalCanonicalTurn(record, fixture.rulesVersion);
+    await assertCurrentModelBoundary(record, E.context(state), plan);
+    const result = E.commit(state, E.propose(state, {text: record.input}), plan);
     assert.equal(result.ok, true, JSON.stringify(result.error));state = result.state;
     assert.deepEqual(state.story.completed, [], 'remembering and forgetting cannot force a plot answer');
     const restored = E.restore(E.serialize(state), P.get(fixture.pack));assert.equal(restored.ok, true, JSON.stringify(restored.error));assert.deepEqual(restored.state, state);

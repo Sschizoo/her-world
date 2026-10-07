@@ -399,14 +399,15 @@ test('mocked adapter proposal reaches real runtime validation and atomically pre
   const Model = require('../framework/model.js');
   const current = Framework.create(Packs.list()[0]), input = '在天上画一颗星';
   const create = { type: 'world.create', object: { label: '星', glyphs: '*', scale: 1 }, placement: { anchor: 'sky' } };
-  let proposed = plan({ beats: [{ afterLine: 0, operations: [create] }] });
+  const physical = operations => ({schema:'her-world-turn-v4',requestedChanges:[{domain:'scene',support:{quote:input}}],lines:[{text:'我听着。',mode:'apply_now',operations}],topic:null});
+  let proposed = physical([create]);
   const api = Model.create({ fetch: async () => response(JSON.stringify(proposed)) }); api.connect(fakeKey);
   const first = await api.request({ context: Framework.context(current), input });
   const accepted = Framework.commit(current, Framework.propose(current, { text: input }), first);
   assert.equal(accepted.ok, true);
   assert.equal(accepted.state.world.objects.length, 1);
   assert.equal(current.world.objects.length, 0);
-  proposed = plan({ beats: [{ afterLine: 0, operations: [create, { type: 'unregistered.operation' }] }] });
+  proposed = physical([create, { type: 'unregistered.operation' }]);
   const invalid = await api.request({ context: Framework.context(current), input });
   const rejected = Framework.commit(current, Framework.propose(current, { text: input }), invalid);
   assert.equal(rejected.ok, false);
@@ -512,7 +513,7 @@ test('maximum structural pack is rejected and near-budget pack states remain wit
   const input = '🌟'.repeat(200), lines = Array(4).fill('🌟'.repeat(500));
   const verify = () => {
     const current = Framework.context(state);
-    assert(Buffer.byteLength(JSON.stringify(current)) <= 96 * 1024);
+    assert(Buffer.byteLength(JSON.stringify(current)) <= 112 * 1024);
     assert(Buffer.byteLength(JSON.stringify(Model.buildRequest(current, input))) <= 128 * 1024);
     assertProjectedMemories(current.memories, state.memories);
     assert.deepEqual(current.facts, state.facts);
@@ -560,7 +561,7 @@ test('nested JSON escaping is budgeted before accepting state and removal remain
     const input = character.repeat(200), lines = Array(4).fill(character.repeat(500));
     const verify = (compareRecall = true) => {
       const current = Framework.context(state);
-      assert(Caps.requestContextBytes(current) <= 96 * 1024);
+      assert(Caps.requestContextBytes(current) <= 112 * 1024);
       const built = Model.buildRequest(current, input);
       assert(Buffer.byteLength(JSON.stringify(built)) <= 128 * 1024);
       assert.deepEqual(current.facts, state.facts);
@@ -615,18 +616,18 @@ test('shared definition preserves the exact existing dynamic prompt shape and fi
   const Caps = require('../framework/capabilities.js');
   const { factory } = runtime();
   const current = context({ activeQuestionId: 'pick_star', guidance: 'A "quote" and \\ slash' });
-  const expected = { pack: current.pack, persona: { name: current.character.name, role: current.character.role }, guidance: current.guidance, topics: current.topics, capabilities: current.capabilities };
+  const expected = { pack: current.pack, persona: { name: current.character.name, role: current.character.role }, guidance: current.guidance, topics: current.topics, capabilities: current.capabilities, referenceCatalog: {objects:[],landmarks:[]} };
   assert.equal(JSON.stringify(Caps.modelDefinition(current)), JSON.stringify(expected));
   const built = factory.buildRequest(current, '继续');
   assert(built.messages[0].content.endsWith('\n本轮内容与能力定义：\n' + JSON.stringify(expected)));
 });
 
-test('96 KiB encoded contexts retain a proven request reserve for maximum nested-escaped input', () => {
+test('112 KiB encoded contexts retain a proven request reserve for maximum nested-escaped input', () => {
   const Framework = require('../framework/runtime.js');
   const Packs = require('../framework/packs.js');
   const Model = require('../framework/model.js');
   const Caps = require('../framework/capabilities.js');
-  const contextBudget = 96 * 1024, transportBudget = 128 * 1024;
+  const contextBudget = 112 * 1024, transportBudget = 128 * 1024;
   const requestBytes = (current, input) => Buffer.byteLength(JSON.stringify(Model.buildRequest(current, input)));
   const inputs = [
     'x'.repeat(200), '"'.repeat(200), '\\'.repeat(200), '🌧'.repeat(200),

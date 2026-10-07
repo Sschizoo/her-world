@@ -203,9 +203,10 @@ test('only the locally captured current input supports the new body', async () =
 
 test('mixed creation and memory turns remain atomic and shared events keep their own proof', async () => {
   const state = fresh(), input = '放一盏灯。我喜欢雨', quote = '我喜欢雨';
+  const physical = operations => ({schema:'her-world-turn-v4',requestedChanges:[{domain:'scene',support:{quote:'放一盏灯。'}}],lines:[{text:'我记下这句话了。',mode:'apply_now',operations}],topic:null});
   const create = { type: 'world.create', object: { label: '小灯', glyphs: '*', x: 4, y: 20, scale: 1 } };
   const shared = { type: 'memory.upsert', id: 'note_event', title: '经历', perspective: 'shared_event', body: '一起创建了世界中的「小灯」' };
-  const valid = await adapt(rows([create, report(quote), shared]), input, state);
+  const valid = await adapt(physical([create, report(quote), shared]), input, state);
   const result = commit(state, input, valid);
   assert(result.ok, JSON.stringify(result.error));
   assert.equal(result.state.world.objects.length, 1);
@@ -214,10 +215,10 @@ test('mixed creation and memory turns remain atomic and shared events keep their
   assert.deepEqual(Runtime.restore(Runtime.serialize(result.state), state.pack).state, result.state);
   const before = Runtime.serialize(state);
   for (const suffix of [report(quote, { body: '我喜欢雪' }), { ...shared, body: '一起去了海边' }, { type: 'world.remove', target: 'obj_missing' }]) {
-    const plan = await adapt(rows([create, report(quote), suffix]), input, state);
+    const plan = await adapt(physical([create, report(quote), suffix]), input, state);
     assert.equal(commit(state, input, plan).ok, false);
     assert.deepEqual(Runtime.serialize(state), before);
   }
-  await rejectsRow(rows([create, report('我喜欢雪')]), input, state, 'REPORT_SUPPORT_INVALID');
+  await rejectsRow(physical([create, report('我喜欢雪')]), input, state, 'REPORT_SUPPORT_INVALID');
   assert.deepEqual(Runtime.serialize(state), before);
 });

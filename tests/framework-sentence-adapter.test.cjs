@@ -8,6 +8,7 @@ const C = require('../framework/capabilities.js');
 const key = 'MOCK_ONLY_SENTENCE_ADAPTER_KEY';
 const fresh = () => E.create(P.get('rain-lab'));
 const rowPlan = (lines, topic = null) => ({ schema: 'her-world-turn-v3', lines, topic });
+const physicalRows = (lines, input, topic = null) => ({schema:'her-world-turn-v4',requestedChanges:[{domain:'scene',support:{quote:input}}],lines:lines.map(row=>({...row,mode:'apply_now'})),topic});
 const oldPlan = (beats, lines = ['第一句。', '第二句。']) => ({ schema: 'her-world-turn-v2', lines, beats, topic: null });
 const cloud = extra => ({ type: 'world.create', object: { label: '云', glyphs: '(__)', scale: 2 }, placement: { anchor: 'sky' }, ...extra });
 async function proposal(raw, state = fresh(), input = '在天上加两朵云。') {
@@ -20,8 +21,8 @@ const commit = (state, plan, input) => E.commit(state, E.propose(state, { text: 
 
 test('production prompt uses sentence-owned operations and advertised schemas omit redundant evidence', () => {
   const state = fresh(), request = M.buildRequest(E.context(state), '你好');
-  assert.match(request.messages[0].content, /her-world-turn-v3/);
-  assert.match(request.messages[0].content, /"text":"对白","operations":\[\]/);
+  assert.match(request.messages[0].content, /her-world-turn-v4/);
+  assert.match(request.messages[0].content, /"text":"对白","mode":"discussion","operations":\[\]/);
   assert.match(request.messages[0].content, /不要输出evidence/);
   for (const item of E.context(state).capabilities) assert(!Object.hasOwn(item.schema.properties, 'evidence'));
   assert(C.validate({ ...cloud(), evidence: '完整历史输入' }), 'strict local legacy evidence remains accepted by its saved-plan schema');
@@ -29,7 +30,7 @@ test('production prompt uses sentence-owned operations and advertised schemas om
 
 test('two sentence rows convert to strict v2 with exact reveal timing, local sources and replay', async () => {
   const state = fresh(), input = '在天上加两朵云。';
-  const raw = rowPlan([{ text: '我先看一看天空。', operations: [] }, { text: '两朵云已经放好了。', operations: [cloud(), cloud()] }]);
+  const raw = physicalRows([{ text: '我先看一看天空。', operations: [] }, { text: '两朵云已经放好了。', operations: [cloud(), cloud()] }], input);
   const before = JSON.stringify(raw), normalized = await proposal(raw, state, input), result = commit(state, normalized, input);
   assert(result.ok, JSON.stringify(result.error));assert.equal(JSON.stringify(raw), before);
   assert.equal(normalized.schema, 'her-world-turn-v2');assert.deepEqual(normalized.beats.map(beat => beat.afterLine), [1]);
@@ -62,31 +63,32 @@ test('raw secret and thought checks run before evidence removal or row conversio
 test('malformed echoes and fields on operations that never had evidence are not silently dropped', async () => {
   const state = fresh(), input = '开世界面板。';
   for (const evidence of ['', 'x'.repeat(201), { quote: input }, 1, null]) {
-    const plan = await proposal(rowPlan([{ text: '云来了。', operations: [cloud({ evidence })] }]), state, input);
+    const plan = await proposal(physicalRows([{ text: '云来了。', operations: [cloud({ evidence })] }],input), state, input);
     assert.equal(commit(state, plan, input).ok, false);
   }
   const panel = await proposal(rowPlan([{ text: '看一看。', operations: [{ type: 'panel.open', panel: 'world', evidence: input }] }]), state, input);
   assert.equal(commit(state, panel, input).error.code, 'OPERATION_INVALID');
 });
 
-test('legacy explicit timing is stably grouped while equal-line operation order remains exact', async () => {
-  const state = fresh(), input = '先造云，再移动并赋予含义。';
-  const raw = oldPlan([{ afterLine: 1, operations: [{ type: 'world.update', target: 'obj_1', changes: { x: 15 } }] }, { afterLine: 0, operations: [cloud()] }, { afterLine: 1, operations: [{ type: 'world.annotate', target: 'obj_1', field: 'meaning', value: '一段停留' }] }]);
-  const normalized = await proposal(raw, state, input);assert.deepEqual(normalized.beats.map(beat => beat.afterLine), [0, 1]);
-  assert.deepEqual(normalized.beats[1].operations.map(op => op.type), ['world.update', 'world.annotate']);
-  const result = commit(state, normalized, input);assert(result.ok, JSON.stringify(result.error));assert.equal(result.frames[0].world.objects.length, 1);
-  assert.equal(result.state.world.objects[0].x, 15);assert.deepEqual(E.restore(E.serialize(result.state), state.pack).state, result.state);
+test('legacy nonphysical timing is stably grouped while equal-line operation order remains exact', async () => {
+  const state=fresh(),input='记住一个名字，再修订它。';
+  const note=body=>({type:'memory.upsert',id:'note_name',title:'名字',body});
+  const raw=oldPlan([{afterLine:1,operations:[note('新名字')]},{afterLine:0,operations:[note('旧名字')]},{afterLine:1,operations:[{type:'log.note',text:'已修订'}]}]);
+  const normalized=await proposal(raw,state,input);assert.deepEqual(normalized.beats.map(beat=>beat.afterLine),[0,1]);
+  assert.deepEqual(normalized.beats[1].operations.map(op=>op.type),['memory.upsert','log.note']);
+  const result=commit(state,normalized,input);assert(result.ok,JSON.stringify(result.error));assert.equal(result.frames[0].memories[0].body,'旧名字');assert.equal(result.state.memories[0].body,'新名字');
+  assert.deepEqual(E.restore(E.serialize(result.state),state.pack).state,result.state);
 });
 
 test('invalid legacy timing is rejected without shifting indices or moving operations to satisfy targets', async () => {
   const state = fresh(), input = '放一朵云。';
   for (const afterLine of [1, -1, 4, '0', null, undefined]) {
-    const beat = { afterLine, operations: [cloud()] };if (afterLine === undefined) delete beat.afterLine;
+    const beat = { afterLine, operations: [{type:'character.update',changes:{mood:'quiet'}}] };if (afterLine === undefined) delete beat.afterLine;
     const plan = await proposal(oldPlan([beat], ['一朵云。']), state, input);
     assert.equal(commit(state, plan, input).error.code, 'BEATS_INVALID');
   }
-  const wrongOrder = await proposal(oldPlan([{ afterLine: 0, operations: [{ type: 'world.update', target: 'obj_1', changes: { x: 1 } }] }, { afterLine: 1, operations: [cloud()] }]), state, input);
-  assert.equal(commit(state, wrongOrder, input).error.code, 'TARGET_MISSING');assert.equal(state.world.objects.length, 0);
+  await assert.rejects(proposal(oldPlan([{afterLine:0,operations:[{type:'world.update',target:'obj_1',changes:{x:1}}]},{afterLine:1,operations:[cloud()]}]),state,input), error=>error.diagnostic.code==='WORLD_INTENT_REQUIRED');
+  assert.equal(state.world.objects.length,0);
 });
 
 test('mixed row/beat protocols, extra row keys, malformed rows and overflow reject before any commit', async () => {
@@ -104,7 +106,7 @@ test('mixed row/beat protocols, extra row keys, malformed rows and overflow reje
 test('invalid suffix, unknown operations and forged consent still roll the entire converted turn back', async () => {
   const state = fresh(), input = '没有同意任何事。', before = E.serialize(state);
   for (const op of [{ type: 'world.remove', target: 'obj_missing' }, { type: 'unknown.capability', evidence: input }, { type: 'story.answer', questionId: 'q_visitor', value: 'allow' }]) {
-    const plan = await proposal(rowPlan([{ text: '一朵云。', operations: [cloud()] }, { text: '下一步。', operations: [op] }], 'visitor'), state, input);
+    const plan = await proposal(physicalRows([{ text: '一朵云。', operations: [cloud()] }, { text: '下一步。', operations: [op] }], input, 'visitor'), state, input);
     assert.equal(commit(state, plan, input).ok, false);assert.deepEqual(E.serialize(state), before);
   }
 });

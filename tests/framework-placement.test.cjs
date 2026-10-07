@@ -72,7 +72,7 @@ test('saved centered clouds never move to make a later creation fit', () => {
   const cloud = create('CCCCCCCCCCCC\nCCCCCCCCCCCC\nCCCCCCCCCCCC'); cloud.object.scale = 3;
   const state = turn(R.create(pack()), [cloud]), before = JSON.stringify(R.serialize(state));
   const result = commit(state, [cloud]);
-  assert.deepEqual(result, { ok: false, error: { code: 'PLACEMENT_CAPACITY', path: '$', diagnostic: { stage: 'RUNTIME', reason: 'OPERATION_REJECTED', path: 'beats[0].operations[0]', beatIndex: 0, operationIndex: 0, operationType: 'world.create' } } });
+  assert.deepEqual(result, { ok: false, error: { code: 'PLACEMENT_CAPACITY', path: '$', diagnostic: { stage: 'RUNTIME', reason: 'OPERATION_REJECTED', path: 'beats[0].operations[0]', beatIndex: 0, operationIndex: 0, operationType: 'world.create', geometryReason: 'NO_FREE_POSITION', placementAnchor: 'sky', placementPolicy: 'auto', footprintCols: 36, footprintRows: 9, occupiedCount: 1 } } });
   assert.equal(JSON.stringify(R.serialize(state)), before);
 });
 
@@ -173,7 +173,7 @@ test('cramped sky fails the whole turn without dialogue, notes, partial objects 
   const initial = R.create(p), before = JSON.stringify(R.serialize(initial));
   const operations = [{ type: 'memory.upsert', id: 'note_clouds', title: '云', body: '两朵云' }, create('CCCCCC\nCCCCCC'), create('CCCCCC\nCCCCCC')];
   const request = JSON.stringify(operations), result = commit(initial, operations);
-  assert.deepEqual(result, { ok: false, error: { code: 'PLACEMENT_CAPACITY', path: '$', diagnostic: { stage: 'RUNTIME', reason: 'OPERATION_REJECTED', path: 'beats[0].operations[2]', beatIndex: 0, operationIndex: 2, operationType: 'world.create' } } });
+  assert.deepEqual(result, { ok: false, error: { code: 'PLACEMENT_CAPACITY', path: '$', diagnostic: { stage: 'RUNTIME', reason: 'OPERATION_REJECTED', path: 'beats[0].operations[2]', beatIndex: 0, operationIndex: 2, operationType: 'world.create', geometryReason: 'NO_FREE_POSITION', placementAnchor: 'sky', placementPolicy: 'auto', footprintCols: 6, footprintRows: 2, occupiedCount: 1 } } });
   assert.equal(JSON.stringify(R.serialize(initial)), before); assert.equal(JSON.stringify(operations), request);
 });
 

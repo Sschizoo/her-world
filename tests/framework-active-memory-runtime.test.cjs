@@ -224,7 +224,7 @@ test('local UI completion facts retain no model memory dependency', () => {
 
 test('only the final byte-budgeted retrieval projection contributes direct dependencies', () => {
   const p = pack();
-  p.initialFacts = Object.fromEntries(Array.from({ length: 9 }, (_, index) => ['fixed_' + index, '\\'.repeat(800)]));
+  p.initialFacts = Object.fromEntries(Array.from({ length: 10 }, (_, index) => ['fixed_' + index, '\\'.repeat(800)]));
   p.guidance = '\\'.repeat(3000);
   let state = R.create(p);
   for (let index = 0; index < 4; index++) state = turn(state, '很长的对话' + index, [], null, Array(4).fill('\\'.repeat(500)));

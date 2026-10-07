@@ -1,0 +1,100 @@
+{
+  "kind": "independent OpenAI model substitute; not GLM or network evidence",
+  "date": "2026-10-07",
+  "pack": "rain-lab",
+  "rulesVersion": "4",
+  "modelProtocol": "her-world-turn-v4",
+  "records": [
+    {
+      "input": "先不急着讲雨。我更喜欢风声，听着会让我安静下来。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，雨的话题先放一放。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.defer\",\"questionId\":\"q_rain\"}]},{\"text\":\"我记下了：你更喜欢风声，听着会安静下来。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_sound_preference\",\"title\":\"喜欢的声音\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我更喜欢风声，听着会让我安静下来。\"}}]}],\"topic\":null}",
+      "sha256": "7861f45d3f805375744de664f1e78b63cee9720cf2a248f2cff46172c7695b3d",
+      "requestSha256": "db8b14119f037286a74528c03aefc653dcc2e2a3e9787c74032fd00ac6c75438",
+      "requestFileSha256": "f7e017c7b530f7540e4071a1e27ce2ce723ee7890158333acc17c8754c5d7b1a",
+      "capturedAt": "2026-10-07T20:18:00.023Z",
+      "responderReceipt": {
+        "requestFileSha256": "f7e017c7b530f7540e4071a1e27ce2ce723ee7890158333acc17c8754c5d7b1a",
+        "responseSha256": "7861f45d3f805375744de664f1e78b63cee9720cf2a248f2cff46172c7695b3d"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "先在天上放两朵云，大小不一样，别叠在一起。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"先在天上放两朵云，大小不一样，别叠在一起。\"}}],\"lines\":[{\"text\":\"天上添了两朵一大一小的云，彼此没有重叠。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"大云\",\"glyphs\":\"  .--.\\n.(    ).\\n(__..__)\",\"scale\":2},\"placement\":{\"anchor\":\"sky\"}},{\"type\":\"world.create\",\"object\":{\"label\":\"小云\",\"glyphs\":\"  .--.\\n.(    ).\\n(__..__)\",\"scale\":1},\"placement\":{\"anchor\":\"sky\"}}]}],\"topic\":null}",
+      "sha256": "8d6a5dea5d469ab441ec193e407999147c8227fb4b55ab42db93c5319b2cc29d",
+      "requestSha256": "345ca0568953abf62b14e0166e535f60399f1fe101716d0776ca5a0159fce9f1",
+      "requestFileSha256": "aee80f31be35c365ca5927d715678ce5ee40da2594f7414f561fcbf17c0615cb",
+      "capturedAt": "2026-10-07T20:19:22.747Z",
+      "responderReceipt": {
+        "requestFileSha256": "aee80f31be35c365ca5927d715678ce5ee40da2594f7414f561fcbf17c0615cb",
+        "responseSha256": "8d6a5dea5d469ab441ec193e407999147c8227fb4b55ab42db93c5319b2cc29d"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "刚才我说风声，其实现在更喜欢雨落在叶子上的声音。把这个偏好改一下。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"偏好改好了：你现在更喜欢雨落在叶子上的声音。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"memory_1\",\"title\":\"喜欢的声音\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"其实现在更喜欢雨落在叶子上的声音。\"}}]}],\"topic\":null}",
+      "sha256": "567cd6da6c98bc1e72fad21b916af3a2f1aa096be04d696314a050cea7ede946",
+      "requestSha256": "e6cade96d455c7cadfae1d21b363ac0b8d799f97275f39d01caeb74f4d1dc27f",
+      "requestFileSha256": "fe9f91c53e32e096c369fe382c425fea9d3463e77571cc9888896b71e3b81471",
+      "capturedAt": "2026-10-07T20:21:54.713Z",
+      "responderReceipt": {
+        "requestFileSha256": "fe9f91c53e32e096c369fe382c425fea9d3463e77571cc9888896b71e3b81471",
+        "responseSha256": "567cd6da6c98bc1e72fad21b916af3a2f1aa096be04d696314a050cea7ede946"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "只把小云往右挪一些，和大云留点距离。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"只把小云往右挪一些，和大云留点距离。\"}}],\"lines\":[{\"text\":\"小云向右挪开了，与大云之间留出了空隙。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.update\",\"target\":\"obj_2\",\"changes\":{},\"placement\":{\"anchor\":\"right_of\",\"target\":\"obj_1\",\"gap\":4}}]}],\"topic\":null}",
+      "sha256": "c38f958bf5560f69215c3f66afbf930dfbfc1a3db27a947c4de2bb9cb1cd5eb3",
+      "requestSha256": "897b5ec36e671e12f1b3d19319080552e770ee9c9b955a919c07ef9b3616b917",
+      "requestFileSha256": "248ef9a7750c70dfa272383c10085a2327c9eae4924c647731ca155e3305c252",
+      "capturedAt": "2026-10-07T20:22:23.570Z",
+      "responderReceipt": {
+        "requestFileSha256": "248ef9a7750c70dfa272383c10085a2327c9eae4924c647731ca155e3305c252",
+        "responseSha256": "c38f958bf5560f69215c3f66afbf930dfbfc1a3db27a947c4de2bb9cb1cd5eb3"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "再放一朵细长的云，把原来的小云也变大一点，别挤到一起。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"再放一朵细长的云，把原来的小云也变大一点，别挤到一起。\"}}],\"lines\":[{\"text\":\"添了一朵细长的云，和原来的云留着空隙。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"细长的云\",\"glyphs\":\"   .----------.\\n _(            )_\\n(________________)\",\"scale\":1},\"placement\":{\"anchor\":\"left_of\",\"target\":\"obj_1\",\"gap\":10}}]},{\"text\":\"原来的小云也变大了，云朵之间仍留着距离。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.update\",\"target\":\"obj_2\",\"changes\":{\"scale\":2},\"placement\":{\"anchor\":\"right_of\",\"target\":\"obj_1\",\"gap\":4}}]}],\"topic\":null}",
+      "sha256": "79f6c6300e1df9b5063d522b427b7ed31263b198c5014953067a7852e34cfae9",
+      "requestSha256": "37aea418b28bed3021781235f557d32a4e9c8fa9f5e6feeba4be4b297f08a70b",
+      "requestFileSha256": "ca329375c160662e6afc64a537b22eed3c10220db2a2f043f13ee0b222b37217",
+      "capturedAt": "2026-10-07T20:22:43.100Z",
+      "responderReceipt": {
+        "requestFileSha256": "ca329375c160662e6afc64a537b22eed3c10220db2a2f043f13ee0b222b37217",
+        "responseSha256": "79f6c6300e1df9b5063d522b427b7ed31263b198c5014953067a7852e34cfae9"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "如果让雨停下来会怎样？先别动，我只是问问。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"如果原本有雨落下，暂停后雨滴就不会继续落，云和窗仍会留在原处。\",\"mode\":\"discussion\",\"operations\":[]},{\"text\":\"现在这里的雨本来就暂停着，我们先只聊这个设想。\",\"mode\":\"discussion\",\"operations\":[]}],\"topic\":null}",
+      "sha256": "84d24a701da759edbf98ac5d4fc635d31623a78edf3b1f3440d39dd998cfcdeb",
+      "requestSha256": "4d87122a56dd8770d82233992dcaada6ce93db8bbe4c4805d12aa1c67ce1ca60",
+      "requestFileSha256": "e0e1e8472652b46d6d112ebb17db2247f1e57143407853c43f7330c1435461b2",
+      "capturedAt": "2026-10-07T20:23:07.513Z",
+      "responderReceipt": {
+        "requestFileSha256": "e0e1e8472652b46d6d112ebb17db2247f1e57143407853c43f7330c1435461b2",
+        "responseSha256": "84d24a701da759edbf98ac5d4fc635d31623a78edf3b1f3440d39dd998cfcdeb"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "雨就是从天空落下的小水珠，打在树叶上会轻轻响。现在让它下小雨吧。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"weather\",\"support\":{\"quote\":\"现在让它下小雨吧。\"}}],\"lines\":[{\"text\":\"我记下你对雨的描述了：小水珠从天空落下，打在树叶上会轻轻响。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_rain_concept\",\"title\":\"雨是什么\",\"kind\":\"concept\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"雨就是从天空落下的小水珠，打在树叶上会轻轻响。\"}},{\"type\":\"story.answer\",\"questionId\":\"q_rain\",\"value\":\"雨就是从天空落下的小水珠，打在树叶上会轻轻响。\"}]},{\"text\":\"现在，小雨落下来了。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"kind\":\"rain\",\"intensity\":1,\"paused\":false}}]}],\"topic\":\"rain\"}",
+      "sha256": "db0443202637d4c059799bae68ea84c06d1ed09a9c551eab4476b322985c24a9",
+      "requestSha256": "bc6ff57f35bf3005b755ae8dc228615233caa551de83fafd02097dbfe0b0653b",
+      "requestFileSha256": "852651e0b8a7a0e777906d2f870d39211708c106080def837a755087bccd30e1",
+      "capturedAt": "2026-10-07T20:23:26.873Z",
+      "responderReceipt": {
+        "requestFileSha256": "852651e0b8a7a0e777906d2f870d39211708c106080def837a755087bccd30e1",
+        "responseSha256": "db0443202637d4c059799bae68ea84c06d1ed09a9c551eab4476b322985c24a9"
+      },
+      "requestUnchanged": true
+    }
+  ]
+}

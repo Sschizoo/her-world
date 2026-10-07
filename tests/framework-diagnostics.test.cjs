@@ -233,3 +233,22 @@ test('report-source diagnostics expose only fixed categories and bounded row pos
     }
   }
 });
+
+test('placement receipt exposes only fixed categories and bounded footprint metadata',async()=>{
+  const geometry={geometryReason:'REFERENCE_LABEL_USED',placementAnchor:'right_of',placementPolicy:'auto',footprintCols:12,footprintRows:4,occupiedCount:1};
+  const detail={stage:'RUNTIME',reason:'OPERATION_REJECTED',path:'beats[0].operations[0]',beatIndex:0,operationIndex:0,operationType:'world.update',...geometry};
+  const r=ui(async()=>{throw {code:'invalid',ruleCode:'PLACEMENT_TARGET',diagnostic:{...detail,target:secret,label:secret}};});
+  assert.deepEqual(await r.send(),{code:'invalid',rule:'PLACEMENT_TARGET',...detail});assert(!r.ids['developer-content'].textContent.includes(secret));
+  const forged=ui(async()=>{throw {code:'invalid',ruleCode:'PLACEMENT_TARGET',diagnostic:{...detail,geometryReason:secret,placementAnchor:secret,placementPolicy:secret,footprintCols:73,footprintRows:4,occupiedCount:9}};});
+  const result=await forged.send();for(const field of Object.keys(geometry))assert.equal(result[field],undefined);assert(!JSON.stringify(result).includes(secret));
+});
+
+test('typed world intent diagnostics remain fixed metadata and never echo support text',async()=>{
+  for(const code of ['TURN_ROW_MODE','WORLD_INTENT_INVALID','WORLD_INTENT_SUPPORT_INVALID','WORLD_INTENT_SUPPORT_AMBIGUOUS','WORLD_INTENT_REQUIRED','WORLD_INTENT_DISCUSSION']){
+    const row=['TURN_ROW_MODE','WORLD_INTENT_REQUIRED','WORLD_INTENT_DISCUSSION'].includes(code);
+    const detail={stage:'JSON',code,path:row?'content':'root',rowIndex:1,support:{quote:secret}};
+    const r=ui(async()=>{throw {code:'format',diagnostic:detail,message:secret};});
+    assert.deepEqual(await r.send(),{code:'format',stage:'JSON',detail:code,path:detail.path,...(row?{rowIndex:1}:{})});
+    assert(!r.ids['developer-content'].textContent.includes(secret));
+  }
+});

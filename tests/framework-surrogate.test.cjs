@@ -1,26 +1,20 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 const E = require('../framework/runtime.js');
 const P = require('../framework/packs.js');
-const M = require('../framework/model.js');
+const { historicalCanonicalTurn, assertCurrentModelBoundary } = require('./fixtures/historical-turn.cjs');
 const fixture = require('./fixtures/framework-surrogate.json');
 const placementRegression = require('./fixtures/framework-placement-regression.json');
-const sha = value => crypto.createHash('sha256').update(value).digest('hex');
 
-test('three historical rules2 raw responses remain compatible with the current parser/runtime', async () => {
+test('three historical rules2 canonical plans preserve runtime and replay behavior; current model physical proposals fail closed', async () => {
   let state = E.create(P.get(fixture.pack));
   for (let index = 0; index < fixture.records.length; index++) {
     const record = fixture.records[index];
-    assert.equal(sha(record.raw), record.sha256);
     assert.equal(fixture.rulesVersion, '2', 'request hashes belong to the historical rules2 prompt');
-    assert.match(record.requestSha256, /^[a-f0-9]{64}$/);
-    const adapter = M.create({ fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: record.raw }, finish_reason: 'stop' }] }), { status: 200 }) });
-    adapter.connect('DUMMY_FRAMEWORK_TEST_ONLY');
-    const plan = await adapter.request({ context: E.context(state), input: record.input });
+    const plan = historicalCanonicalTurn(record, fixture.rulesVersion);
+    await assertCurrentModelBoundary(record, E.context(state), plan);
     const result = E.commit(state, E.propose(state, { text: record.input }), plan);
-    adapter.disconnect();
     assert.equal(result.ok, true, JSON.stringify(result.error));
     state = result.state;
     if (index === 0) {
@@ -39,14 +33,11 @@ test('three historical rules2 raw responses remain compatible with the current p
   assert.deepEqual(state.story.completed, ['purpose', 'make'], 'side edits must not fabricate actual panel viewing');
 });
 
-test('untouched independent placement failure now follows the corrected registered gap contract', async () => {
-  assert.equal(sha(placementRegression.raw), placementRegression.sha256);
+test('untouched historical placement canonical plan follows the corrected gap contract while current model output fails closed', async () => {
   const state = E.create(P.get('lantern-lab'));
-  const adapter = M.create({ fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: placementRegression.raw }, finish_reason: 'stop' }] }), { status: 200 }) });
-  adapter.connect('DUMMY_FRAMEWORK_TEST_ONLY');
-  const plan = await adapter.request({ context: E.context(state), input: placementRegression.input });
+  const plan = historicalCanonicalTurn(placementRegression, '2');
+  await assertCurrentModelBoundary(placementRegression, E.context(state), plan);
   const result = E.commit(state, E.propose(state, { text: placementRegression.input }), plan);
-  adapter.disconnect();
   assert.equal(result.ok, true, JSON.stringify(result.error));
   assert.deepEqual(result.state.story.completed, ['purpose', 'make']);
   assert.equal(result.state.world.objects[0].y, state.world.landmarks.window.y + state.world.landmarks.window.height + 1);

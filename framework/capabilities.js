@@ -10,6 +10,7 @@
   const integer = (minimum, maximum) => ({ type: 'integer', minimum, maximum });
   const enumeration = values => ({ type: 'string', enum: values });
   const record = (properties, required = Object.keys(properties), extra = {}) => ({ type: 'object', additionalProperties: false, properties, required, ...extra });
+  const MAX_OPERATIONS = 12;
   const evidence = text(200), target = text(64), panels = ['world', 'memory', 'logs', 'character'];
   const legacyMemoryId = { ...text(37), pattern: '^note_[a-z0-9_]{1,32}$' };
   const memoryId = { ...text(37), pattern: '^(?:note_[a-z0-9_]{1,32}|memory_[1-9][0-9]{0,4})$' };
@@ -91,13 +92,60 @@
     const selected = registryFor(rulesVersion);
     return Boolean(selected && plain(operation) && Object.prototype.hasOwnProperty.call(selected, operation.type) && matches(operation, selected[operation.type].schema));
   }
-  function descriptors(ids, rulesVersion = '4') {
+  function sceneReferences(world, enabled, entities) {
+    const objects = world.objects.map(item => item.id), landmarks = Object.keys(world.landmarks);
+    const free = Math.max(0, world.capacity - objects.length);
+    // Removals can make room for later creations in the same turn. Keep every
+    // possible allocated ID within the shared operation and runtime ID limits.
+    const creates = !enabled.includes('world.create') ? 0 : enabled.includes('world.remove')
+      ? Math.min(MAX_OPERATIONS, Math.floor((MAX_OPERATIONS + free) / 2))
+      : Math.min(MAX_OPERATIONS, free);
+    const prospective = Number.isInteger(world.nextId) && world.nextId >= 1
+      ? Array.from({ length: Math.max(0, Math.min(creates, 10001 - world.nextId)) }, (_, index) => 'obj_' + (world.nextId + index)) : [];
+    const objectTargets = [...new Set([...objects, ...prospective])];
+    return { objects, landmarks, prospective, objectTargets,
+      placementTargets: [...new Set([...objectTargets, ...landmarks])],
+      annotationTargets: [...new Set([...objectTargets, ...entities.map(item => item.id)])] };
+  }
+  const referenceSchema = ids => ids.length ? enumeration(ids) : false;
+  function exposeSceneReferences(exposed, refs) {
+    const { schema, id } = exposed;
+    if (['world.update', 'world.remove', 'world.annotate'].includes(id)) {
+      const targets = id === 'world.annotate' ? refs.annotationTargets : refs.objectTargets;
+      schema.properties.target = referenceSchema(targets);
+      exposed.description += targets.length
+        ? ' target must be an exact ID from its enum, never a label. Example: ' + JSON.stringify({ target: targets[0] }) + '.'
+        : ' No target is available in this context.';
+    }
+    if (id === 'world.create' || id === 'world.update') {
+      const anchors = ['sky', 'ground'].filter(anchor => refs.landmarks.includes(anchor));
+      if (id === 'world.update') anchors.push('keep_center', 'keep_base');
+      const alternatives = [];
+      if (anchors.length) alternatives.push(record({ anchor: enumeration(anchors) }));
+      if (refs.landmarks.includes('window')) alternatives.push(record({ anchor: enumeration(['window_left', 'window_right', 'window_below']), gap: integer(0, 10) }, ['anchor']));
+      if (refs.placementTargets.length) alternatives.push(record({ anchor: enumeration(['above', 'below', 'left_of', 'right_of']), target: enumeration(refs.placementTargets), gap: integer(0, 10) }, ['anchor', 'target']));
+      // Boolean false is a valid empty schema; an empty enum/anyOf is not.
+      schema.properties.placement = alternatives.length ? { anyOf: alternatives } : false;
+      exposed.description += ' Only the schema-listed placement anchors and target IDs are available; labels are never targets.';
+      const exampleTarget = refs.landmarks.includes('window') ? 'window' : refs.landmarks[0] || refs.objectTargets.find(target => id !== 'world.update' || target !== refs.objectTargets[0]);
+      if (exampleTarget) exposed.description += ' Relative placement example, once that target exists: ' + JSON.stringify({ anchor: 'right_of', target: exampleTarget, gap: 2 }) + '; geometry must still fit.';
+      if (id === 'world.update') exposed.description += ' A relative placement target cannot be the object being updated.';
+    }
+    if (id.startsWith('world.')) {
+      if (refs.prospective.length) exposed.description += ' Successful world.create operations allocate these IDs in order this turn: ' + refs.prospective.join(', ') + '. A prospective ID is usable only after its earlier creation and before removal; never guess an ID or use new_1 aliases. Capacity and operation limits still apply.';
+      else if (id === 'world.create') exposed.description += ' No new object ID is available in this context.';
+    }
+  }
+  function descriptors(ids, rulesVersion = '4', world, entities = []) {
     const selected = registryFor(rulesVersion);
+    const enabled = ids || Object.keys(selected || {});
+    const refs = world ? sceneReferences(world, enabled, entities) : null;
     // This optional legacy echo is not authority or provenance. Keep strict
     // validation for saved/local plans, but do not ask a model to reproduce it.
-    return selected ? (ids || Object.keys(selected)).map(id => selected[id]).filter(Boolean).map(item => {
+    return selected ? enabled.map(id => selected[id]).filter(Boolean).map(item => {
       const exposed = JSON.parse(JSON.stringify(item));
       delete exposed.schema.properties.evidence;
+      if (refs) exposeSceneReferences(exposed, refs);
       if (rulesVersion === '4' && item.id === 'memory.upsert') {
         // Model proposals select the source of a report; the adapter owns its
         // exact body. The saved/local registry above still requires body.
@@ -113,13 +161,25 @@
   }
   // Shared with the model adapter. Field order is part of the captured request
   // contract; these values are also duplicated inside escaped message strings.
+  function referenceCatalog(world) {
+    // Runtime validation bounds the scene to eight objects and twelve declared
+    // landmarks. Derive geometry from current ASCII, including every space;
+    // never copy model-supplied dimensions or add fields to canonical state.
+    return {
+      objects: (world?.objects || []).map(item => {
+        const rows = item.glyphs.split('\n');
+        return { id: item.id, x: item.x, y: item.y, scale: item.scale, footprintCols: Math.max(...rows.map(row => row.length)) * item.scale, footprintRows: rows.length * item.scale };
+      }),
+      landmarks: Object.entries(world?.landmarks || {}).map(([id, item]) => ({ id, x: item.x, y: item.y, footprintCols: item.width, footprintRows: item.height }))
+    };
+  }
   function modelDefinition(context) {
-    return { pack: context.pack, persona: { name: context.character.name ?? '', role: context.character.role ?? '' }, guidance: context.guidance ?? '', topics: context.topics, capabilities: context.capabilities };
+    return { pack: context.pack, persona: { name: context.character.name ?? '', role: context.character.role ?? '' }, guidance: context.guidance ?? '', topics: context.topics, capabilities: context.capabilities, referenceCatalog: referenceCatalog(context.world) };
   }
   function requestContextBytes(context) {
     const encoded = JSON.stringify({ context: JSON.stringify(context), definition: JSON.stringify(modelDefinition(context)) });
     return [...encoded].reduce((total, character) => { const point = character.codePointAt(0); return total + (point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4); }, 0);
   }
 
-  return freeze({ SCHEMA: 'her-world-turn-v2', RULES_VERSION: '4', weatherKinds, ids: Object.keys(registry), panels, descriptors, validate, modelDefinition, requestContextBytes });
+  return freeze({ SCHEMA: 'her-world-turn-v2', RULES_VERSION: '4', MAX_OPERATIONS, weatherKinds, ids: Object.keys(registry), panels, descriptors, validate, modelDefinition, requestContextBytes });
 });
