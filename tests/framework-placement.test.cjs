@@ -193,7 +193,7 @@ test('rules1 and rules2 migration preserve overlapping old anchors, sources, pla
   for (const version of ['1', '2']) {
     const saved = oldSave(version), original = JSON.stringify(saved), restored = R.restore(saved, pack());
     assert.equal(restored.ok, true, JSON.stringify(restored.error));
-    assert.equal(restored.migration.fromRulesVersion, version); assert.equal(restored.migration.toRulesVersion, '3');
+    assert.equal(restored.migration.fromRulesVersion, version); assert.equal(restored.migration.toRulesVersion, '4');
     assert.equal(overlap(...restored.state.world.objects), true);
     assert.deepEqual(restored.state.events[0].plan, saved.events[0].plan);
     assert.equal(restored.state.events[0].rulesVersion, '2');
@@ -240,7 +240,7 @@ test('unknown predecessor content cannot use the placement migration', () => {
   assert.equal(R.restore(oldSave('2'), changed).error.code, 'PACK_MISMATCH');
 });
 
-test('current saves reject a rules2 turn after rules3 even when observations intervene', () => {
+test('current saves reject a rules2 turn after rules4 even when observations intervene', () => {
   const initial = turn(R.create(pack()), [create()]);
   for (const state of [initial, R.observe(initial, { type: 'panel.viewed', panel: 'world' })]) {
     const saved = clone(R.serialize(state)), old = oldSave('2').events[0];
@@ -252,14 +252,14 @@ test('current saves reject a rules2 turn after rules3 even when observations int
   }
 });
 
-test('migrated rules2 prefix allows interleaved observations before its one-way rules3 transition', () => {
+test('migrated rules2 prefix allows interleaved observations before its one-way rules4 transition', () => {
   const saved = oldSave('2');
   saved.events.push({ id: 'event_2', type: 'panel.viewed', panel: 'world' });
   saved.events.push({ id: 'event_3', type: 'turn', input: '后来又添的一朵旧云', plan: plan([create()]) });
   const original = JSON.stringify(saved), restored = R.restore(saved, pack());
   assert.equal(restored.ok, true, JSON.stringify(restored.error));
   const state = turn(restored.state, [create()], '现在新添一朵云');
-  assert.deepEqual(state.events.map(event => event.type === 'turn' ? event.rulesVersion : event.type), ['2', 'panel.viewed', '2', '3']);
+  assert.deepEqual(state.events.map(event => event.type === 'turn' ? event.rulesVersion : event.type), ['2', 'panel.viewed', '2', '4']);
   assert.deepEqual(state.events.slice(0, 3), saved.events.map(event => event.type === 'turn' ? { ...event, rulesVersion: '2' } : event));
   assert.deepEqual(state.world.objects.slice(0, 3), restored.state.world.objects);
   assert.equal(state.world.objects[0].source.createdBy, '以前的两朵云');

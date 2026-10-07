@@ -11,6 +11,12 @@
   const enumeration = values => ({ type: 'string', enum: values });
   const record = (properties, required = Object.keys(properties), extra = {}) => ({ type: 'object', additionalProperties: false, properties, required, ...extra });
   const evidence = text(200), target = text(64), panels = ['world', 'memory', 'logs', 'character'];
+  const legacyMemoryId = { ...text(37), pattern: '^note_[a-z0-9_]{1,32}$' };
+  const memoryId = { ...text(37), pattern: '^(?:note_[a-z0-9_]{1,32}|memory_[1-9][0-9]{0,4})$' };
+  const memorySupport = record({ quote: text(200), start: integer(0, 199), end: integer(1, 200) }, ['quote'], { anyOf: [
+    { properties: { start: false, end: false } },
+    { required: ['start', 'end'] }
+  ] });
   const placementSchema = anchors => ({ anyOf: [
     record({ anchor: enumeration(anchors) }),
     record({ anchor: enumeration(['window_left', 'window_right', 'window_below']), gap: integer(0, 10) }, ['anchor']),
@@ -29,8 +35,8 @@
     ['world.remove', 'Remove an existing object and its annotations.', { target, evidence }],
     ['world.annotate', 'Set or clear a user meaning (maximum120 characters) or the fictional character interpretation independently; never combine these fields.', { target, field: enumeration(['meaning', 'interpretation']), value: { anyOf: [text(120), { type: 'null' }] }, evidence }],
     ['weather.set', 'Change rendered weather: kind is rain, snow, mist, or clear only. Clear has no particles and requires intensity 0. Setting kind clear without intensity resets it to 0; an explicitly positive intensity with clear is invalid, including when clear is already current. Other kinds retain their current intensity unless supplied.', { changes: record(weather, [], { minProperties: 1 }), evidence }],
-    ['memory.upsert', 'Create or revise a note (maximum14 current notes; title60, body240 characters). Its original source is retained separately from its current revision. Reuse the ID for corrections.', { id: { ...text(37), pattern: '^note_[a-z0-9_]{1,32}$' }, title: text(60), body: text(240), evidence }],
-    ['memory.remove', 'Remove a current note by stable ID; the immutable event transcript retains the original.', { id: { ...text(37), pattern: '^note_[a-z0-9_]{1,32}$' }, evidence }],
+    ['memory.upsert', 'Create or revise a salient active memory (maximum14; title60, body240 Unicode code points), even without an explicit remember command: a taught concept, genuine current preference, actual shared event or explicit promise. Skip trivial chat, duplicate notes and unsupported inferences; clarify ambiguity. For corrections copy a current memory_N handle from context.memories; context.memoryCapacity.withheld also exposes occupied handles, usable only for explicit player-requested revisions or removals. Handles are opaque: never guess them or infer hidden content. memoryCapacity.used includes withheld notes; never auto-evict when full. New memories use a note_slug ID. Unknown memory_N handles cannot create notes. Optional kind defaults to note; perspective defaults to character_interpretation. Optional support.quote must be an exact unique substring of current playerSaid; optional paired start/end disambiguate it using zero-based Unicode code-point offsets, end exclusive. Without support, the complete current input is the source. player_report body must equal the supported quote exactly; paraphrases are character_interpretation. shared_event body must equal an earlier successfully applied same-turn operation summary: world.create 一起创建了世界中的「LABEL」; world.update 一起修改了世界中的「LABEL」; world.remove 一起移除了世界中的「LABEL」; weather.set 一起调整了世界里的天气. LABEL is the locally applied object label. Original source and current revision stay distinct; generation, provenance, dependencies and deletion records are assigned locally. A removed memory needs fresh current support and a new note_slug proposal to return.', { id: memoryId, title: text(60), body: text(240), kind: enumeration(['concept', 'preference', 'experience', 'promise', 'note']), perspective: enumeration(['player_report', 'shared_event', 'character_interpretation']), support: memorySupport, evidence }, ['id', 'title', 'body']],
+    ['memory.remove', 'Remove a current active memory when the player requests forgetting, using its current opaque memory_N handle from context.memories or context.memoryCapacity.withheld. Withheld entries still occupy slots and expose no content; remove them only on an explicit player request, never automatically to free capacity. Unknown or stale handles fail. Optional support identifies the exact removal clause in current playerSaid: {quote} for a unique substring, or quote plus paired Unicode code-point start/end offsets. Without support the whole current input becomes excluded recall. With precise support, that clause and the whole deletion transcript are hidden; a disjoint exact player_report from the same input may remain. The removed memory and derived recall stop reaching the character; independent unrelated recall and the actual world remain. The immutable audit is separate, not character recall. Never claim the audit was erased or recover forgotten wording.', { id: memoryId, support: memorySupport, evidence }, ['id']],
     ['story.answer', 'Explicitly answer at most one pre-turn pending question per turn (value maximum200 characters); newly unlocked questions wait until next turn. Set plan.topic to that question topic. Choice values are declared choice IDs. Consent allow requires explicit current permission and the pre-turn active question must be that consent question. Never answer an unrelated question.', { questionId: target, value: text(200), evidence }],
     ['story.defer', 'Leave a currently pending question unresolved for later. It can be resumed by returning to its topic.', { questionId: target, evidence }],
     ['character.update', 'Update only fictional mood/stance and bounded fictional relationship deltas (each cumulative trust/familiarity delta must stay within -5..5, applied to turn-start scores and clipped0..100); this is narrative state, never real telemetry. Current input is the basis.', { changes: record({ mood: text(80), stance: text(160), trustDelta: integer(-5, 5), familiarityDelta: integer(-5, 5) }, [], { minProperties: 1 }), evidence }],
@@ -56,6 +62,13 @@
     ] }];
     return [id, freeze({ id, description, schema })];
   }));
+  // Old event plans are checked against their own exact fields during replay.
+  // Metadata from the current memory rules cannot be smuggled into old events.
+  const legacyRegistry = { ...registry,
+    'memory.upsert': freeze({ id: 'memory.upsert', description: 'Create or revise a note (maximum14 current notes; title60, body240 characters). Its original source is retained separately from its current revision. Reuse the ID for corrections.', schema: record({ type: { const: 'memory.upsert' }, id: legacyMemoryId, title: text(60), body: text(240), evidence }, ['type', 'id', 'title', 'body']) }),
+    'memory.remove': freeze({ id: 'memory.remove', description: 'Remove a current note by stable ID; the immutable event transcript retains the original.', schema: record({ type: { const: 'memory.remove' }, id: legacyMemoryId, evidence }, ['type', 'id']) })
+  };
+  const registryFor = rulesVersion => rulesVersion === '4' ? registry : ['2', '3'].includes(rulesVersion) ? legacyRegistry : null;
   const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value));
   function matches(value, schema) {
     if (typeof schema === 'boolean') return schema;
@@ -74,8 +87,14 @@
     }
     return 'const' in schema || Boolean(schema.anyOf);
   }
-  function validate(operation) { return plain(operation) && Object.prototype.hasOwnProperty.call(registry, operation.type) && matches(operation, registry[operation.type].schema); }
-  function descriptors(ids) { return (ids || Object.keys(registry)).map(id => registry[id]).filter(Boolean); }
+  function validate(operation, rulesVersion = '4') {
+    const selected = registryFor(rulesVersion);
+    return Boolean(selected && plain(operation) && Object.prototype.hasOwnProperty.call(selected, operation.type) && matches(operation, selected[operation.type].schema));
+  }
+  function descriptors(ids, rulesVersion = '4') {
+    const selected = registryFor(rulesVersion);
+    return selected ? (ids || Object.keys(selected)).map(id => selected[id]).filter(Boolean) : [];
+  }
   // Shared with the model adapter. Field order is part of the captured request
   // contract; these values are also duplicated inside escaped message strings.
   function modelDefinition(context) {
@@ -86,5 +105,5 @@
     return [...encoded].reduce((total, character) => { const point = character.codePointAt(0); return total + (point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4); }, 0);
   }
 
-  return freeze({ SCHEMA: 'her-world-turn-v2', RULES_VERSION: '3', weatherKinds, ids: Object.keys(registry), panels, descriptors, validate, modelDefinition, requestContextBytes });
+  return freeze({ SCHEMA: 'her-world-turn-v2', RULES_VERSION: '4', weatherKinds, ids: Object.keys(registry), panels, descriptors, validate, modelDefinition, requestContextBytes });
 });

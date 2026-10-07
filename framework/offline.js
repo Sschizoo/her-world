@@ -5,7 +5,7 @@
   if (root) root.HerFrameworkOffline = api;
 })(typeof window !== 'undefined' ? window : null, function () {
   'use strict';
-  const HELP = ['/新建 长椅', '/移动 obj_1 30 38', '/放大 obj_1 2', '/含义 obj_1 一起等天亮', '/理解 obj_1 一个可以停留的地方', '/清除理解 obj_1', '/删除 obj_1', '/天气 雨', '/天气 雪', '/天气 雾', '/天气 晴', '/天气 停', '/天气 恢复', '/天气 强度 2', '/命名 叶信', '/记住 note_visit 来访 | 今天在窗边聊过', '/忘记 note_visit', '/回答 你的回答', '/稍后', '/打开 世界'];
+  const HELP = ['/新建 长椅', '/移动 obj_1 30 38', '/放大 obj_1 2', '/含义 obj_1 一起等天亮', '/理解 obj_1 一个可以停留的地方', '/清除理解 obj_1', '/删除 obj_1', '/天气 雨', '/天气 雪', '/天气 雾', '/天气 晴', '/天气 停', '/天气 恢复', '/天气 强度 2', '/命名 叶信', '/记住 note_visit 来访 | 今天在窗边聊过', '/忘记 note_visit', '/忘记 memory_1', '/回答 你的回答', '/稍后', '/打开 世界'];
   const reply = (text, operations = [], topic = null) => ({ schema: 'her-world-turn-v2', lines: [text], beats: operations.length ? [{ afterLine: 0, operations }] : [], topic });
   function question(context) { const pending = context.pendingQuestions || []; return pending.find(item => item.topic === context.story?.topic && !item.deferred) || pending.find(item => !item.deferred) || pending[0] || null; }
   function respond(context, input) {
@@ -30,8 +30,8 @@
       return reply('天气设置已按这次明确操作更新。', [{ type: 'weather.set', changes }]);
     }
     if ((match = text.match(/^\/命名\s+(.+)$/u))) return reply('天气的名字已更新；只有相关问题也得到回答时，剧情节点才会完成。', [{ type: 'weather.set', changes: { name: match[1] } }]);
-    if ((match = text.match(/^\/记住\s+(note_[a-z0-9_]+)\s+([^|]+)\|(.+)$/u))) return reply('这条可修改笔记已经记下，并保留本轮输入作为来源。', [{ type: 'memory.upsert', id: match[1], title: match[2].trim(), body: match[3].trim() }]);
-    if ((match = text.match(/^\/忘记\s+(note_[a-z0-9_]+)$/u))) return reply('当前笔记已移除。历史对话不会因此被改写。', [{ type: 'memory.remove', id: match[1] }]);
+    if ((match = text.match(/^\/记住\s+((?:note_[a-z0-9_]{1,32}|memory_[1-9][0-9]{0,4}))\s+([^|]+)\|(.+)$/u))) return reply('这条可修改笔记已经记下，并保留本轮输入作为来源。', [{ type: 'memory.upsert', id: match[1], title: match[2].trim(), body: match[3].trim() }]);
+    if ((match = text.match(/^\/忘记\s+((?:note_[a-z0-9_]{1,32}|memory_[1-9][0-9]{0,4}))$/u))) return reply('当前笔记已从后续回应的回忆中移除。原始聊天仍保留；眼前的物件不会因此消失。', [{ type: 'memory.remove', id: match[1] }]);
     if ((match = text.match(/^\/打开\s+(世界|记忆|日志|角色)$/u))) return reply('可以在打开的面板里查看目前已经确认的内容。', [{ type: 'panel.open', panel: { 世界: 'world', 记忆: 'memory', 日志: 'logs', 角色: 'character' }[match[1]] }]);
     if ((match = text.match(/^\/回答\s+(.+)$/u))) {
       if (!pending?.id) return reply('目前没有等待回答的问题，可以继续聊天或修改世界。');

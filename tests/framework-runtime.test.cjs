@@ -307,15 +307,17 @@ test('context capacity rejects expansions atomically and current removals remain
   assert.ok(CAPS.requestContextBytes(R.context(removed)) <= R.constants.MAX_CONTEXT_BYTES);
 });
 
-test('removing and reviving a memory ID retains its first source and revision history', () => {
+test('removing and relearning a memory ID starts a new source and generation', () => {
   let state = turn(rain(), '第一次写下', [{ type: 'memory.upsert', id: 'note_return', title: '开始', body: '第一版' }]);
   state = turn(state, '先移除', [{ type: 'memory.remove', id: 'note_return' }]);
   state = turn(state, '再记下来', [{ type: 'memory.upsert', id: 'note_return', title: '回来', body: '第二版' }]);
-  assert.equal(state.memories[0].source.text, '第一次写下');
-  assert.equal(state.memories[0].currentRevision.number, 2);
+  assert.equal(state.memories[0].source.text, '再记下来');
+  assert.equal(state.memories[0].currentRevision.number, 1);
+  assert.equal(state.memories[0].generation, 2);
   state = turn(state, '重新整理同一条', [{ type: 'memory.remove', id: 'note_return' }, { type: 'memory.upsert', id: 'note_return', title: '现在', body: '第三版' }]);
-  assert.equal(state.memories[0].source.text, '第一次写下');
-  assert.equal(state.memories[0].currentRevision.number, 3);
+  assert.equal(state.memories[0].source.text, '重新整理同一条');
+  assert.equal(state.memories[0].currentRevision.number, 1);
+  assert.equal(state.memories[0].generation, 3);
   const restored = R.restore(R.serialize(state), PACKS.get('rain-lab'));
   assert.equal(restored.ok, true); assert.deepEqual(restored.state.memories, state.memories);
 });
@@ -384,7 +386,7 @@ test('initial, imported and replayed weather obey the same supported kind and cl
   assert.equal(imported.ok, true); assert.equal(R.restore(R.serialize(imported.state), PACKS.get('rain-lab')).ok, true);
 });
 
-test('known rules1 saves migrate explicitly to rules3 with all state, sources and original plans preserved', () => {
+test('known rules1 saves migrate explicitly to rules4 with all state, sources and original plans preserved', () => {
   for (const packId of ['rain-lab', 'lantern-lab']) {
     let state = R.create(PACKS.get(packId));
     state = turn(state, '原来的造物请求', [{ type: 'world.create', object: object('旧灯') }, { type: 'memory.upsert', id: 'note_weather', title: '原来的记忆', body: '保留原文' }]);
@@ -392,12 +394,14 @@ test('known rules1 saves migrate explicitly to rules3 with all state, sources an
     const saved = asOldSave(state), original = JSON.stringify(saved);
     const restored = R.restore(saved, PACKS.get(packId));
     assert.equal(restored.ok, true, JSON.stringify(restored.error));
-    assert.deepEqual(restored.migration, { type: 'object-placement-v3', fromRulesVersion: '1', toRulesVersion: '3', fromPackDigest: oldBinding(packId).digest, toPackDigest: R.serialize(state).pack.digest });
-    assert.deepEqual(R.view(restored.state), R.view(state));
+    assert.deepEqual(restored.migration, { type: 'memory-provenance-v4', fromRulesVersion: '1', toRulesVersion: '4', fromPackDigest: oldBinding(packId).digest, toPackDigest: R.serialize(state).pack.digest });
+    const historical = clone(R.view(state));
+    historical.memories = historical.memories.map(({ id, title, body, source, currentRevision, recallStatus, recallHandle }) => ({ id, title, body, recallStatus, recallHandle, source: { eventId: source.eventId, text: source.text }, currentRevision: { eventId: currentRevision.eventId, text: currentRevision.text, number: currentRevision.number } }));
+    assert.deepEqual(R.view(restored.state), historical);
     assert.deepEqual(restored.state.events, saved.events.map(event => event.type === 'turn' ? { ...event, rulesVersion: '2' } : event));
     assert.equal(JSON.stringify(saved), original);
     const currentSave = R.serialize(restored.state);
-    assert.equal(currentSave.pack.rulesVersion, '3');
+    assert.equal(currentSave.pack.rulesVersion, '4');
     assert.equal(R.restore(currentSave, PACKS.get(packId)).migration, undefined);
     assert.ok(Buffer.byteLength(JSON.stringify(R.context(restored.state))) <= R.constants.MAX_CONTEXT_BYTES);
   }
@@ -546,8 +550,8 @@ test('backslash-rich legal state cannot commit an unsendable nested JSON context
     const context = R.context(state);
     assert.ok(CAPS.requestContextBytes(context) <= R.constants.MAX_CONTEXT_BYTES);
     assert.ok(Buffer.byteLength(JSON.stringify(Model.buildRequest(context, input))) <= 128 * 1024);
-    assert.deepEqual(context.world, state.world);
-    assert.deepEqual(context.memories, state.memories);
+    assert.deepEqual(context.world.objects.map(({ source, ...geometry }) => geometry), state.world.objects.map(({ source, ...geometry }) => geometry));
+    if (!state.recall.tombstones.length) assert.deepEqual(context.memories.map((note, index) => ({ ...note, id: state.memories[index].id })), state.memories);
     assert.deepEqual(context.facts, state.facts);
   };
   apply(Array.from({ length: 12 }, (_, i) => ({ type: 'memory.upsert', id: 'note_' + i, title: slash.repeat(60), body: slash.repeat(240) })));

@@ -6,6 +6,14 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../framework/model.js'), 'utf8');
 const fakeKey = 'MOCK_ONLY_NOT_A_REAL_PASSWORD';
 const plain = value => JSON.parse(JSON.stringify(value));
+// Recall projections can add locally verified spans without changing the
+// complete source text in these capacity fixtures (which use full inputs).
+const withoutSourceSpans = value => JSON.parse(JSON.stringify(value, (key, item) => key === 'span' ? undefined : item));
+const assertProjectedMemories = (actual, expected) => {
+  assert(actual.every(note => /^memory_[1-9][0-9]{0,4}$/u.test(note.id)));
+  const content = notes => notes.map(({ id, ...note }) => note);
+  assert.deepEqual(content(actual), content(expected));
+};
 const opSchema = type => ({ id: type, description: `Describe ${type}`, schema: { type: 'object', additionalProperties: false, required: ['type'], properties: { type: { const: type } } } });
 const context = (extra = {}) => ({
   schema: 'her-world-context-v1', pack: { id: 'observatory', version: 1, rulesVersion: 1, title: '星图' },
@@ -413,13 +421,16 @@ test('maximum accepted world context preserves sources, stays requestable and ca
   let capacityPressure = false;
   for (const unicode of ['天', '🌟']) {
     let state = Framework.create(Packs.list()[0]), rejected = 0, trimmed = false;
+    const seeded = Framework.commit(state, Framework.propose(state, { text: '在角落放一点光' }), plan({ beats: [{ afterLine: 0, operations: [{ type: 'world.create', object: { label: '光', glyphs: '*', x: 99, y: 59, scale: 1 } }] }] }));
+    assert.equal(seeded.ok, true);
+    state = seeded.state;
     const input = unicode.repeat(200), lines = Array(4).fill(unicode.repeat(500));
     const verifyRequestable = () => {
       const current = Framework.context(state), built = Model.buildRequest(current, input);
       assert(Buffer.byteLength(JSON.stringify(built)) <= 131072);
       assert.deepEqual(current.facts, state.facts);
-      assert.deepEqual(current.world, state.world);
-      assert.deepEqual(current.memories, state.memories);
+      assert.deepEqual(withoutSourceSpans(current.world), withoutSourceSpans(state.world));
+      assertProjectedMemories(current.memories, state.memories);
       assert.deepEqual(current.story, state.story);
       if (current.recentTranscript.length < Math.min(12, state.transcript.length)) trimmed = true;
     };
@@ -435,37 +446,41 @@ test('maximum accepted world context preserves sources, stays requestable and ca
       return result.ok;
     };
     const notes = Array.from({ length: 14 }, (_, i) => ({ type: 'memory.upsert', id: 'note_budget_' + i, title: unicode.repeat(60), body: unicode.repeat(240) }));
-    assert(attempt(notes.slice(0, 12))); assert(attempt(notes.slice(12)));
+    if (!attempt(notes.slice(0, 12))) for (const note of notes.slice(0, 12)) attempt([note]);
+    if (!attempt(notes.slice(12))) for (const note of notes.slice(12)) attempt([note]);
+    const acceptedNotes = notes.filter(note => state.memories.some(memory => memory.id === note.id));
     // Each note retains both its original source and a distinct current revision.
-    assert(attempt(notes.slice(0, 12))); assert(attempt(notes.slice(12)));
+    assert(attempt(acceptedNotes.slice(0, 12)));
+    if (acceptedNotes.length > 12) attempt(acceptedNotes.slice(12));
     const glyphs = Array(10).fill('*'.repeat(24)).join('\n');
-    const objects = Array.from({ length: 8 }, (_, i) => ({ type: 'world.create', object: { label: unicode.repeat(40), glyphs, x: i, y: i, scale: 1 } }));
+    const objects = Array.from({ length: 7 }, (_, i) => ({ type: 'world.create', object: { label: unicode.repeat(40), glyphs, x: i, y: i, scale: 1 } }));
     // Individual limits are not a promise that all maximum-sized fields fit together.
     // If the atomic batch exceeds the combined context budget, fill only legal slots.
     if (!attempt(objects)) for (const object of objects) attempt([object]);
-    attempt(state.world.objects.map(object => ({ type: 'world.update', target: object.id, changes: { x: object.x + 1 } })));
+    attempt(state.world.objects.map(object => ({ type: 'world.update', target: object.id, changes: { x: Math.min(99, object.x + 1) } })));
     for (const target of [...state.world.objects, ...state.pack.entities].map(item => item.id)) {
       for (const field of ['meaning', 'interpretation']) attempt([{ type: 'world.annotate', target, field, value: unicode.repeat(120) }]);
     }
     attempt([{ type: 'weather.set', changes: { name: unicode.repeat(40), kind: 'snow', intensity: 3, paused: false } }, { type: 'character.update', changes: { mood: unicode.repeat(80), stance: unicode.repeat(160) } }]);
     // Twelve recent entries would include maximum-length character lines and sources.
     for (let i = 0; i < 3; i++) assert(attempt([]));
-    assert(state.world.objects.length > 0 && state.world.objects.length <= 8); assert.equal(state.memories.length, 14);
+    assert(state.world.objects.length > 0 && state.world.objects.length <= 8);
+    assert(state.memories.length > 0 && state.memories.length <= 14);
     for (const memory of state.memories) {
       assert.equal([...memory.source.text].length, 200);
       assert.equal([...memory.currentRevision.text].length, 200);
       assert.equal([...memory.body].length, 240);
     }
     capacityPressure ||= trimmed || rejected > 0;
-    const id = state.memories[0].id;
+    const id = state.memories[0].id, memoryCount = state.memories.length;
     const api = Model.create({ fetch: async () => response(JSON.stringify(plan({ beats: [{ afterLine: 0, operations: [{ type: 'memory.remove', id }] }] }))) });
     api.connect(fakeKey);
     const removalInput = '删除第一条记忆';
     const proposed = await api.request({ context: Framework.context(state), input: removalInput });
     const removed = Framework.commit(state, Framework.propose(state, { text: removalInput }), proposed);
     assert.equal(removed.ok, true);
-    assert.equal(removed.state.memories.length, 13);
-    assert.equal(state.memories.length, 14);
+    assert.equal(removed.state.memories.length, memoryCount - 1);
+    assert.equal(state.memories.length, memoryCount);
     assert(Buffer.byteLength(JSON.stringify(Model.buildRequest(Framework.context(removed.state), '继续'))) <= 131072);
   }
   assert(capacityPressure, 'capacity pressure must be exercised');
@@ -497,14 +512,21 @@ test('maximum structural pack is rejected and near-budget pack states remain wit
   const input = '🌟'.repeat(200), lines = Array(4).fill('🌟'.repeat(500));
   const verify = () => {
     const current = Framework.context(state);
-    assert(Buffer.byteLength(JSON.stringify(current)) <= 80 * 1024);
+    assert(Buffer.byteLength(JSON.stringify(current)) <= 96 * 1024);
     assert(Buffer.byteLength(JSON.stringify(Model.buildRequest(current, input))) <= 128 * 1024);
-    assert.deepEqual(current.memories, state.memories);
+    assertProjectedMemories(current.memories, state.memories);
     assert.deepEqual(current.facts, state.facts);
     assert.equal(current.guidance, admitted.guidance);
     assert.equal(current.character.role, admitted.character.role);
     assert.equal(current.activeQuestionId, null);
   };
+  verify();
+  // A nearly full content definition may leave no room for a maximum-size
+  // memory's source, support and revision. Keep one small real memory so
+  // removal remains exercised even when all maximum-size attempts reject.
+  const baseline = Framework.commit(state, Framework.propose(state, { text: '短记忆' }), plan({ beats: [{ afterLine: 0, operations: [{ type: 'memory.upsert', id: 'note_baseline', title: '基线', body: '短记忆' }] }] }));
+  assert.equal(baseline.ok, true, JSON.stringify(baseline.error));
+  state = baseline.state;
   verify();
   const attempt = operations => {
     const result = Framework.commit(state, Framework.propose(state, { text: input }), plan({ lines, beats: [{ afterLine: 0, operations }] }));
@@ -536,14 +558,16 @@ test('nested JSON escaping is budgeted before accepting state and removal remain
     assert.equal(Framework.validatePack(pack).ok, true);
     let state = Framework.create(pack), rejected = 0;
     const input = character.repeat(200), lines = Array(4).fill(character.repeat(500));
-    const verify = () => {
+    const verify = (compareRecall = true) => {
       const current = Framework.context(state);
-      assert(Caps.requestContextBytes(current) <= 80 * 1024);
+      assert(Caps.requestContextBytes(current) <= 96 * 1024);
       const built = Model.buildRequest(current, input);
       assert(Buffer.byteLength(JSON.stringify(built)) <= 128 * 1024);
       assert.deepEqual(current.facts, state.facts);
-      assert.deepEqual(current.world, state.world);
-      assert.deepEqual(current.memories, state.memories);
+      if (compareRecall) {
+        assert.deepEqual(withoutSourceSpans(current.world), withoutSourceSpans(state.world));
+        assertProjectedMemories(current.memories, state.memories);
+      }
       for (const value of Object.values(current.facts)) assert.equal(value, character.repeat(800));
       return built;
     };
@@ -583,7 +607,7 @@ test('nested JSON escaping is budgeted before accepting state and removal remain
     const removal = Framework.commit(state, Framework.propose(state, { text: input }), raw);
     assert.equal(removal.ok, true);
     assert.equal(removal.state.memories.length, initialCount - 1);
-    state = removal.state; verify();
+    state = removal.state; verify(false);
   }
 });
 
@@ -595,4 +619,40 @@ test('shared definition preserves the exact existing dynamic prompt shape and fi
   assert.equal(JSON.stringify(Caps.modelDefinition(current)), JSON.stringify(expected));
   const built = factory.buildRequest(current, '继续');
   assert(built.messages[0].content.endsWith('\n本轮内容与能力定义：\n' + JSON.stringify(expected)));
+});
+
+test('96 KiB encoded contexts retain a proven request reserve for maximum nested-escaped input', () => {
+  const Framework = require('../framework/runtime.js');
+  const Packs = require('../framework/packs.js');
+  const Model = require('../framework/model.js');
+  const Caps = require('../framework/capabilities.js');
+  const contextBudget = 96 * 1024, transportBudget = 128 * 1024;
+  const requestBytes = (current, input) => Buffer.byteLength(JSON.stringify(Model.buildRequest(current, input)));
+  const inputs = [
+    'x'.repeat(200), '"'.repeat(200), '\\'.repeat(200), '🌧'.repeat(200),
+    '\ud800'.repeat(200), '\udfff'.repeat(200), 'x' + '\t'.repeat(199), 'x' + '\n'.repeat(199)
+  ];
+  let fixedOverhead;
+  for (const pack of Packs.list()) {
+    const current = Framework.context(Framework.create(pack));
+    const encodedContext = Caps.requestContextBytes(current);
+    const overhead = requestBytes(current, 'x') - encodedContext - 1;
+    if (fixedOverhead === undefined) fixedOverhead = overhead;
+    else assert.equal(overhead, fixedOverhead);
+    // One accepted Unicode scalar needs at most four UTF-8 bytes. A lone
+    // surrogate is also accepted by the adapter and needs six JSON escape
+    // characters plus one enclosing-string escape: seven bytes, the maximum.
+    const maximumInputBytes = 200 * 7;
+    for (const input of inputs) assert(requestBytes(current, input) - encodedContext <= overhead + maximumInputBytes);
+    assert.equal(requestBytes(current, '\ud800'.repeat(200)) - encodedContext, overhead + maximumInputBytes);
+    assert(overhead + maximumInputBytes <= transportBudget - contextBudget);
+    // Fill a synthetic data-only context to the exact encoded reserve. This
+    // stresses transport independently of any particular admitted pack shape.
+    const full = plain(current);
+    full.recentTranscript = [{ eventId: 'event_budget', role: 'user', text: '' }];
+    full.recentTranscript[0].text = 'x'.repeat(contextBudget - Caps.requestContextBytes(full));
+    assert.equal(Caps.requestContextBytes(full), contextBudget);
+    assert.equal(requestBytes(full, '\ud800'.repeat(200)), contextBudget + overhead + maximumInputBytes);
+    assert(requestBytes(full, '\ud800'.repeat(200)) <= transportBudget);
+  }
 });

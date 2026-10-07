@@ -38,6 +38,49 @@ const plan=(lines,beats=[],topic=null)=>({schema:'her-world-turn-v2',lines,beats
 const addObject={type:'world.create',object:{label:'纸船',glyphs:' /\\\n/==\\',x:48,y:42,scale:1}};
 const addMemory={type:'memory.upsert',id:'note_visit',title:'窗边',body:'一起看天亮'};
 
+test('salient memory without a remember command reveals at its sentence and labels the player quotation',async()=>{
+  const input='我喜欢在窗边听雨。';
+  const r=setup({reduced:false,request:async()=>plan(['窗边适合慢慢听。','这个偏好，我记下了。'],[{afterLine:1,operations:[{type:'memory.upsert',id:'note_quiet',title:'听雨的偏好',body:input,kind:'preference',perspective:'player_report',support:{quote:input}}]}])});
+  await r.online();await r.say(input);assert.equal(r.ids['memory-count'].textContent,'00');assert.equal(r.app.snapshot().state.memories.length,1);
+  await r.ids['skip-reveal'].emit('click');assert.equal(r.ids['memory-count'].textContent,'00');
+  await r.timers.advance(360);
+  await r.ids['skip-reveal'].emit('click');assert.equal(r.ids['memory-count'].textContent,'01');
+  assert.match(r.ids['memory-list'].textContent,/偏好 · 你的原话/);assert.match(r.ids['memory-list'].textContent,/我喜欢在窗边听雨/);
+  assert.equal(r.app.snapshot().state.story.completed.length,0);
+  const restored=runtime.restore(r.store.get(r.app.snapshot().storageKey),packs.get('rain-lab'));assert(restored.ok);assert.equal(restored.state.memories[0].perspective,'player_report');
+});
+
+test('forgetting removes the current card while audit remains and later learning shows a fresh source generation',async()=>{
+  const r=setup();await r.offline();await r.say('/记住 note_visit 来访 | 一起看天亮');
+  await r.say('/忘记 note_visit');assert.equal(r.ids['memory-count'].textContent,'00');assert.match(r.ids.transcript.textContent,/一起看天亮/);
+  await r.say('/记住 note_visit 新的约定 | 一起听风');assert.equal(r.ids['memory-count'].textContent,'01');
+  assert.match(r.ids['memory-list'].textContent,/她的理解，可被纠正/);assert.match(r.ids['memory-list'].textContent,/第 2 次重新记下/);
+  const note=r.app.snapshot().state.memories[0];assert.equal(note.source.text,'/记住 note_visit 新的约定 | 一起听风');assert.equal(note.currentRevision.number,1);
+});
+
+test('dependent retained memories show withheld status and fresh exact correction restores visible recall',async()=>{
+  const inputs=['纪念代号是ALPHA。','我也喜欢在窗边坐着。','忘记纪念代号。','我现在喜欢咸味。'];
+  const operations=[
+    {type:'memory.upsert',id:'note_signal',title:'代号',body:inputs[0],perspective:'player_report',support:{quote:inputs[0]}},
+    {type:'memory.upsert',id:'note_view',title:'她对窗边的理解',body:'她觉得窗边是一个安静的地方。'},
+    {type:'memory.remove',id:'note_signal'},
+    {type:'memory.upsert',id:'note_view',title:'当前口味',body:inputs[3],kind:'preference',perspective:'player_report',support:{quote:inputs[3]}}
+  ];let index=0;
+  const r=setup({request:async()=>plan(['这次记录已更新。'],[{afterLine:0,operations:[operations[index++]]}])});await r.online();
+  for(const input of inputs.slice(0,3))await r.say(input);
+  assert.match(r.ids['memory-list'].textContent,/当前不参与回应/);assert.match(r.ids['memory-list'].textContent,/窗边/);
+  await r.say(inputs[3]);assert.doesNotMatch(r.ids['memory-list'].textContent,/当前不参与回应/);assert.match(r.ids['memory-list'].textContent,/我现在喜欢咸味/);
+  const next=setup({store:r.store});assert.doesNotMatch(next.ids['memory-list'].textContent,/当前不参与回应/);assert.equal(next.model.calls(),0);
+});
+
+test('offline commands can revise and forget a displayed opaque reference without silently reviving a stale one',async()=>{
+  const r=setup();await r.offline();await r.say('/记住 note_visit 来访 | 一起听风');
+  const handle=r.app.snapshot().visible.memories[0].recallHandle;assert.match(handle,/^memory_[1-9][0-9]*$/);assert.match(r.ids['memory-list'].textContent,new RegExp('引用 '+handle));
+  await r.say('/记住 '+handle+' 新的约定 | 一起看天亮');assert.equal(r.app.snapshot().state.memories.length,1);assert.match(r.ids['memory-list'].textContent,/一起看天亮/);
+  await r.say('/忘记 '+handle);assert.equal(r.ids['memory-count'].textContent,'00');const state=r.app.snapshot().state;
+  await r.say('/记住 '+handle+' 旧的编号 | 不应重建');assert.equal(r.app.snapshot().state,state);assert.equal(r.app.snapshot().lastFailure.rule,'MEMORY_HANDLE_INVALID');
+});
+
 test('fresh entry is silent, has independent pack selection, and never reads or rewrites legacy saves',async()=>{
   const legacy='private old save',store=new Map([['her-world.prologue.v3',legacy],['her-world.prologue.v2','old'],['other','keep']]);
   const r=setup({store});assert.equal(r.model.calls(),0);assert.equal(r.app.snapshot().mode,null);assert.equal(r.ids['pack-select'].children.length,2);assert.match(r.ids['intro-eyebrow'].textContent,/内容包说明/);assert(!r.ids['intro-copy'].textContent.includes('story.answer'));assert.equal(store.size,3);
@@ -204,38 +247,39 @@ test('clear and unsupported weather kinds never paint rain even while fading fro
 });
 
 function historicalSave(rulesVersion='1',id='rain-lab',eventPlan){
-  const digests={'rain-lab':{'1':'402db16c','2':'362c6f2f'},'lantern-lab':{'1':'8dd7d018','2':'36792093'}};
+  const digests={'rain-lab':{'1':'402db16c','2':'362c6f2f','3':'d63194b2'},'lantern-lab':{'1':'8dd7d018','2':'36792093','3':'ce388026'}};
   // Historical turns had neither a rulesVersion marker nor normalized placement policies.
   const saved={schema:'her-world-save-v4',pack:{id,version:'1.0.0',rulesVersion,digest:digests[id][rulesVersion]},importedSnapshot:null,events:eventPlan?[{id:'event_1',type:'turn',input:'测试旧规则记录',plan:eventPlan}]:[]};
+  if(rulesVersion==='3') for(const event of saved.events){event.rulesVersion='3';event.plan=JSON.parse(JSON.stringify(event.plan));for(const beat of event.plan.beats)for(const op of beat.operations)if(op.type==='world.create')op.placementPolicy='exact';}
   return JSON.stringify(saved,null,2)+'\n';
 }
-test('rules1 and rules2 migrations back up exact bytes once before a rules3 save can overwrite them',async()=>{
-  for(const version of ['1','2']){
+test('rules1, rules2 and rules3 migrations back up exact bytes once before a rules4 save can overwrite them',async()=>{
+  for(const version of ['1','2','3']){
     const key='her-world.framework.v4:rain-lab:1.0.0',raw=historicalSave(version,'rain-lab',plan(['旧版纸船。'],[{afterLine:0,operations:[addObject]}])),store=new Map([[key,raw]]),writes=[];
-    const r=setup({store,writes});assert.equal(r.app.snapshot().state.world.objects.length,1);assert.equal(r.app.snapshot().state.pack.rulesVersion,'3');const backups=[...store].filter(([k])=>k.includes(':backup:rules'+version+':'));assert.equal(backups.length,1);assert.equal(backups[0][1],raw);assert.equal(store.get(key),raw);assert.match(r.ids['save-status'].textContent,/旧存档已备份/);
-    const again=setup({store,writes});assert.equal([...store.keys()].filter(k=>k.includes(':backup:')).length,1);assert.equal(writes.length,1);await again.offline();await again.say('/天气 恢复');assert.equal(JSON.parse(store.get(key)).pack.rulesVersion,'3');assert.equal(store.get(backups[0][0]),raw);assert.equal(writes[0].key,backups[0][0]);assert(writes.slice(1).some(w=>w.key===key));
+    const r=setup({store,writes});assert.equal(r.app.snapshot().state.world.objects.length,1);assert.equal(r.app.snapshot().state.pack.rulesVersion,'4');const backups=[...store].filter(([k])=>k.includes(':backup:rules'+version+':'));assert.equal(backups.length,1);assert.equal(backups[0][1],raw);assert.equal(store.get(key),raw);assert.match(r.ids['save-status'].textContent,/旧存档已备份/);
+    const again=setup({store,writes});assert.equal([...store.keys()].filter(k=>k.includes(':backup:')).length,1);assert.equal(writes.length,1);await again.offline();await again.say('/天气 恢复');assert.equal(JSON.parse(store.get(key)).pack.rulesVersion,'4');assert.equal(store.get(backups[0][0]),raw);assert.equal(writes[0].key,backups[0][0]);assert(writes.slice(1).some(w=>w.key===key));
   }
 });
 test('failed or unverified migration backup keeps the original save protected through new turns and panel observations',async()=>{
   const key='her-world.framework.v4:rain-lab:1.0.0';
-  for(const version of ['1','2'])for(const fault of ['throw','drop']){
-    const raw=historicalSave(version),store=new Map([[key,raw]]),r=setup({store,...(fault==='throw'?{writeFails:k=>k.includes(':backup:')}:{dropWrites:k=>k.includes(':backup:')})});assert.equal(r.app.snapshot().state.pack.rulesVersion,'3');assert.match(r.ids['save-status'].textContent,/备份失败/);await r.offline();await r.ids['tab-logs'].emit('click');await r.say('/新建 长椅');assert.equal(store.get(key),raw);assert.equal(r.app.snapshot().state.world.objects.length,1);assert.match(r.ids['save-status'].textContent,/本页未保存/);
+  for(const version of ['1','2','3'])for(const fault of ['throw','drop']){
+    const raw=historicalSave(version),store=new Map([[key,raw]]),r=setup({store,...(fault==='throw'?{writeFails:k=>k.includes(':backup:')}:{dropWrites:k=>k.includes(':backup:')})});assert.equal(r.app.snapshot().state.pack.rulesVersion,'4');assert.match(r.ids['save-status'].textContent,/备份失败/);await r.offline();await r.ids['tab-logs'].emit('click');await r.say('/新建 长椅');assert.equal(store.get(key),raw);assert.equal(r.app.snapshot().state.world.objects.length,1);assert.match(r.ids['save-status'].textContent,/本页未保存/);
   }
 });
 test('a conflicting deterministic migration backup is never replaced or used to authorize overwrite',async()=>{
-  for(const version of ['1','2']){
+  for(const version of ['1','2','3']){
     const key='her-world.framework.v4:rain-lab:1.0.0',raw=historicalSave(version),first=setup({store:new Map([[key,raw]])}),backupKey=[...first.store.keys()].find(k=>k.includes(':backup:'));
     assert(backupKey);const store=new Map([[key,raw],[backupKey,'different existing original']]),r=setup({store});await r.offline();await r.say('/新建 长椅');assert.equal(store.get(key),raw);assert.equal(store.get(backupKey),'different existing original');assert.match(r.ids['save-status'].textContent,/备份失败/);
   }
 });
 
 test('the second fixture also migrates into its own verified backup without touching the first fixture',async()=>{
-  for(const version of ['1','2']){
+  for(const version of ['1','2','3']){
     const key='her-world.framework.v4:lantern-lab:1.0.0',other='her-world.framework.v4:rain-lab:1.0.0',raw=historicalSave(version,'lantern-lab'),store=new Map([[key,raw],[other,'first fixture remains untouched']]);
-    const r=setup({store,search:'?pack=lantern-lab'});assert.equal(r.app.snapshot().state.pack.rulesVersion,'3');const backup=[...store.entries()].find(([k])=>k.startsWith(key+':backup:rules'+version+':'));assert(backup);assert.equal(backup[1],raw);await r.offline();await r.say('/新建 长椅');assert.equal(JSON.parse(store.get(key)).pack.rulesVersion,'3');assert.equal(store.get(other),'first fixture remains untouched');
+    const r=setup({store,search:'?pack=lantern-lab'});assert.equal(r.app.snapshot().state.pack.rulesVersion,'4');const backup=[...store.entries()].find(([k])=>k.startsWith(key+':backup:rules'+version+':'));assert(backup);assert.equal(backup[1],raw);await r.offline();await r.say('/新建 长椅');assert.equal(JSON.parse(store.get(key)).pack.rulesVersion,'4');assert.equal(store.get(other),'first fixture remains untouched');
   }
 });
-test('rules2 overlapping clouds retain their exact history while the next saved turn uses rules3 placement',async()=>{
+test('rules2 overlapping clouds retain their exact history while the next saved turn uses rules4 with collision-safe placement',async()=>{
   const cloud={type:'world.create',object:{label:'云',glyphs:' (____)\n(______)',scale:1},placement:{anchor:'sky'}};
   const oldPlan=plan(['原来的两朵云。'],[{afterLine:0,operations:[cloud,cloud]}]),raw=historicalSave('2','rain-lab',oldPlan),key='her-world.framework.v4:rain-lab:1.0.0',store=new Map([[key,raw]]);
   const r=setup({store,request:async()=>plan(['又添了一朵云。'],[{afterLine:0,operations:[cloud]}])}),original=r.app.snapshot().state.world.objects;
@@ -243,7 +287,7 @@ test('rules2 overlapping clouds retain their exact history while the next saved 
   const backup=[...store].find(([k])=>k.includes(':backup:rules2:'));assert(backup);assert.equal(backup[1],raw);assert.equal(store.get(key),raw);
   await r.online();await r.say('再添一朵云');const state=r.app.snapshot().state;
   assert.equal(state.world.objects.length,3);assert.deepEqual(state.world.objects.slice(0,2),original);const newest=state.world.objects[2];assert(original.every(old=>newest.x>=old.x+8||newest.x+8<=old.x||newest.y>=old.y+2||newest.y+2<=old.y));
-  const saved=JSON.parse(store.get(key));assert.equal(saved.pack.rulesVersion,'3');assert.equal(saved.events[0].rulesVersion,'2');assert.equal(saved.events.at(-1).rulesVersion,'3');assert.deepEqual(saved.events[0].plan,oldPlan);assert.equal(store.get(backup[0]),raw);
+  const saved=JSON.parse(store.get(key));assert.equal(saved.pack.rulesVersion,'4');assert.equal(saved.events[0].rulesVersion,'2');assert.equal(saved.events.at(-1).rulesVersion,'4');assert.deepEqual(saved.events[0].plan,oldPlan);assert.equal(store.get(backup[0]),raw);
   const refreshed=setup({store});assert.deepEqual(refreshed.app.snapshot().state,state);assert.equal([...store.keys()].filter(k=>k.includes(':backup:')).length,1);assert.equal(refreshed.model.calls(),0);
 });
 test('unrecognized migration metadata cannot create a backup or allow the original save to be overwritten',async()=>{

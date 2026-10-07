@@ -15,9 +15,10 @@
   const FAILURES = Object.freeze({ disconnected: '连接已断开，请重新选择连接方式。', busy: '上一条回应尚未完成。', limit: '本页请求次数已达到上限。', timeout: '等待回应超时。', network: '这次连接没有完成。', response_read: '回应在传输时中断。', auth: '转发服务或上游返回了认证或权限错误，不能仅凭此判断密码是否有误。', quota: '转发服务或模型额度暂不可用。', upstream: '模型服务暂时不可用。', format: '回应格式不符合约定。', truncated: '回应没有完整返回。', empty: '模型没有返回可用的回应。', cancelled: '这次回应已取消。', invalid: '回应中的变化未通过本地规则校验。' });
   const RUNTIME_CODES = new Set(["ANSWER_BOUNDARY", "ANSWER_UNAVAILABLE", "BEATS_INVALID", "CAPABILITY_DISABLED", "CHOICE_INVALID", "CONSENT_REQUIRED", "CONTEXT_CAPACITY", "CURSOR_INVALID", "EVENT_CAPACITY", "EVENT_INVALID", "EVIDENCE_INVALID", "GEOMETRY_INVALID", "IMPORT_ANNOTATION", "IMPORT_FACTS", "IMPORT_INVALID", "IMPORT_MEMORY", "IMPORT_OBJECT", "IMPORT_ORIGIN", "IMPORT_TRANSCRIPT", "IMPORT_WEATHER", "IMPORT_WORLD", "INPUT_INVALID", "LINES_INVALID", "MEMORY_CAPACITY", "OBSERVATION_INVALID", "OPERATION_CAPACITY", "OPERATION_EMPTY", "OPERATION_INVALID", "PACK_INVALID", "PACK_MISMATCH", "PLACEMENT_INVALID", "PLACEMENT_TARGET", "PLAN_INVALID", "PROTOCOL_TEXT", "QUESTION_UNAVAILABLE", "RELATIONSHIP_BOUND", "REPLAY_INVALID", "SAVE_INVALID", "STALE_PROPOSAL", "STATE_INVALID", "TARGET_MISSING", "TEXT_INVALID", "TOPIC_INVALID", "WORLD_CAPACITY"]);
   ['WEATHER_CONFLICT', 'RULES_VERSION_UNSUPPORTED', 'MIGRATION_WEATHER_INCOMPATIBLE', 'PLACEMENT_CAPACITY'].forEach(code => RUNTIME_CODES.add(code));
+  ['MEMORY_ALREADY_REMOVED', 'MEMORY_CLAIM_INVALID', 'MEMORY_HANDLE_INVALID', 'MEMORY_IMPORT_INVALID', 'MEMORY_INVALID', 'MEMORY_METADATA_INVALID', 'MEMORY_REMOVE_INVALID', 'MEMORY_SHARED_EVENT_UNVERIFIED', 'MEMORY_STALE_GENERATION', 'MEMORY_SUPPORT_AMBIGUOUS', 'MEMORY_SUPPORT_INVALID', 'RECALL_CAPACITY', 'RECALL_CONTEXT_INVALID', 'RECALL_DAG_INVALID', 'RECALL_EXPOSURE_INVALID', 'RECALL_POLICY_INVALID', 'RECALL_RECORD_INVALID', 'RECALL_SOURCE_INVALID', 'RECALL_SPAN_INVALID'].forEach(code => RUNTIME_CODES.add(code));
   const MIGRATION_PACK_DIGESTS = Object.freeze({
-    'rain-lab': Object.freeze({ '1': '402db16c', '2': '362c6f2f', '3': 'd63194b2' }),
-    'lantern-lab': Object.freeze({ '1': '8dd7d018', '2': '36792093', '3': 'ce388026' })
+    'rain-lab': Object.freeze({ '1': '402db16c', '2': '362c6f2f', '3': 'd63194b2', '4': '7f91f3a5' }),
+    'lantern-lab': Object.freeze({ '1': '8dd7d018', '2': '36792093', '3': 'ce388026', '4': 'd11120d9' })
   });
   const DIAGNOSTIC_STAGES = new Set(['LOCAL_CONTEXT', 'REQUEST', 'NETWORK', 'HTTP', 'RESPONSE_READ', 'ENVELOPE', 'FINAL_CONTENT', 'JSON', 'CANCELLED']);
   const DIAGNOSTIC_CODES = new Set(['CONTEXT_INVALID', 'INPUT_INVALID', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE', 'ROOT_INVALID', 'PAYLOAD_REQUIRED', 'PAYLOAD_MIXED', 'OUTPUT_UNSAFE', 'JSON_SYNTAX', 'JSON_BAD_ESCAPE', 'JSON_CONTROL_CHARACTER', 'JSON_UNTERMINATED', 'JSON_TRAILING_CONTENT', 'JSON_DUPLICATE_KEY']);
@@ -56,9 +57,9 @@
         const fields = ['type', 'fromRulesVersion', 'toRulesVersion', 'fromPackDigest', 'toPackDigest'];
         if (!migration || Object.keys(migration).length !== fields.length || !fields.every(field => Object.prototype.hasOwnProperty.call(migration, field))) return false;
         const known = MIGRATION_PACK_DIGESTS[pack.id], original = JSON.parse(raw).pack, current = runtime.serialize(state).pack;
-        const recognized = known && pack.version === '1.0.0' && pack.rulesVersion === '3'
-          && migration.type === 'object-placement-v3' && ['1', '2'].includes(migration.fromRulesVersion) && migration.toRulesVersion === '3'
-          && migration.fromPackDigest === known[migration.fromRulesVersion] && migration.toPackDigest === known['3']
+        const recognized = known && pack.version === '1.0.0' && pack.rulesVersion === '4'
+          && migration.type === 'memory-provenance-v4' && ['1', '2', '3'].includes(migration.fromRulesVersion) && migration.toRulesVersion === '4'
+          && migration.fromPackDigest === known[migration.fromRulesVersion] && migration.toPackDigest === known['4']
           && original.id === pack.id && original.version === pack.version && original.rulesVersion === migration.fromRulesVersion && original.digest === migration.fromPackDigest
           && current.id === pack.id && current.version === pack.version && current.rulesVersion === migration.toRulesVersion && current.digest === migration.toPackDigest;
         if (!recognized) return false;
@@ -160,6 +161,10 @@
         const container = $('memory-list'); container.replaceChildren();
         memories.forEach(memory => {
           const row = card(memory.title || memory.id, memory.body, source(memory.source) || '未保留原始来源');
+          const kinds = { concept: '学到的概念', preference: '偏好', experience: '共同经历', promise: '约定', note: '记下的片段' };
+          const perspectives = { player_report: '你的原话', shared_event: '已发生的世界变化', character_interpretation: '她的理解，可被纠正' };
+          row.append(el('p', (kinds[memory.kind] || '历史记录') + ' · ' + (perspectives[memory.perspective] || '未标注理解方式') + (memory.generation > 1 ? ' · 第 ' + memory.generation + ' 次重新记下' : '') + (memory.recallHandle ? ' · 引用 ' + memory.recallHandle : ''), 'muted small'));
+          if (memory.recallStatus === 'withheld') row.append(el('p', '关联来源已被忘记，当前不参与回应。你可以用新的明确说法修正它。', 'source'));
           if (memory.currentRevision && memory.currentRevision.number > 1) row.append(el('p', '修订 ' + memory.currentRevision.number + '：' + source(memory.currentRevision), 'source'));
           container.append(row);
         });

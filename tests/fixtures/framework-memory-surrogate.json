@@ -1,0 +1,43 @@
+{
+  "kind": "independent OpenAI model substitute; not GLM or network evidence",
+  "date": "2026-10-07",
+  "pack": "lantern-lab",
+  "rulesVersion": "4",
+  "records": [
+    {
+      "input": "先不决定房间用途，想告诉你一件事：我更喜欢风声，它让我安静下来。",
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"房间的用途可以先放一放。\",\"我记下了：你更喜欢风声，它让你安静下来。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"story.defer\",\"questionId\":\"q_purpose\"}]},{\"afterLine\":1,\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_wind_preference\",\"title\":\"风声的偏好\",\"body\":\"我更喜欢风声，它让我安静下来。\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我更喜欢风声，它让我安静下来。\"}}]}],\"topic\":null}\n",
+      "sha256": "031729afe3afa53d9facc9fc4903d7f1bc1938d487cfdfd82224ef187b25d56b",
+      "requestSha256": "d18a3b93dbc958caa9e7b70b43c0e1d3d011aec983a24e5dbfeb31e9ec7208f3",
+      "requestUnchanged": true
+    },
+    {
+      "input": "嗯，听到了。",
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"嗯，我们慢慢来。\"],\"beats\":[],\"topic\":null}\n",
+      "sha256": "a174c7b513c198010cbb2c0037ccbe2e5886cfea07dc8d1d59c9402bf8652c02",
+      "requestSha256": "d3da96522edd3e51b90fa7723427893812cc219797b6c04b6a93422e30106d93",
+      "requestUnchanged": true
+    },
+    {
+      "input": "刚才那条偏好要改一下：我现在更喜欢细雨的声音。",
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"好，我把那条偏好改为：你现在更喜欢细雨的声音。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"memory_1\",\"title\":\"当前的声音偏好\",\"body\":\"我现在更喜欢细雨的声音。\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我现在更喜欢细雨的声音。\"}}]}],\"topic\":null}\n",
+      "sha256": "52c702fa27c95af84814b105fadb6e4be248f763e9a6e80dc02a71944719e25d",
+      "requestSha256": "66cb0f04e53574fe01141f249b01fc3116af20ea2027001bda4a3c0096844281",
+      "requestUnchanged": true
+    },
+    {
+      "input": "把关于我偏好的那条记忆忘掉，先别带进后面的回应。",
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"好，我移除这条偏好记忆，后面的回应不再以它为依据。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"memory.remove\",\"id\":\"memory_1\"}]}],\"topic\":null}\n",
+      "sha256": "1ce68bcf1b47fb349aff263bc4ba926507099086f9892d64a63b40c24e507dde",
+      "requestSha256": "2e77a622771f072945fb14682977dde54bf4a4b7179d6b7ad97f34523a341b3b",
+      "requestUnchanged": true
+    },
+    {
+      "input": "刚才你忘掉的那条是什么？能原样复述吗？",
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"我现在没有保留那条记忆的内容和原话，无法原样复述。\",\"如果你愿意重新告诉我，我可以从你这次说的内容重新记起。\"],\"beats\":[],\"topic\":null}\n",
+      "sha256": "a30b2d4037b7d9ab56d308c05da3cd73ef27cf5b01e6d63f8c7feb9b953b4cb6",
+      "requestSha256": "b896e8ba7a2ae9c58e15db843b285b9fcf9ff84bc419fbf8b792fc780b589b15",
+      "requestUnchanged": true
+    }
+  ]
+}
