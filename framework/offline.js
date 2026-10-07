@@ -5,7 +5,7 @@
   if (root) root.HerFrameworkOffline = api;
 })(typeof window !== 'undefined' ? window : null, function () {
   'use strict';
-  const HELP = ['/新建 长椅', '/移动 obj_1 30 38', '/放大 obj_1 2', '/含义 obj_1 一起等天亮', '/理解 obj_1 一个可以停留的地方', '/清除理解 obj_1', '/删除 obj_1', '/天气 停', '/天气 恢复', '/天气 强度 2', '/命名 叶信', '/记住 note_visit 来访 | 今天在窗边聊过', '/忘记 note_visit', '/回答 你的回答', '/稍后', '/打开 世界'];
+  const HELP = ['/新建 长椅', '/移动 obj_1 30 38', '/放大 obj_1 2', '/含义 obj_1 一起等天亮', '/理解 obj_1 一个可以停留的地方', '/清除理解 obj_1', '/删除 obj_1', '/天气 雨', '/天气 雪', '/天气 雾', '/天气 晴', '/天气 停', '/天气 恢复', '/天气 强度 2', '/命名 叶信', '/记住 note_visit 来访 | 今天在窗边聊过', '/忘记 note_visit', '/回答 你的回答', '/稍后', '/打开 世界'];
   const reply = (text, operations = [], topic = null) => ({ schema: 'her-world-turn-v2', lines: [text], beats: operations.length ? [{ afterLine: 0, operations }] : [], topic });
   function question(context) { const pending = context.pendingQuestions || []; return pending.find(item => item.topic === context.story?.topic && !item.deferred) || pending.find(item => !item.deferred) || pending[0] || null; }
   function respond(context, input) {
@@ -23,7 +23,9 @@
     if ((match = text.match(/^\/删除\s+(obj_\d+)$/u))) return reply('这个物件会从当前画面移除；原来的对话仍保留。', [{ type: 'world.remove', target: match[1] }]);
     if ((match = text.match(/^\/(含义|理解)\s+(\S+)\s+(.+)$/u))) return reply(match[1] === '含义' ? '你赋予的意义已更新，和我的理解分开记录。' : '这份记录标明是我的理解，可以随时改。', [{ type: 'world.annotate', target: match[2], field: match[1] === '含义' ? 'meaning' : 'interpretation', value: match[3] }]);
     if ((match = text.match(/^\/清除(含义|理解)\s+(\S+)$/u))) return reply('当前这项注解已清除；这不等于删除原始聊天。', [{ type: 'world.annotate', target: match[2], field: match[1] === '含义' ? 'meaning' : 'interpretation', value: null }]);
+    if ((match = text.match(/^\/天气\s+(雨|雪|雾|晴)$/u))) return reply('天气已切换到你明确选择的类型。', [{ type: 'weather.set', changes: { kind: { 雨: 'rain', 雪: 'snow', 雾: 'mist', 晴: 'clear' }[match[1]], intensity: match[1] === '晴' ? 0 : 1, paused: false } }]);
     if ((match = text.match(/^\/天气\s+(停|恢复|强度\s+[0-3])$/u))) {
+      if (context.world?.weather?.kind === 'clear' && (match[1] === '恢复' || /[1-3]$/u.test(match[1]))) return reply('现在是晴天。想让雨、雪还是雾出现？可以用“/天气 雨”等明确选择。');
       const changes = match[1] === '停' ? { paused: true } : match[1] === '恢复' ? { paused: false, intensity: context.world?.weather?.intensity || 1 } : { intensity: Number(match[1].slice(-1)), paused: match[1].slice(-1) === '0' };
       return reply('天气设置已按这次明确操作更新。', [{ type: 'weather.set', changes }]);
     }
@@ -39,7 +41,7 @@
     }
     if (/^\/稍后$/u.test(text)) return pending?.id ? reply('这个问题先放在一边。你可以继续聊，之后再回来。', [{ type: 'story.defer', questionId: pending.id }]) : reply('这里没有需要赶着回答的问题。');
     if (/^(?:停雨|让雨停下|雨先停一下)[吧。！!]*$/u.test(text)) return reply('雨先停在这里，密度仍然保留。', [{ type: 'weather.set', changes: { paused: true } }]);
-    if (/^(?:恢复下雨|让雨继续|继续下雨)[吧。！!]*$/u.test(text)) return reply('雨继续落下。', [{ type: 'weather.set', changes: { paused: false, intensity: context.world?.weather?.intensity || 1 } }]);
+    if (/^(?:恢复下雨|让雨继续|继续下雨)[吧。！!]*$/u.test(text)) return reply('雨继续落下。', [{ type: 'weather.set', changes: { kind: 'rain', paused: false, intensity: context.world?.weather?.intensity || 1 } }]);
     return reply('离线模式只识别少量明确操作，刚才这句话没有改变世界或问题进度。可以继续写，或使用下方的功能测试示例。');
   }
   return Object.freeze({ respond, help: () => HELP.slice() });

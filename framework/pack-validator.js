@@ -16,14 +16,16 @@
   const unique = (values, field = 'id') => new Set(values.map(value => value[field])).size === values.length;
   const byteLength = text => [...text].reduce((sum, char) => { const code = char.codePointAt(0); return sum + (code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4); }, 0);
   const integer = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+  const validWeather = weather => plain(weather) && CAPS.weatherKinds.includes(weather.kind) && safe(weather.name, 40) && integer(weather.intensity, 0, 3) && typeof weather.paused === 'boolean' && (weather.kind !== 'clear' || weather.intensity === 0);
   function validatePack(pack) {
     const fail = path => ({ ok: false, error: { code: 'PACK_INVALID', path } });
     if (!fields(pack, ['id', 'version', 'rulesVersion', 'title', 'guidance', 'character', 'world', 'capabilities', 'topics', 'entities', 'initialFacts', 'nodes'], ['id', 'version', 'rulesVersion', 'title', 'character', 'world', 'capabilities', 'topics', 'entities', 'initialFacts', 'nodes'])) return fail('$');
     if (!identifier(pack.id) || !safe(pack.version, 40) || !safe(pack.rulesVersion, 40) || !safe(pack.title, 120) || own(pack, 'guidance') && !safe(pack.guidance, 3000)) return fail('identity');
+    if (pack.rulesVersion !== CAPS.RULES_VERSION) return { ok: false, error: { code: 'RULES_VERSION_UNSUPPORTED', path: 'rulesVersion' } };
     if (!fields(pack.character, ['name', 'role', 'mood', 'stance', 'trust', 'familiarity'], ['name', 'role', 'mood', 'stance']) || !safe(pack.character.name, 60) || !safe(pack.character.role, 800) || !safe(pack.character.mood, 80) || !safe(pack.character.stance, 160) || ['trust', 'familiarity'].some(key => own(pack.character, key) && !integer(pack.character[key], 0, 100))) return fail('character');
     if (!fields(pack.world, ['capacity', 'landmarks', 'weather'], ['capacity', 'landmarks']) || !integer(pack.world.capacity, 1, 8) || !plain(pack.world.landmarks) || Object.keys(pack.world.landmarks).length > 12) return fail('world');
     for (const [id, landmark] of Object.entries(pack.world.landmarks)) if (!identifier(id) || !fields(landmark, ['x', 'y', 'width', 'height']) || !integer(landmark.x, 0, 99) || !integer(landmark.y, 0, 59) || !integer(landmark.width, 1, 100) || !integer(landmark.height, 1, 60) || landmark.x + landmark.width > 100 || landmark.y + landmark.height > 60) return fail('world.landmarks');
-    if (own(pack.world, 'weather') && (!fields(pack.world.weather, ['kind', 'name', 'intensity', 'paused']) || !safe(pack.world.weather.kind, 32) || !safe(pack.world.weather.name, 40) || !integer(pack.world.weather.intensity, 0, 3) || typeof pack.world.weather.paused !== 'boolean')) return fail('world.weather');
+    if (own(pack.world, 'weather') && (!fields(pack.world.weather, ['kind', 'name', 'intensity', 'paused']) || !validWeather(pack.world.weather))) return fail('world.weather');
     if (!list(pack.capabilities, CAPS.ids.length, id => CAPS.ids.includes(id)) || new Set(pack.capabilities).size !== pack.capabilities.length) return fail('capabilities');
     if (!list(pack.topics, 32, topic => fields(topic, ['id', 'title']) && identifier(topic.id) && safe(topic.title, 100)) || !pack.topics.length || !unique(pack.topics)) return fail('topics');
     if (!list(pack.entities, 32, entity => fields(entity, ['id', 'label', 'kind']) && identifier(entity.id) && !/^obj_[0-9]+$/u.test(entity.id) && safe(entity.label, 60) && safe(entity.kind, 40)) || !unique(pack.entities)) return fail('entities');
@@ -48,5 +50,5 @@
     if (byteLength(JSON.stringify(pack)) > 24 * 1024) return { ok: false, error: { code: 'PACK_CAPACITY', path: '$' } };
     return { ok: true, value: JSON.parse(JSON.stringify(pack)) };
   }
-  return Object.freeze({ validatePack, safeText: safe, identifier, scalar, fields, plain, byteLength });
+  return Object.freeze({ validatePack, safeText: safe, identifier, scalar, fields, plain, byteLength, validWeather });
 });

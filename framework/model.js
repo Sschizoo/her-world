@@ -1,6 +1,7 @@
 /* Fixed, private transport. Content rules and capability schemas come from the runtime. */
 (function (root) {
   'use strict';
+  const capabilities = typeof module === 'object' && module.exports ? require('./capabilities.js') : root.HerCapabilities;
   const ENDPOINT = 'https://216.235.248.104/v1/chat/completions';
   const MODEL = 'glm-5.3-flash';
   const MAX_REQUEST_BYTES = 131072;
@@ -89,13 +90,8 @@ topic只能为本轮topics内的id或null；null表示本轮不主动切换话�
     const snapshot = copyData(selected);
     if (snapshot.schema !== 'her-world-context-v1' || !record(snapshot.pack) || !record(snapshot.character)
       || !Array.isArray(snapshot.topics) || !Array.isArray(snapshot.capabilities) || !record(snapshot.world)) failContext();
-    const definition = {
-      pack: snapshot.pack,
-      persona: { name: snapshot.character.name ?? '', role: snapshot.character.role ?? '' },
-      guidance: snapshot.guidance ?? '',
-      topics: snapshot.topics,
-      capabilities: snapshot.capabilities
-    };
+    if (typeof capabilities?.modelDefinition !== 'function') failContext();
+    const definition = capabilities.modelDefinition(snapshot);
     return freeze([
       { role: 'system', content: `${protocolPrompt}\n本轮内容与能力定义：\n${JSON.stringify(definition)}` },
       { role: 'user', content: JSON.stringify({ task: '回应当前输入并提出一个完整回合计划。', playerSaid: input, context: snapshot }) }

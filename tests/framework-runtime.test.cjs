@@ -207,7 +207,7 @@ test('save v4 validates every replayed event and rejects wrong pack, rules, cont
   const saved = R.serialize(state), restored = R.restore(JSON.stringify(saved), PACKS.get('rain-lab'));
   assert.equal(restored.ok, true); assert.deepEqual(R.view(restored.state), R.view(state));
   assert.equal(R.restore(saved, PACKS.get('lantern-lab')).error.code, 'PACK_MISMATCH');
-  for (const field of ['version', 'rulesVersion', 'title']) { const pack = PACKS.get('rain-lab'); pack[field] += '-changed'; assert.equal(R.restore(saved, pack).error.code, 'PACK_MISMATCH'); }
+  for (const field of ['version', 'rulesVersion', 'title']) { const pack = PACKS.get('rain-lab'); pack[field] += '-changed'; assert.equal(R.restore(saved, pack).error.code, field === 'rulesVersion' ? 'RULES_VERSION_UNSUPPORTED' : 'PACK_MISMATCH'); }
   const forged = clone(saved); forged.events[1].plan.beats[0].operations[0].object.x = 999;
   assert.equal(R.restore(forged, PACKS.get('rain-lab')).ok, false);
   const ui = clone(saved); ui.events[1] = { id: 'event_2', type: 'panel.viewed', panel: 'world', facts: {} };
@@ -289,24 +289,22 @@ test('a compound answer and real operation satisfy sequential declarative condit
 test('context capacity rejects expansions atomically and current removals remain available', () => {
   const pack = PACKS.get('rain-lab');
   pack.initialFacts = Object.fromEntries(Array.from({ length: 20 }, (_, index) => ['fact_' + index, '界'.repeat(250)]));
-  let state = R.create(pack), input = '界'.repeat(200);
-  for (let i = 0; i < 14; i++) state = turn(state, input, [{ type: 'memory.upsert', id: 'note_' + i, title: '界'.repeat(60), body: '界'.repeat(240) }]);
-  for (let i = 0; i < 8; i++) state = turn(state, input, [{ type: 'world.create', object: object('界'.repeat(40)) }]);
-  let rejected = false;
-  for (const target of [...state.world.objects.map(item => item.id), ...pack.entities.map(entity => entity.id)]) {
-    for (const field of ['meaning', 'interpretation']) {
-      const next = result(state, input, [{ type: 'world.annotate', target, field, value: '界'.repeat(120) }]);
-      if (!next.ok) { assert.equal(next.error.code, 'CONTEXT_CAPACITY'); rejected = true; break; }
-      state = next.state;
-    }
-    if (rejected) break;
-  }
+  let state = R.create(pack), input = '界'.repeat(200), rejected = false;
+  const attempt = operation => {
+    const before = JSON.stringify(R.serialize(state));
+    const next = result(state, input, [operation]);
+    if (next.ok) state = next.state;
+    else { assert.equal(next.error.code, 'CONTEXT_CAPACITY'); assert.equal(JSON.stringify(R.serialize(state)), before); rejected = true; }
+    assert.ok(CAPS.requestContextBytes(R.context(state)) <= R.constants.MAX_CONTEXT_BYTES);
+  };
+  for (let i = 0; i < 14; i++) attempt({ type: 'memory.upsert', id: 'note_' + i, title: '界'.repeat(60), body: '界'.repeat(240) });
+  for (let i = 0; i < 8; i++) attempt({ type: 'world.create', object: object('界'.repeat(40)) });
+  for (const target of [...state.world.objects.map(item => item.id), ...pack.entities.map(entity => entity.id)]) for (const field of ['meaning', 'interpretation']) attempt({ type: 'world.annotate', target, field, value: '界'.repeat(120) });
   assert.equal(rejected, true);
-  assert.ok(Buffer.byteLength(JSON.stringify(R.context(state))) <= R.constants.MAX_CONTEXT_BYTES);
   const restored = R.restore(R.serialize(state), pack); assert.equal(restored.ok, true);
   const removed = turn(state, '移除一条笔记腾出空间', [{ type: 'memory.remove', id: 'note_0' }]);
-  assert.equal(removed.memories.length, 13);
-  assert.ok(Buffer.byteLength(JSON.stringify(R.context(removed))) <= R.constants.MAX_CONTEXT_BYTES);
+  assert.equal(removed.memories.length, state.memories.length - 1);
+  assert.ok(CAPS.requestContextBytes(R.context(removed)) <= R.constants.MAX_CONTEXT_BYTES);
 });
 
 test('removing and reviving a memory ID retains its first source and revision history', () => {
@@ -325,4 +323,235 @@ test('removing and reviving a memory ID retains its first source and revision hi
 test('consent recognizes a current direct answer but rejects quoted or historical permission', () => {
   for (const text of ['同意留下引用', '/回答 同意留下引用', '你可以记住我', '我愿意', 'Yes, you can remember me']) assert.equal(R.explicitConsent(text), true, text);
   for (const text of ['他同意留下引用', '我同意过保存我的引用', 'he says please remember me', '如果我同意留下引用呢', '我不同意留下引用']) assert.equal(R.explicitConsent(text), false, text);
+});
+
+const oldBinding = packId => ({ id: packId, version: '1.0.0', rulesVersion: '1', digest: { 'rain-lab': '402db16c', 'lantern-lab': '8dd7d018' }[packId] });
+const asOldSave = state => ({ ...clone(R.serialize(state)), pack: oldBinding(state.pack.id) });
+const weatherEvent = (number, changes) => ({ id: 'event_' + number, type: 'turn', input: '旧天气请求' + number, plan: plan([{ type: 'weather.set', changes }]) });
+const minimalImport = weather => ({ origin: { type: 'legacy-v3', version: '0.5.4', milestones: [] }, world: { objects: [], annotations: {}, weather: { ...weather, source: null } }, memories: [], transcript: [], facts: {} });
+
+test('weather capability names exactly the renderer-supported kinds', () => {
+  const descriptor = CAPS.descriptors(['weather.set'])[0];
+  assert.deepEqual(descriptor.schema.properties.changes.properties.kind.enum, ['rain', 'snow', 'mist', 'clear']);
+  for (const kind of ['rain', 'snow', 'mist', 'clear']) {
+    const state = turn(rain(), '设置实际天气' + kind, [{ type: 'weather.set', changes: { kind, intensity: kind === 'clear' ? 0 : 2, paused: false } }]);
+    assert.equal(state.world.weather.kind, kind);
+    assert.equal(state.world.weather.intensity, kind === 'clear' ? 0 : 2);
+    assert.equal(R.restore(R.serialize(state), PACKS.get('rain-lab')).ok, true);
+  }
+});
+
+test('unsupported weather rejects the entire turn before any object or dialogue commits', () => {
+  const initial = rain(), before = JSON.stringify(R.serialize(initial));
+  const rejected = result(initial, '风吹起来，再添一盏灯', [{ type: 'world.create', object: object() }, { type: 'weather.set', changes: { kind: 'wind' } }]);
+  assert.equal(rejected.ok, false); assert.equal(rejected.error.code, 'OPERATION_INVALID');
+  assert.equal(rejected.frames, undefined); assert.equal(JSON.stringify(R.serialize(initial)), before);
+  for (const kind of ['storm', 'Snow', '', 'rain<script>']) assert.equal(result(initial, '改天气', [{ type: 'weather.set', changes: { kind } }]).ok, false);
+});
+
+test('clear without intensity clears inherited particles and rejects explicit positive intensity', () => {
+  const rainy = turn(rain(), '下大雨', [{ type: 'weather.set', changes: { kind: 'rain', intensity: 3, paused: false } }]);
+  const cleared = turn(rainy, '放晴吧', [{ type: 'weather.set', changes: { kind: 'clear' } }]);
+  assert.equal(cleared.world.weather.intensity, 0);
+  assert.equal(cleared.world.weather.kind, 'clear');
+  assert.equal(cleared.world.weather.source.text, '放晴吧');
+  assert.deepEqual(cleared.events.at(-1).plan.beats[0].operations[0].changes, { kind: 'clear' });
+  for (const [state, changes] of [[rainy, { kind: 'clear', intensity: 1 }], [cleared, { intensity: 2 }]]) {
+    const before = JSON.stringify(R.serialize(state));
+    assert.equal(result(state, '矛盾的天气', [{ type: 'weather.set', changes }]).error.code, 'WEATHER_CONFLICT');
+    assert.equal(JSON.stringify(R.serialize(state)), before);
+  }
+  assert.deepEqual(R.view(R.restore(R.serialize(cleared), PACKS.get('rain-lab')).state), R.view(cleared));
+});
+
+test('initial, imported and replayed weather obey the same supported kind and clear rules', () => {
+  for (const weather of [{ kind: 'wind', name: '风', intensity: 1, paused: false }, { kind: 'clear', name: '晴', intensity: 2, paused: false }]) {
+    const pack = PACKS.get('rain-lab'); pack.world.weather = weather;
+    assert.equal(R.validatePack(pack).ok, false);
+    assert.throws(() => R.create(pack), /PACK_INVALID/);
+    assert.equal(R.importLegacy(minimalImport(weather), PACKS.get('rain-lab')).error.code, 'IMPORT_WEATHER');
+    const saved = clone(R.serialize(rain())); saved.events.push(weatherEvent(1, weather));
+    assert.equal(R.restore(saved, PACKS.get('rain-lab')).ok, false);
+  }
+  const imported = R.importLegacy(minimalImport({ kind: 'clear', name: '晴', intensity: 0, paused: false }), PACKS.get('rain-lab'));
+  assert.equal(imported.ok, true); assert.equal(R.restore(R.serialize(imported.state), PACKS.get('rain-lab')).ok, true);
+});
+
+test('known rules1 saves migrate explicitly to rules2 with all state, sources and events preserved', () => {
+  for (const packId of ['rain-lab', 'lantern-lab']) {
+    let state = R.create(PACKS.get(packId));
+    state = turn(state, '原来的造物请求', [{ type: 'world.create', object: object('旧灯') }, { type: 'memory.upsert', id: 'note_weather', title: '原来的记忆', body: '保留原文' }]);
+    for (const kind of ['rain', 'snow', 'mist', 'clear']) state = turn(state, '原来的天气请求' + kind, [{ type: 'weather.set', changes: { kind, intensity: kind === 'clear' ? 0 : 2, paused: false } }]);
+    const saved = asOldSave(state), original = JSON.stringify(saved);
+    const restored = R.restore(saved, PACKS.get(packId));
+    assert.equal(restored.ok, true, JSON.stringify(restored.error));
+    assert.deepEqual(restored.migration, { type: 'weather-kinds-v2', fromRulesVersion: '1', toRulesVersion: '2', fromPackDigest: oldBinding(packId).digest, toPackDigest: R.serialize(state).pack.digest });
+    assert.deepEqual(R.view(restored.state), R.view(state));
+    assert.deepEqual(restored.state.events, saved.events);
+    assert.equal(JSON.stringify(saved), original);
+    const currentSave = R.serialize(restored.state);
+    assert.equal(currentSave.pack.rulesVersion, '2');
+    assert.equal(R.restore(currentSave, PACKS.get(packId)).migration, undefined);
+    assert.ok(Buffer.byteLength(JSON.stringify(R.context(restored.state))) <= R.constants.MAX_CONTEXT_BYTES);
+  }
+});
+
+test('rules1 migration preserves a compatible imported snapshot without inventing sources', () => {
+  const snapshot = minimalImport({ kind: 'mist', name: '旧雾', intensity: 1, paused: false });
+  snapshot.memories.push({ id: 'note_unknown', title: '旧记忆', body: '来源没有保存', source: null, latestSource: null });
+  const imported = R.importLegacy(snapshot, PACKS.get('rain-lab'));
+  const saved = asOldSave(imported.state);
+  const restored = R.restore(saved, PACKS.get('rain-lab'));
+  assert.equal(restored.ok, true); assert.ok(restored.migration);
+  assert.deepEqual(restored.state.importedSnapshot, snapshot);
+  assert.equal(restored.state.memories[0].source, null);
+  assert.equal(restored.state.memories[0].currentRevision.text, null);
+});
+
+test('rules1 incompatible weather remains rejected even when a later event would repair it', () => {
+  const cases = [
+    [weatherEvent(1, { kind: 'wind', intensity: 2 }), weatherEvent(2, { kind: 'rain' })],
+    [weatherEvent(1, { kind: 'rain', intensity: 3 }), weatherEvent(2, { kind: 'clear' })],
+    [weatherEvent(1, { kind: 'clear', intensity: 2 })],
+    [weatherEvent(1, { kind: 'clear', intensity: 0 }), weatherEvent(2, { intensity: 1 })]
+  ];
+  for (const events of cases) {
+    const saved = asOldSave(rain()); saved.events = events;
+    const original = JSON.stringify(saved), restored = R.restore(saved, PACKS.get('rain-lab'));
+    assert.deepEqual(restored, { ok: false, error: { code: 'MIGRATION_WEATHER_INCOMPATIBLE', path: 'world.weather' } });
+    assert.equal(JSON.stringify(saved), original); assert.equal(restored.state, undefined);
+  }
+  for (const weather of [{ kind: 'wind', name: '旧风', intensity: 1, paused: false }, { kind: 'clear', name: '旧晴', intensity: 1, paused: true }]) {
+    const saved = asOldSave(rain()); saved.importedSnapshot = minimalImport(weather);
+    assert.equal(R.restore(saved, PACKS.get('rain-lab')).error.code, 'MIGRATION_WEATHER_INCOMPATIBLE');
+  }
+});
+
+test('migration is limited to pinned predecessor definitions and cannot run an old pack silently', () => {
+  const pack = PACKS.get('rain-lab'), saved = asOldSave(rain());
+  for (const change of [value => value.pack.digest = '00000000', value => value.pack.rulesVersion = '0', value => value.pack.version = '0.9.0']) {
+    const bad = clone(saved); change(bad); assert.equal(R.restore(bad, pack).error.code, 'PACK_MISMATCH');
+  }
+  const changed = clone(pack); changed.title += '改';
+  assert.equal(R.restore(saved, changed).error.code, 'PACK_MISMATCH');
+  const old = clone(pack); old.rulesVersion = '1';
+  assert.equal(R.validatePack(old).error.code, 'RULES_VERSION_UNSUPPORTED');
+  assert.throws(() => R.create(old), /RULES_VERSION_UNSUPPORTED/);
+  assert.equal(R.restore(saved, old).error.code, 'RULES_VERSION_UNSUPPORTED');
+});
+
+test('fresh model window_below gap1 placement follows its declared schema and actual geometry', () => {
+  const initial = workshop();
+  const create = { type: 'world.create', object: { label: '阅读长椅', glyphs: '|---------------|\n|_______________|\n|===============|\n  |           |', scale: 1 }, placement: { anchor: 'window_below', gap: 1 } };
+  assert.equal(CAPS.validate(create), true);
+  const committed = result(initial, '我想在窗边读书，先放一张长椅', [{ type: 'story.answer', questionId: 'q_purpose', value: '把窗边变成一个能并排读书的小角落' }, create], 'purpose');
+  assert.equal(committed.ok, true, JSON.stringify(committed.error));
+  assert.equal(committed.state.world.objects[0].x, 28);
+  assert.equal(committed.state.world.objects[0].y, 42);
+  assert.deepEqual(committed.state.story.completed, ['purpose', 'make']);
+  assert.equal(R.restore(R.serialize(committed.state), PACKS.get('lantern-lab')).ok, true);
+});
+
+test('fixed window placements honor optional bounded gaps without accepting a target', () => {
+  for (const anchor of ['window_left', 'window_right', 'window_below']) for (const gap of [undefined, 0, 1, 10]) {
+    const placement = { anchor, ...(gap === undefined ? {} : { gap }) };
+    const state = turn(rain(), '放到窗边', [{ type: 'world.create', object: { label: '灯', glyphs: 'x', scale: 1 }, placement }]);
+    const item = state.world.objects[0], amount = gap ?? 2;
+    if (anchor === 'window_left') assert.equal(item.x, 30 - amount - 1);
+    if (anchor === 'window_right') assert.equal(item.x, 43 + amount);
+    if (anchor === 'window_below') assert.equal(item.y, 41 + amount);
+    const moved = turn(state, '贴近窗', [{ type: 'world.update', target: 'obj_1', changes: {}, placement: { anchor, gap: 0 } }]);
+    assert.equal(CAPS.validate({ type: 'world.update', target: 'obj_1', changes: {}, placement: { anchor, gap: 0 } }), true);
+    assert.equal(moved.world.objects.length, 1);
+  }
+});
+
+test('placement variants reject fields that contradict their actual anchor rules', () => {
+  const visual = { label: '灯', glyphs: 'x', scale: 1 };
+  for (const placement of [
+    { anchor: 'window_below', target: 'window' }, { anchor: 'window_left', gap: -1 }, { anchor: 'window_right', gap: 11 },
+    { anchor: 'above' }, { anchor: 'below', gap: 1 }, { anchor: 'sky', gap: 1 }, { anchor: 'ground', target: 'window' },
+    { anchor: 'keep_center' }, { anchor: 'keep_base', gap: 1 }
+  ]) {
+    const operation = { type: 'world.create', object: visual, placement };
+    assert.equal(CAPS.validate(operation), false, JSON.stringify(placement));
+    assert.equal(result(rain(), '不明确的位置', [operation]).ok, false);
+  }
+  const before = turn(rain(), '加灯', [{ type: 'world.create', object: object() }]);
+  for (const placement of [{ anchor: 'keep_center', gap: 1 }, { anchor: 'keep_base', target: 'obj_1' }]) assert.equal(result(before, '保持锚点', [{ type: 'world.update', target: 'obj_1', changes: { scale: 2 }, placement }]).ok, false);
+});
+
+test('create coordinate and placement alternatives are represented in the registry, with update conflicts rejected', () => {
+  const visual = { label: '灯', glyphs: 'x', scale: 1 };
+  const accepted = [
+    { type: 'world.create', object: { ...visual, x: 20, y: 30 } },
+    { type: 'world.create', object: visual, placement: { anchor: 'ground' } },
+    { type: 'world.create', object: visual, placement: { anchor: 'above', target: 'window', gap: 1 } }
+  ];
+  for (const operation of accepted) assert.equal(CAPS.validate(operation), true);
+  const rejected = [
+    { type: 'world.create', object: visual },
+    { type: 'world.create', object: { ...visual, x: 20 } },
+    { type: 'world.create', object: { ...visual, y: 30 } },
+    { type: 'world.create', object: { ...visual, x: 20, y: 30 }, placement: { anchor: 'ground' } },
+    { type: 'world.create', object: { ...visual, x: 20 }, placement: { anchor: 'ground' } },
+    { type: 'world.update', target: 'obj_1', changes: {} },
+    { type: 'world.update', target: 'obj_1', changes: { x: 20 }, placement: { anchor: 'window_below', gap: 1 } }
+  ];
+  for (const operation of rejected) assert.equal(CAPS.validate(operation), false, JSON.stringify(operation));
+  for (const id of ['world.create', 'world.update']) assert.equal(CAPS.descriptors([id])[0].schema.anyOf.length, 2);
+});
+
+test('relative and window placement geometry rejects missing targets and off-grid results atomically', () => {
+  const initial = turn(rain(), '靠左放灯', [{ type: 'world.create', object: { ...object(), x: 0 } }]);
+  const visual = { label: '另一盏灯', glyphs: 'x', scale: 1 };
+  for (const [operation, code] of [
+    [{ type: 'world.create', object: visual, placement: { anchor: 'left_of', target: 'obj_1', gap: 1 } }, 'GEOMETRY_INVALID'],
+    [{ type: 'world.create', object: visual, placement: { anchor: 'above', target: 'obj_999', gap: 1 } }, 'PLACEMENT_TARGET'],
+    [{ type: 'world.create', object: { ...visual, glyphs: 'x'.repeat(24), scale: 3 }, placement: { anchor: 'window_left', gap: 1 } }, 'GEOMETRY_INVALID']
+  ]) {
+    const before = JSON.stringify(R.serialize(initial)), rejected = result(initial, '换个位置', [operation]);
+    assert.equal(rejected.error.code, code); assert.equal(JSON.stringify(R.serialize(initial)), before);
+  }
+});
+
+test('shared budget counts escaped context and duplicated definitions exactly', () => {
+  for (const text of ['\\', '"', '\ud800', '🌟']) {
+    const state = turn(rain(), text.repeat(200), [{ type: 'memory.upsert', id: 'note_escaping', title: text.repeat(60), body: text.repeat(240) }]);
+    const context = R.context(state), definition = CAPS.modelDefinition(context);
+    assert.deepEqual(Object.keys(definition), ['pack', 'persona', 'guidance', 'topics', 'capabilities']);
+    assert.equal(CAPS.requestContextBytes(context), Buffer.byteLength(JSON.stringify({ context: JSON.stringify(context), definition: JSON.stringify(definition) })));
+    assert.ok(CAPS.requestContextBytes(context) > Buffer.byteLength(JSON.stringify(context)));
+    assert.equal(context.memories[0].body, text.repeat(240));
+  }
+});
+
+test('backslash-rich legal state cannot commit an unsendable nested JSON context', () => {
+  const Model = require('../framework/model.js'), pack = PACKS.get('rain-lab'), slash = '\\';
+  pack.initialFacts = Object.fromEntries(Array.from({ length: 9 }, (_, i) => ['f' + i, slash.repeat(800)]));
+  let state = R.create(pack), rejected = 0;
+  const input = slash.repeat(200), lines = Array(4).fill(slash.repeat(500));
+  const apply = operations => {
+    const before = JSON.stringify(R.serialize(state));
+    const next = R.commit(state, R.propose(state, { text: input }), plan(operations, null, lines));
+    if (next.ok) state = next.state;
+    else { assert.equal(next.error.code, 'CONTEXT_CAPACITY'); assert.equal(JSON.stringify(R.serialize(state)), before); rejected++; }
+    const context = R.context(state);
+    assert.ok(CAPS.requestContextBytes(context) <= R.constants.MAX_CONTEXT_BYTES);
+    assert.ok(Buffer.byteLength(JSON.stringify(Model.buildRequest(context, input))) <= 128 * 1024);
+    assert.deepEqual(context.world, state.world);
+    assert.deepEqual(context.memories, state.memories);
+    assert.deepEqual(context.facts, state.facts);
+  };
+  apply(Array.from({ length: 12 }, (_, i) => ({ type: 'memory.upsert', id: 'note_' + i, title: slash.repeat(60), body: slash.repeat(240) })));
+  apply(Array.from({ length: 2 }, (_, i) => ({ type: 'memory.upsert', id: 'note_' + (i + 12), title: slash.repeat(60), body: slash.repeat(240) })));
+  apply(Array.from({ length: 8 }, () => ({ type: 'world.create', object: { label: slash.repeat(40), glyphs: Array(10).fill(slash.repeat(24)).join('\n'), x: 0, y: 0, scale: 1 } })));
+  for (const target of [...state.world.objects.map(item => item.id), ...pack.entities.map(item => item.id)]) apply(['meaning', 'interpretation'].map(field => ({ type: 'world.annotate', target, field, value: slash.repeat(120) })));
+  assert.ok(rejected > 0);
+  assert.ok(state.memories.length > 0);
+  assert.equal(state.memories[0].source.text, input);
+  const count = state.memories.length;
+  apply([{ type: 'memory.remove', id: state.memories[0].id }]);
+  assert.equal(state.memories.length, count - 1);
+  assert.equal(R.restore(R.serialize(state), pack).ok, true);
 });

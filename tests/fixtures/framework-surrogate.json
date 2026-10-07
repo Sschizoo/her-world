@@ -2,27 +2,28 @@
   "kind": "independent OpenAI model substitute; not GLM or network evidence",
   "date": "2026-10-07",
   "pack": "lantern-lab",
+  "rulesVersion": "2",
   "records": [
     {
       "input": "我想把窗边变成一个能并排读书的小角落，先放一张长椅吧。",
-      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"好，把这里留作能并排读书的小角落。\",\"我先在窗下放一张长椅，留出并排坐的位置。\",\"想打开世界面板，看看长椅的位置吗？\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_purpose\",\"value\":\"把窗边变成一个能并排读书的小角落\"}]},{\"afterLine\":1,\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"窗边长椅\",\"glyphs\":\" ___________________ \\n|___________________|\\n|___________________|\\n  |               |  \",\"x\":26,\"y\":42,\"scale\":1}}]}],\"topic\":\"purpose\"}\n",
-      "sha256": "3dfc32dd051ed57018d4dd9c6e03813ceb9240966eb907b4b66ed56baa622b14",
-      "requestUnchanged": true,
-      "requestSha256": "2522c5989d1f188df51cd418b67e52ab46fc30c3e9a74f920b4fac6121076aa8"
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"那就把窗边留作能并排读书的小角落。\",\"我先在窗下放一张长椅，留出两个人并排坐的位置。\",\"想看摆放效果的话，可以打开世界面板看看。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_purpose\",\"value\":\"把窗边变成能并排读书的小角落\"}]},{\"afterLine\":1,\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"窗边阅读长椅\",\"glyphs\":\" .----------------.\\n |________________|\\n |================|\\n | |          | |\",\"scale\":1},\"placement\":{\"anchor\":\"window_below\",\"gap\":1}}]}],\"topic\":\"purpose\"}\n",
+      "sha256": "bb5b8974e3ec6becc58443cae224370a2dd4945494d5e801f0f08aa20d2df128",
+      "requestSha256": "07286eebd2c12599e7aa1256c383eab22f4126a93bd0969459f1ddabab691cbd",
+      "requestUnchanged": true
     },
     {
       "input": "先把长椅往右挪一点。它对我意味着两个人各自看书，不用一直聊天，也帮我记下这个想法。",
-      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"好，我把长椅向右挪三格。\",\"这张长椅对你的意义是：两个人各自看书，不用一直聊天。我把这句话添在长椅的含义里，也记成一条笔记。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"world.update\",\"target\":\"obj_1\",\"changes\":{\"x\":29,\"y\":42}}]},{\"afterLine\":1,\"operations\":[{\"type\":\"world.annotate\",\"target\":\"obj_1\",\"field\":\"meaning\",\"value\":\"两个人各自看书，不用一直聊天\"},{\"type\":\"memory.upsert\",\"id\":\"note_reading_together\",\"title\":\"长椅的意义\",\"body\":\"窗边长椅对玩家意味着：两个人各自看书，不用一直聊天。\"}]}],\"topic\":null}\n",
-      "sha256": "673d7faf947018b45a91f74f231c7f7972f6162c606f3d8c928b1be14fe53d33",
-      "requestUnchanged": true,
-      "requestSha256": "e1baa2ea2853eb9f181a12ec5a12ebb5a8c9646c26f741a25f07a10bb856e3ea"
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"好，我把长椅向右挪三格。\",\"你给它的含义是：两个人各自看书，不用一直聊天。我也把这个想法记下了。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"world.update\",\"target\":\"obj_1\",\"changes\":{\"x\":30}}]},{\"afterLine\":1,\"operations\":[{\"type\":\"world.annotate\",\"target\":\"obj_1\",\"field\":\"meaning\",\"value\":\"两个人各自看书，不用一直聊天\"},{\"type\":\"memory.upsert\",\"id\":\"note_reading_corner\",\"title\":\"长椅与并排读书\",\"body\":\"这张窗边长椅对你意味着：两个人各自看书，不用一直聊天。\"}]}],\"topic\":null}\n",
+      "sha256": "399e67c622d59a1c7384aa7d0f9dd2c7a4d12b778dcbbc94d90d6014b097ef83",
+      "requestSha256": "2517506428f36d25a0b3832676da8b11dc0d870702b413d0cb94ec491cfa4f23",
+      "requestUnchanged": true
     },
     {
       "input": "刚才说一起读书，我想改成一起听风。那张长椅的意义和笔记都改一下。至于如果把它删了会怎样，我只是问问，不要真的删。",
-      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"好，我把长椅的意义和原来的那条笔记都改成：两个人一起听风，不用一直聊天。\",\"如果以后删掉长椅，它和附在它上面的含义会从世界里移除，单独保存的笔记不会随之删除。这次只是讨论，长椅还留在原处。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"world.annotate\",\"target\":\"obj_1\",\"field\":\"meaning\",\"value\":\"两个人一起听风，不用一直聊天\"},{\"type\":\"memory.upsert\",\"id\":\"note_reading_together\",\"title\":\"长椅的意义\",\"body\":\"窗边长椅对玩家意味着：两个人一起听风，不用一直聊天。\"}]}],\"topic\":null}\n",
-      "sha256": "a97fff9cf2625e4f31890e6d39cafef1e2443ad3bd65e62656622f0df1653f39",
-      "requestUnchanged": true,
-      "requestSha256": "ceeceef93b2849dfe84652e5b7cb9bb6d4ccc0b58e01379c4a1b2a3c4d5614a0"
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"我把长椅的意义和原来的笔记都改成：两个人一起听风，不用一直聊天。\",\"如果删除长椅，它会从世界里消失，附在它上面的含义和理解也会一并移除；单独保存的笔记不会跟着删除。这次只是说说，长椅还留在原处。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"world.annotate\",\"target\":\"obj_1\",\"field\":\"meaning\",\"value\":\"两个人一起听风，不用一直聊天\"},{\"type\":\"memory.upsert\",\"id\":\"note_reading_corner\",\"title\":\"长椅与一起听风\",\"body\":\"这张窗边长椅对你意味着：两个人一起听风，不用一直聊天。\"}]}],\"topic\":null}\n",
+      "sha256": "b919ec59a30388f83ff24963c5123860e0b75a3244a05a5bafb1babdd502fb76",
+      "requestSha256": "c39d1c1a5d9a690c78cae9dfc8cad69603eae6dd8c88fca178be38ba33e7aba2",
+      "requestUnchanged": true
     }
   ]
 }

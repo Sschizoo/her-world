@@ -21,7 +21,7 @@ const envelope = (content, choice = {}, message = {}) => ({ choices: [{ message:
 const response = (content = JSON.stringify(plan()), choice, message) => new Response(JSON.stringify(envelope(content, choice, message)), { status: 200 });
 function runtime(fetchImpl = async () => response(), overrides = {}) {
   const listeners = {};
-  const window = { fetch: fetchImpl, addEventListener: (name, fn) => { (listeners[name] ||= []).push(fn); } };
+  const window = { HerCapabilities: require('../framework/capabilities.js'), fetch: fetchImpl, addEventListener: (name, fn) => { (listeners[name] ||= []).push(fn); } };
   vm.runInNewContext(source, { window, AbortController, TextEncoder, TextDecoder, setTimeout, clearTimeout, ...overrides });
   return { factory: window.HerFrameworkModel, api: window.HerFrameworkModel.create({ fetch: fetchImpl }), listeners, window };
 }
@@ -439,15 +439,18 @@ test('maximum accepted world context preserves sources, stays requestable and ca
     // Each note retains both its original source and a distinct current revision.
     assert(attempt(notes.slice(0, 12))); assert(attempt(notes.slice(12)));
     const glyphs = Array(10).fill('*'.repeat(24)).join('\n');
-    assert(attempt(Array.from({ length: 8 }, (_, i) => ({ type: 'world.create', object: { label: unicode.repeat(40), glyphs, x: i, y: i, scale: 1 } }))));
-    assert(attempt(state.world.objects.map(object => ({ type: 'world.update', target: object.id, changes: { x: object.x + 1 } }))));
+    const objects = Array.from({ length: 8 }, (_, i) => ({ type: 'world.create', object: { label: unicode.repeat(40), glyphs, x: i, y: i, scale: 1 } }));
+    // Individual limits are not a promise that all maximum-sized fields fit together.
+    // If the atomic batch exceeds the combined context budget, fill only legal slots.
+    if (!attempt(objects)) for (const object of objects) attempt([object]);
+    attempt(state.world.objects.map(object => ({ type: 'world.update', target: object.id, changes: { x: object.x + 1 } })));
     for (const target of [...state.world.objects, ...state.pack.entities].map(item => item.id)) {
       for (const field of ['meaning', 'interpretation']) attempt([{ type: 'world.annotate', target, field, value: unicode.repeat(120) }]);
     }
-    attempt([{ type: 'weather.set', changes: { name: unicode.repeat(40), kind: unicode.repeat(32), intensity: 3, paused: false } }, { type: 'character.update', changes: { mood: unicode.repeat(80), stance: unicode.repeat(160) } }]);
+    attempt([{ type: 'weather.set', changes: { name: unicode.repeat(40), kind: 'snow', intensity: 3, paused: false } }, { type: 'character.update', changes: { mood: unicode.repeat(80), stance: unicode.repeat(160) } }]);
     // Twelve recent entries would include maximum-length character lines and sources.
     for (let i = 0; i < 3; i++) assert(attempt([]));
-    assert.equal(state.world.objects.length, 8); assert.equal(state.memories.length, 14);
+    assert(state.world.objects.length > 0 && state.world.objects.length <= 8); assert.equal(state.memories.length, 14);
     for (const memory of state.memories) {
       assert.equal([...memory.source.text].length, 200);
       assert.equal([...memory.currentRevision.text].length, 200);
@@ -520,4 +523,76 @@ test('maximum structural pack is rejected and near-budget pack states remain wit
   const removal = Framework.commit(state, Framework.propose(state, { text: '删掉这条记忆' }), proposed);
   assert.equal(removal.ok, true);
   assert.equal(removal.state.memories.length, state.memories.length - 1);
+});
+
+test('nested JSON escaping is budgeted before accepting state and removal remains requestable', async () => {
+  const Framework = require('../framework/runtime.js');
+  const Packs = require('../framework/packs.js');
+  const Model = require('../framework/model.js');
+  const Caps = require('../framework/capabilities.js');
+  for (const character of ['\\', '"']) {
+    const pack = Packs.get('rain-lab');
+    pack.initialFacts = Object.fromEntries(Array.from({ length: 9 }, (_, i) => ['escaped_' + i, character.repeat(800)]));
+    assert.equal(Framework.validatePack(pack).ok, true);
+    let state = Framework.create(pack), rejected = 0;
+    const input = character.repeat(200), lines = Array(4).fill(character.repeat(500));
+    const verify = () => {
+      const current = Framework.context(state);
+      assert(Caps.requestContextBytes(current) <= 80 * 1024);
+      const built = Model.buildRequest(current, input);
+      assert(Buffer.byteLength(JSON.stringify(built)) <= 128 * 1024);
+      assert.deepEqual(current.facts, state.facts);
+      assert.deepEqual(current.world, state.world);
+      assert.deepEqual(current.memories, state.memories);
+      for (const value of Object.values(current.facts)) assert.equal(value, character.repeat(800));
+      return built;
+    };
+    verify();
+    const attempt = operations => {
+      const before = JSON.stringify(Framework.serialize(state));
+      const result = Framework.commit(state, Framework.propose(state, { text: input }), plan({ lines, beats: operations.length ? [{ afterLine: 0, operations }] : [] }));
+      if (result.ok) state = result.state;
+      else {
+        assert.equal(result.error.code, 'CONTEXT_CAPACITY');
+        assert.equal(JSON.stringify(Framework.serialize(state)), before);
+        rejected++;
+      }
+      verify();
+      return result.ok;
+    };
+    // Preserve the reviewer's failing batch sequence, then try each remaining slot.
+    const notes = Array.from({ length: 14 }, (_, i) => ({ type: 'memory.upsert', id: 'note_escaped_' + i, title: character.repeat(60), body: character.repeat(240) }));
+    attempt(notes.slice(0, 12)); attempt(notes.slice(12));
+    const objects = Array.from({ length: 8 }, (_, i) => ({ type: 'world.create', object: { label: character.repeat(40), glyphs: Array(10).fill(character.repeat(24)).join('\n'), x: i, y: i, scale: 1 } }));
+    attempt(objects);
+    for (const target of [...state.world.objects, ...state.pack.entities].map(item => item.id)) {
+      attempt(['meaning', 'interpretation'].map(field => ({ type: 'world.annotate', target, field, value: character.repeat(120) })));
+    }
+    for (const note of notes) if (!state.memories.some(item => item.id === note.id)) attempt([note]);
+    assert(rejected > 0);
+    assert(state.memories.length > 0);
+    for (const memory of state.memories) {
+      assert.equal(memory.source.text, input);
+      assert.equal(memory.currentRevision.text, input);
+      assert.equal(memory.body, character.repeat(240));
+    }
+    const id = state.memories[0].id, initialCount = state.memories.length;
+    const api = Model.create({ fetch: async () => response(JSON.stringify(plan({ beats: [{ afterLine: 0, operations: [{ type: 'memory.remove', id }] }] }))) });
+    api.connect(fakeKey);
+    const raw = await api.request({ context: Framework.context(state), input });
+    const removal = Framework.commit(state, Framework.propose(state, { text: input }), raw);
+    assert.equal(removal.ok, true);
+    assert.equal(removal.state.memories.length, initialCount - 1);
+    state = removal.state; verify();
+  }
+});
+
+test('shared definition preserves the exact existing dynamic prompt shape and field order', () => {
+  const Caps = require('../framework/capabilities.js');
+  const { factory } = runtime();
+  const current = context({ activeQuestionId: 'pick_star', guidance: 'A "quote" and \\ slash' });
+  const expected = { pack: current.pack, persona: { name: current.character.name, role: current.character.role }, guidance: current.guidance, topics: current.topics, capabilities: current.capabilities };
+  assert.equal(JSON.stringify(Caps.modelDefinition(current)), JSON.stringify(expected));
+  const built = factory.buildRequest(current, '继续');
+  assert(built.messages[0].content.endsWith('\n本轮内容与能力定义：\n' + JSON.stringify(expected)));
 });

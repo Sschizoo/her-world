@@ -7,37 +7,37 @@
   <meta name="description" content="她的世界：由对话共同改变的字符世界。独立框架试验场。">
   <title>她的世界 · 对话试验场</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./framework/styles.css">
-  <script src="./framework/capabilities.js" defer></script>
-  <script src="./framework/pack-validator.js" defer></script>
-  <script src="./framework/runtime.js" defer></script>
-  <script src="./framework/packs.js" defer></script>
-  <script src="./framework/model.js" defer></script>
-  <script src="./framework/offline.js" defer></script>
-  <script src="./framework/focus.js" defer></script>
-  <script src="./framework/legacy/v0.5.4/story.js" defer></script>
-  <script src="./framework/legacy/v0.5.4/world-state.js" defer></script>
-  <script src="./framework/legacy/v0.5.4/turn-protocol.js" defer></script>
-  <script src="./framework/legacy/v0.5.4/engine.js" defer></script>
-  <script src="./framework/legacy-adapter.js" defer></script>
-  <script src="./framework/renderer.js" defer></script>
-  <script src="./framework/app.js" defer></script>
+  <link rel="stylesheet" href="./framework/styles.css?v=0.1.1">
+  <script src="./framework/capabilities.js?v=0.1.1" defer></script>
+  <script src="./framework/pack-validator.js?v=0.1.1" defer></script>
+  <script src="./framework/runtime.js?v=0.1.1" defer></script>
+  <script src="./framework/packs.js?v=0.1.1" defer></script>
+  <script src="./framework/model.js?v=0.1.1" defer></script>
+  <script src="./framework/offline.js?v=0.1.1" defer></script>
+  <script src="./framework/focus.js?v=0.1.1" defer></script>
+  <script src="./framework/legacy/v0.5.4/story.js?v=0.1.1" defer></script>
+  <script src="./framework/legacy/v0.5.4/world-state.js?v=0.1.1" defer></script>
+  <script src="./framework/legacy/v0.5.4/turn-protocol.js?v=0.1.1" defer></script>
+  <script src="./framework/legacy/v0.5.4/engine.js?v=0.1.1" defer></script>
+  <script src="./framework/legacy-adapter.js?v=0.1.1" defer></script>
+  <script src="./framework/renderer.js?v=0.1.1" defer></script>
+  <script src="./framework/app.js?v=0.1.1" defer></script>
 </head>
 <body>
   <a class="skip" href="#free-input">跳到对话输入</a>
   <main class="app" id="framework-app">
     <header class="topbar">
       <a class="brand" href="./framework.html"><span class="status-light" aria-hidden="true"></span>她的世界 <span class="brand-divider">/</span><span class="brand-en">HER WORLD</span></a>
-      <div class="top-actions"><label class="sr-only" for="pack-select">选择独立试验场</label><select id="pack-select"></select><button id="motion-toggle" class="quiet-button" aria-pressed="false" title="立即显示文字">逐句显示</button><button id="developer-toggle" class="quiet-button" aria-expanded="false" aria-controls="developer-view">开发视图</button></div>
+      <div class="top-actions"><label class="sr-only" for="pack-select">选择独立试验场</label><select id="pack-select"></select><button id="motion-toggle" class="quiet-button" aria-pressed="false" title="暂停场景动画并立即显示文字">动态显示</button><button id="developer-toggle" class="quiet-button" aria-expanded="false" aria-controls="developer-view">开发视图</button></div>
     </header>
     <div class="workspace">
       <section class="conversation" aria-label="与她对话">
-        <div class="section-label"><span><i></i> <span id="connection-label">WAITING FOR YOU</span></span><span>CONVERSATION LAB / v4</span></div>
+        <div class="section-label"><span><i></i> <span id="connection-label">WAITING FOR YOU</span></span><span>FRAMEWORK / v0.1.1</span></div>
         <div class="intro" id="intro"><div class="eyebrow" id="intro-eyebrow">一个可以一起改变的世界</div><h1 id="intro-title">从一句话开始<span class="cursor">_</span></h1><p id="intro-copy">说说你想看见的东西。她会试着理解，你们也可以继续修改它。</p><div class="boot-lines"><span>&gt; world.init()</span><span>&gt; listening for your words</span><span class="amber">&gt; you are here.</span></div><button class="start-button" id="start-button">选择连接方式 <span aria-hidden="true">↗</span></button></div>
         <div class="transcript" id="transcript" role="log" aria-live="off" aria-label="已经发生的对话" tabindex="0"></div>
         <div class="reveal-controls" id="reveal-controls" hidden><span id="reveal-status"></span><button id="skip-reveal">显示本句 <kbd>Space</kbd></button></div>
         <div class="sr-only" id="reveal-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
-        <div class="response-area">
+        <div class="response-area" id="response-area">
           <div class="story-invitation" id="story-invitation" hidden><span class="invitation-label">也可以一起试试</span><p id="invitation-question"></p><span class="invitation-note">可以回答，也可以先聊别的</span></div>
           <form class="free-form" id="free-form"><label class="sr-only" for="free-input">用自己的话回应，最多 200 个字</label><input id="free-input" type="text" maxlength="400" autocomplete="off" placeholder="把想到的东西，告诉她…" aria-describedby="input-note"><button id="free-send" type="submit" aria-label="发送">↗</button></form>
           <div class="hint-list" id="hint-list" aria-label="只填入输入框的对话提示"></div><button id="offline-help-button" class="offline-help-button" hidden>全部离线功能示例 ↗</button><p class="input-note" id="input-note"></p>

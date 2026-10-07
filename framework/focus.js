@@ -8,7 +8,9 @@
   function calculate(view, pack) {
     if (!view || !pack) return [];
     const objects = Array.isArray(view.world?.objects) ? view.world.objects : [];
-    const definitions = [...(pack.entities || []).map(item => ({ ...item, object: false })), ...objects.map(item => ({ id: item.id, label: item.label, kind: 'object', object: item }))];
+    const definitions = [...(pack.entities || []).map(item => ({ ...item, object: false })), ...objects.map(item => ({ id: '#object/' + item.id, label: item.label, kind: 'object', object: item }))];
+    const weather = view.world?.weather;
+    if (weather && !definitions.some(item => item.kind === 'weather') && (weather.source || weather.intensity > 0 && !weather.paused)) definitions.push({ id: '#weather', label: weather.name || weather.kind || '天气', kind: 'weather', object: false });
     const seen = new Set(), scores = new Map(), reasons = new Map();
     const add = (id, score, reason) => { seen.add(id); scores.set(id, (scores.get(id) || 0) + score); const list = reasons.get(id) || []; if (!list.includes(reason)) list.push(reason); reasons.set(id, list); };
     const messages = (view.transcript || view.messages || []).filter(item => !item.transient && !item.incomplete && item.role !== 'system' && typeof item.text === 'string').slice(-24);

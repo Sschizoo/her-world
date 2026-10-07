@@ -62,8 +62,8 @@
   function makeContext(state) {
     const result = projection(state);
     const snapshot = { schema: 'her-world-context-v1', pack: result.pack, guidance: state.pack.guidance || '', character: result.character, world: result.world, entities: copy(state.pack.entities), memories: result.memories, story: result.story, facts: result.facts, pendingQuestions: result.pendingQuestions, activeQuestionId: result.activeQuestionId, topics: copy(state.pack.topics), capabilities: CAPS.descriptors(state.pack.capabilities), recentTranscript: copy(state.transcript.slice(-12)), revision: state.revision };
-    while (snapshot.recentTranscript.length && PACKS.byteLength(JSON.stringify(snapshot)) > MAX_CONTEXT_BYTES) snapshot.recentTranscript.shift();
-    assert(PACKS.byteLength(JSON.stringify(snapshot)) <= MAX_CONTEXT_BYTES, 'CONTEXT_CAPACITY');
+    while (snapshot.recentTranscript.length && CAPS.requestContextBytes(snapshot) > MAX_CONTEXT_BYTES) snapshot.recentTranscript.shift();
+    assert(CAPS.requestContextBytes(snapshot) <= MAX_CONTEXT_BYTES, 'CONTEXT_CAPACITY');
     return freeze(snapshot);
   }
   function context(state) { requireState(state); return makeContext(state); }
@@ -94,7 +94,7 @@
     } else {
       const fixed = { window_left: 'left_of', window_right: 'right_of', window_below: 'below' };
       let side, target, gap = 2;
-      if (own(fixed, anchor)) { assert(fields(placement, ['anchor']), 'PLACEMENT_INVALID'); side = fixed[anchor]; target = state.world.landmarks.window; }
+      if (own(fixed, anchor)) { assert(fields(placement, ['anchor', 'gap'], ['anchor']), 'PLACEMENT_INVALID'); side = fixed[anchor]; gap = placement.gap ?? 2; target = state.world.landmarks.window; }
       else {
         assert(fields(placement, ['anchor', 'target', 'gap'], ['anchor', 'target']), 'PLACEMENT_INVALID');
         side = anchor; gap = placement.gap ?? 2;
@@ -177,7 +177,13 @@
       state.world.annotations[op.target].sources[op.field] = ref;
     } else if (op.type === 'weather.set') {
       for (const key of ['kind', 'name']) if (own(op.changes, key)) assert(safeText(op.changes[key], key === 'kind' ? 32 : 40), 'TEXT_INVALID');
-      Object.assign(state.world.weather, copy(op.changes), { source: ref });
+      const weather = { ...state.world.weather, ...copy(op.changes), source: ref };
+      if (weather.kind === 'clear') {
+        assert(!own(op.changes, 'intensity') || op.changes.intensity === 0, 'WEATHER_CONFLICT', 'world.weather');
+        weather.intensity = 0;
+      }
+      assert(PACKS.validWeather(weather), 'WEATHER_CONFLICT', 'world.weather');
+      state.world.weather = weather;
     } else if (op.type === 'memory.upsert') {
       assert(safeText(op.title, 60) && safeText(op.body, 240), 'TEXT_INVALID');
       const index = state.memories.findIndex(memory => memory.id === op.id), previous = state.memories[index] || env.noteHistory.get(op.id) || previousMemory(state, op.id);
@@ -289,13 +295,41 @@
     if (importedSnapshot === null || importedSnapshot === undefined) return state;
     const result = importLegacy(importedSnapshot, pack); assert(result.ok, 'IMPORT_INVALID'); return result.state;
   }
+  // Only these exact, previously released fixture definitions have a known
+  // predecessor. Changing any other content requires a separate migration.
+  const WEATHER_RULES_PREDECESSORS = Object.freeze({ 'rain-lab': '402db16c', 'lantern-lab': '8dd7d018' });
+  function migrationBinding(saved, pack) {
+    assert(fields(saved, ['id', 'version', 'rulesVersion', 'digest']), 'PACK_MISMATCH');
+    if (saved.id === pack.id && saved.version === pack.version && saved.rulesVersion === pack.rulesVersion && saved.digest === digest(pack)) return null;
+    const predecessor = WEATHER_RULES_PREDECESSORS[pack.id];
+    assert(predecessor && pack.version === '1.0.0' && pack.rulesVersion === '2' && saved.id === pack.id && saved.version === pack.version && saved.rulesVersion === '1' && saved.digest === predecessor && digest({ ...copy(pack), rulesVersion: '1' }) === predecessor, 'PACK_MISMATCH');
+    return freeze({ type: 'weather-kinds-v2', fromRulesVersion: '1', toRulesVersion: '2', fromPackDigest: predecessor, toPackDigest: digest(pack) });
+  }
+  function compatibleOldWeather(save, pack) {
+    // Replay just weather using the old assignment semantics before current
+    // validation. In particular, never silently normalize an old clear+rain
+    // intensity: it represented a different accepted historical state.
+    let weather = copy(save.importedSnapshot?.world?.weather || pack.world.weather || { kind: 'clear', name: 'clear', intensity: 0, paused: false });
+    assert(PACKS.validWeather(weather), 'MIGRATION_WEATHER_INCOMPATIBLE', 'world.weather');
+    for (const event of save.events) {
+      if (event?.type !== 'turn' || !Array.isArray(event.plan?.beats)) continue;
+      for (const beat of event.plan.beats) {
+        if (!Array.isArray(beat?.operations)) continue;
+        for (const operation of beat.operations) if (operation?.type === 'weather.set' && plain(operation.changes)) {
+          weather = { ...weather, ...copy(operation.changes) };
+          assert(PACKS.validWeather(weather), 'MIGRATION_WEATHER_INCOMPATIBLE', 'world.weather');
+        }
+      }
+    }
+  }
   function restore(raw, pack) {
     try {
       const save = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      const checked = PACKS.validatePack(pack); assert(checked.ok, 'PACK_INVALID');
+      const checked = PACKS.validatePack(pack); assert(checked.ok, checked.error?.code || 'PACK_INVALID', checked.error?.path);
       assert(fields(save, ['schema', 'pack', 'importedSnapshot', 'events']) && save.schema === 'her-world-save-v4', 'SAVE_INVALID');
-      assert(fields(save.pack, ['id', 'version', 'rulesVersion', 'digest']) && save.pack.id === pack.id && save.pack.version === pack.version && save.pack.rulesVersion === pack.rulesVersion && save.pack.digest === digest(pack), 'PACK_MISMATCH');
+      const migration = migrationBinding(save.pack, pack);
       assert(Array.isArray(save.events) && save.events.length <= MAX_EVENTS, 'SAVE_INVALID');
+      if (migration) compatibleOldWeather(save, pack);
       let state = baseFromSave(pack, save.importedSnapshot);
       for (const event of save.events) {
         assert(plain(event) && event.id === 'event_' + (state.revision + 1), 'EVENT_INVALID');
@@ -306,7 +340,7 @@
           assert(fields(event, ['id', 'type', 'panel']), 'EVENT_INVALID'); state = observe(state, { type: event.type, panel: event.panel });
         }
       }
-      return { ok: true, state };
+      return { ok: true, state, ...(migration ? { migration } : {}) };
     } catch (error) { return fail(error.code || 'SAVE_INVALID', error.path || '$'); }
   }
   function importLegacy(snapshot, pack) {
@@ -335,7 +369,7 @@
         state.world.annotations[target] = annotation;
       }
       const weather = snapshot.world.weather;
-      assert(fields(weather, ['kind', 'name', 'intensity', 'paused', 'source']) && safeText(weather.kind, 32) && safeText(weather.name, 40) && Number.isInteger(weather.intensity) && weather.intensity >= 0 && weather.intensity <= 3 && typeof weather.paused === 'boolean' && (weather.source === null || safeText(weather.source, 200)), 'IMPORT_WEATHER');
+      assert(fields(weather, ['kind', 'name', 'intensity', 'paused', 'source']) && PACKS.validWeather(weather) && (weather.source === null || safeText(weather.source, 200)), 'IMPORT_WEATHER');
       state.world.weather = { ...copy(weather), source: weather.source === null ? null : source('legacy', weather.source) };
       assert(Array.isArray(snapshot.memories) && snapshot.memories.length <= MAX_MEMORIES, 'IMPORT_MEMORY');
       const notes = new Set();

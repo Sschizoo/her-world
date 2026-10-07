@@ -10,7 +10,7 @@
   const character = { name: '她', role: '一个和你共同理解字符世界的程序', mood: 'curious', stance: '愿意听，也允许话题暂时没有答案', trust: 0, familiarity: 0 };
   const packs = [
     {
-      id: 'rain-lab', version: '1.0.0', rulesVersion: '1', title: '雨与记忆 · 功能验证',
+      id: 'rain-lab', version: '1.0.0', rulesVersion: '2', title: '雨与记忆 · 功能验证',
       character, world, capabilities,
       guidance: '这是功能验证场景，不是完整剧本。自由交谈优先，不按消息数推进。回应当前真实问题可以提交 story.answer；岔开话题保持问题未完成。可以随时造物、改天气或记笔记。问题问名字时，正式命名可在同一句同时提交 weather.set 的 name 与 story.answer。访问日志必须实际显示后才能完成。不要替玩家同意保存来访者引用。',
       topics: [{ id: 'rain', title: '雨' }, { id: 'naming', title: '名字' }, { id: 'records', title: '留下什么' }, { id: 'visitor', title: '关于你' }],
@@ -24,7 +24,7 @@
       ]
     },
     {
-      id: 'lantern-lab', version: '1.0.0', rulesVersion: '1', title: '窗边工坊 · 功能验证',
+      id: 'lantern-lab', version: '1.0.0', rulesVersion: '2', title: '窗边工坊 · 功能验证',
       character: { ...character, role: '一个和你一起整理窗边工坊的程序', stance: '先理解你的用途，再一起修改它' },
       world: { ...world, weather: { kind: 'rain', name: '窗外天气', intensity: 0, paused: true } }, capabilities,
       guidance: '这是独立的工坊功能场景，不询问雨的定义，也不使用雨序章路线。先讨论玩家想在窗边做什么；实际创建一个物件后，可以邀请查看世界面板。选择留在工坊或探索别处会打开不同问题。分支不关闭自由聊天，创造与改记忆不必等主线。不要把拒绝或不确定当作完成当前问题。',

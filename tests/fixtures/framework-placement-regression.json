@@ -1,0 +1,8 @@
+{
+  "kind": "independent model failure retained unchanged",
+  "originalFailure": "PLACEMENT_INVALID: window_below with gap1 was described as allowed but rejected by runtime",
+  "capturedRequestSha256": "ba441f660dd8f266440b89e10c9bd1be36391eaf82c84e3ae5d9d8681f49c9cc",
+  "input": "我想把窗边变成一个能并排读书的小角落，先放一张长椅吧。",
+  "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"那就把窗边做成一个能并排读书的小角落。\",\"我先在窗下放一张长椅，留出两个人并排坐的位置。\",\"你可以打开世界面板看看摆放的位置，也可以先说说还想添什么。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_purpose\",\"value\":\"把窗边变成一个能并排读书的小角落\"}]},{\"afterLine\":1,\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"阅读长椅\",\"glyphs\":\"|---------------|\\n|_______________|\\n|===============|\\n  |           |\",\"scale\":1},\"placement\":{\"anchor\":\"window_below\",\"gap\":1}}]}],\"topic\":\"purpose\"}\n",
+  "sha256": "21ec3f7d024153ec8d7465c31801bebc5d911c843c5473c8a84c4bd59d267770"
+}

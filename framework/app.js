@@ -14,6 +14,7 @@
   const PANELS = ['world', 'memory', 'focus', 'logs'];
   const FAILURES = Object.freeze({ disconnected: '连接已断开，请重新选择连接方式。', busy: '上一条回应尚未完成。', limit: '本页请求次数已达到上限。', timeout: '等待回应超时。', network: '这次连接没有完成。', response_read: '回应在传输时中断。', auth: '转发服务或上游返回了认证或权限错误，不能仅凭此判断密码是否有误。', quota: '转发服务或模型额度暂不可用。', upstream: '模型服务暂时不可用。', format: '回应格式不符合约定。', truncated: '回应没有完整返回。', empty: '模型没有返回可用的回应。', cancelled: '这次回应已取消。', invalid: '回应中的变化未通过本地规则校验。' });
   const RUNTIME_CODES = new Set(["ANSWER_BOUNDARY", "ANSWER_UNAVAILABLE", "BEATS_INVALID", "CAPABILITY_DISABLED", "CHOICE_INVALID", "CONSENT_REQUIRED", "CONTEXT_CAPACITY", "CURSOR_INVALID", "EVENT_CAPACITY", "EVENT_INVALID", "EVIDENCE_INVALID", "GEOMETRY_INVALID", "IMPORT_ANNOTATION", "IMPORT_FACTS", "IMPORT_INVALID", "IMPORT_MEMORY", "IMPORT_OBJECT", "IMPORT_ORIGIN", "IMPORT_TRANSCRIPT", "IMPORT_WEATHER", "IMPORT_WORLD", "INPUT_INVALID", "LINES_INVALID", "MEMORY_CAPACITY", "OBSERVATION_INVALID", "OPERATION_CAPACITY", "OPERATION_EMPTY", "OPERATION_INVALID", "PACK_INVALID", "PACK_MISMATCH", "PLACEMENT_INVALID", "PLACEMENT_TARGET", "PLAN_INVALID", "PROTOCOL_TEXT", "QUESTION_UNAVAILABLE", "RELATIONSHIP_BOUND", "REPLAY_INVALID", "SAVE_INVALID", "STALE_PROPOSAL", "STATE_INVALID", "TARGET_MISSING", "TEXT_INVALID", "TOPIC_INVALID", "WORLD_CAPACITY"]);
+  ['WEATHER_CONFLICT', 'RULES_VERSION_UNSUPPORTED', 'MIGRATION_WEATHER_INCOMPATIBLE'].forEach(code => RUNTIME_CODES.add(code));
   const DIAGNOSTIC_STAGES = new Set(['LOCAL_CONTEXT', 'REQUEST', 'NETWORK', 'HTTP', 'RESPONSE_READ', 'ENVELOPE', 'FINAL_CONTENT', 'JSON', 'CANCELLED']);
   const DIAGNOSTIC_CODES = new Set(['CONTEXT_INVALID', 'INPUT_INVALID', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE', 'ROOT_INVALID', 'PAYLOAD_REQUIRED', 'PAYLOAD_MIXED', 'OUTPUT_UNSAFE', 'JSON_SYNTAX', 'JSON_BAD_ESCAPE', 'JSON_CONTROL_CHARACTER', 'JSON_UNTERMINATED', 'JSON_TRAILING_CONTENT', 'JSON_DUPLICATE_KEY']);
   const DIAGNOSTIC_PATHS = new Set(['context', 'input', 'request', 'response', 'content', 'root']);
@@ -38,33 +39,60 @@
     const desired = query && query.get('pack');
     let pack = packs.get(desired) || packs.get(available[0].id), state, visible;
     let mode = null, activePanel = 'world', navigation = 0, generation = 0, pending = null, revealing = null;
-    let lastFailure = null, currentBeat = null, saveProblem = false, toastTimer = null, destroyed = false, unobservedPanel = false, saveProtected = false, legacyCandidate = null;
+    let lastFailure = null, currentBeat = null, saveProblem = false, toastTimer = null, destroyed = false, unobservedPanel = false, saveProtected = false, legacyCandidate = null, migrationBackupFailed = false, migrationBackedUp = false;
     const media = win.matchMedia ? win.matchMedia('(prefers-reduced-motion: reduce)') : null;
     let reduced = !!(media && media.matches), immediate = reduced;
     const renderCache = new Map();
     function key() { return `her-world.framework.v4:${pack.id}:${pack.version}`; }
     function text(id, value) { const node = $(id), next = string(value); if (node && node.textContent !== next) node.textContent = next; }
     function toast(message) { text('toast', message); $('toast').hidden = false; if (toastTimer) clearTimer(toastTimer); toastTimer = timer(() => { $('toast').hidden = true; }, 5500); }
+    function migrationBackup(raw, migration) {
+      // Only locally generated, known migration metadata can select a backup key.
+      const recognized = migration && migration.type === 'weather-kinds-v2' && migration.fromRulesVersion === '1' && migration.toRulesVersion === '2' && /^[a-f0-9]{8}$/.test(migration.fromPackDigest || '') && /^[a-f0-9]{8}$/.test(migration.toPackDigest || '');
+      if (!recognized) return false;
+      let hash = 2166136261;
+      for (let index = 0; index < raw.length; index++) hash = Math.imul(hash ^ raw.charCodeAt(index), 16777619);
+      const backupKey = key() + ':backup:rules1:' + migration.fromPackDigest + ':' + (hash >>> 0).toString(16).padStart(8, '0');
+      try {
+        const prior = storage.getItem(backupKey);
+        if (prior !== null && prior !== undefined) return prior === raw;
+        storage.setItem(backupKey, raw);
+        return storage.getItem(backupKey) === raw;
+      } catch (_) { return false; }
+    }
     function save() {
-      if (saveProtected) { text('save-status', '原存档已保护 · 本页未保存'); return; }
+      if (saveProtected) { text('save-status', migrationBackupFailed ? '旧存档备份失败 · 本页未保存' : '原存档已保护 · 本页未保存'); return; }
       try { if (!storage) throw new Error('blocked'); storage.setItem(key(), JSON.stringify(runtime.serialize(state))); saveProblem = false; }
       catch (_) { saveProblem = true; }
       text('save-status', saveProblem ? '存储不可用 · 仅本页保留' : 'LOCAL SAVE · 已保存');
     }
     function load() {
-      saveProblem = false; saveProtected = false; lastFailure = null;
+      saveProblem = false; saveProtected = false; migrationBackupFailed = false; migrationBackedUp = false; lastFailure = null;
       state = runtime.create(pack);
       try {
         if (!storage) throw new Error('blocked');
         const raw = storage.getItem(key());
         if (raw) {
           const restored = runtime.restore(raw, pack);
-          if (restored.ok) state = restored.state;
-          else { saveProtected = true; lastFailure = restored.error && restored.error.code === 'PACK_MISMATCH' ? 'pack_mismatch' : 'save_invalid'; toast((lastFailure === 'pack_mismatch' ? '存档与当前内容包版本不匹配。' : '当前试验场存档未通过校验。') + '原数据已保留；当前空白世界仅在本页运行。确认重新开始后才能覆盖保存。'); }
+          if (restored.ok) {
+            state = restored.state;
+            if (restored.migration) {
+              migrationBackedUp = migrationBackup(raw, restored.migration);
+              if (!migrationBackedUp) {
+                saveProtected = true; migrationBackupFailed = true; lastFailure = 'migration_backup_failed';
+                toast('旧存档已安全读取，但浏览器没有允许保留一份完整备份。原存档不会被覆盖，本页的新变化暂时不保存。');
+              }
+            }
+          } else {
+            saveProtected = true;
+            lastFailure = restored.error && restored.error.code === 'PACK_MISMATCH' ? 'pack_mismatch' : restored.error && restored.error.code === 'MIGRATION_WEATHER_INCOMPATIBLE' ? 'migration_weather_incompatible' : 'save_invalid';
+            const reason = lastFailure === 'pack_mismatch' ? '存档与当前内容包版本不匹配。' : lastFailure === 'migration_weather_incompatible' ? '旧存档包含无法安全转换的天气。' : '当前试验场存档未通过校验。';
+            toast(reason + '原数据已保留；当前空白世界仅在本页运行。确认重新开始后才能覆盖保存。');
+          }
         }
       } catch (_) { saveProblem = true; }
       visible = runtime.view(state); currentBeat = null; renderCache.clear();
-      text('save-status', saveProtected ? '原存档已保护 · 本页未保存' : saveProblem ? '存储不可用 · 仅本页保留' : 'LOCAL SAVE · 本地保存');
+      text('save-status', saveProtected ? migrationBackupFailed ? '旧存档备份失败 · 本页未保存' : '原存档已保护 · 本页未保存' : saveProblem ? '存储不可用 · 仅本页保留' : migrationBackedUp ? '旧存档已备份 · 可继续保存' : 'LOCAL SAVE · 本地保存');
     }
     function cached(name, value, fn) { const signature = JSON.stringify(value); if (renderCache.get(name) === signature) return; renderCache.set(name, signature); fn(); }
     function empty(node, message) { node.replaceChildren(el('p', message, 'empty')); }
@@ -201,12 +229,17 @@
       $('offline-help-button').hidden = mode !== 'offline'; $('offline-help-button').disabled = busy;
       $('intro').hidden = !!mode || list(visible.transcript).length > 0;
       $('transcript').hidden = !$('intro').hidden;
+      $('response-area').hidden = !$('intro').hidden;
       $('start-button').hidden = !!mode;
       $('disconnect-button').hidden = !model.connected();
       text('connection-button', mode === 'online' ? 'AI 已连接 · 本页临时连接' : mode === 'offline' ? '离线规则试玩 · 有限测试表达' : '未连接 · 选择试玩模式');
       text('connection-label', pending ? 'WAITING FOR RESPONSE' : revealing ? 'SHE IS SPEAKING' : mode === 'online' ? 'CONNECTED / AI' : mode === 'offline' ? 'OFFLINE / RULES' : 'WAITING FOR YOU');
       text('input-note', pending ? '正在等待回应，尚未改变世界。可以取消。' : revealing ? '变化会跟随对应的那一句出现，按空格可显示本句。' : mode === 'offline' ? '离线规则只理解有限表达 · 提示只填入，不会发送' : mode === 'online' ? '每次发送会请求模型 · 只有校验通过的变化会被保留' : '尚未选择连接方式 · 可以先写下想说的话');
-      $('motion-toggle').setAttribute('aria-pressed', String(immediate)); text('motion-toggle', immediate ? '文字立即显示' : '逐句显示');
+      const motionOff = immediate || reduced;
+      $('motion-toggle').setAttribute('aria-pressed', String(motionOff)); $('motion-toggle').disabled = reduced;
+      $('motion-toggle').setAttribute('title', reduced ? '系统已开启减少动态效果' : motionOff ? '恢复逐句文字和场景动画' : '暂停场景动画并立即显示文字');
+      text('motion-toggle', motionOff ? '静态显示' : '动态显示');
+      if (renderer && renderer.setReducedMotion) renderer.setReducedMotion(motionOff);
       renderDeveloper();
     }
     function selectPanel(name, manual) {
@@ -364,7 +397,7 @@
       try { if (win.history && win.location) { const url = new URL(win.location.href); url.searchParams.set('pack', pack.id); win.history.replaceState(null, '', url.href); } } catch (_) {}
     });
     $('reset-button').addEventListener('click', () => { text('reset-copy', '这会清空“' + pack.title + '”当前版本在此浏览器里的框架进度。另一试验场和旧版 v0.5.4 存档会保留。'); $('reset-dialog').showModal(); });
-    $('confirm-reset').addEventListener('click', () => { cancel(null, false); model.disconnect(); mode = null; $('api-key').value = ''; state = runtime.create(pack); visible = runtime.view(state); lastFailure = null; saveProtected = false; renderCache.clear(); save(); $('reset-dialog').close(); renderPack(); selectPanel('world', true); toast(saveProblem ? '本页已经重新开始，但浏览器没有允许写入；刷新可能恢复上次存档。' : '当前试验场已重新开始。'); });
+    $('confirm-reset').addEventListener('click', () => { cancel(null, false); model.disconnect(); mode = null; $('api-key').value = ''; state = runtime.create(pack); visible = runtime.view(state); lastFailure = null; saveProtected = false; migrationBackupFailed = false; migrationBackedUp = false; renderCache.clear(); save(); $('reset-dialog').close(); renderPack(); selectPanel('world', true); toast(saveProblem ? '本页已经重新开始，但浏览器没有允许写入；刷新可能恢复上次存档。' : '当前试验场已重新开始。'); });
     $('offline-help-button').addEventListener('click', () => {
       const container = $('offline-examples'); container.replaceChildren();
       (offline.help ? offline.help() : []).forEach(example => { const button = el('button', example); button.type = 'button'; button.addEventListener('click', () => { if (pending || revealing) return; $('free-input').value = example; $('offline-help-dialog').close(); $('free-input').focus(); }); container.append(button); });
@@ -383,7 +416,7 @@
     $('legacy-dialog').addEventListener('close', () => { legacyCandidate = null; });
     $('confirm-legacy-import').addEventListener('click', () => {
       if (!legacyCandidate || legacyCandidate.packId !== pack.id) return;
-      const imported = legacyCandidate.state; legacyCandidate = null; cancel(null, false); model.disconnect(); mode = null; state = imported; visible = runtime.view(state); saveProtected = false; lastFailure = null; renderCache.clear(); save(); $('legacy-dialog').close(); renderPack();
+      const imported = legacyCandidate.state; legacyCandidate = null; cancel(null, false); model.disconnect(); mode = null; state = imported; visible = runtime.view(state); saveProtected = false; migrationBackupFailed = false; migrationBackedUp = false; lastFailure = null; renderCache.clear(); save(); $('legacy-dialog').close(); renderPack();
       toast(saveProblem ? '记录已在本页载入，但浏览器没有允许写入存档。旧序章数据保留。' : '旧序章记录已复制到当前试验场，原存档保留。');
     });
     function developer(open) { $('developer-view').hidden = !open; $('developer-toggle').setAttribute('aria-expanded', String(open)); renderDeveloper(); }
@@ -391,12 +424,19 @@
     function motionChanged(event) { reduced = !!event.matches; if (reduced) { immediate = true; stopReveal(true); } controls(); }
     if (media && media.addEventListener) media.addEventListener('change', motionChanged);
     function keydown(event) { if ((event.code === 'Space' || event.key === ' ') && !event.repeat && revealing && !['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes((event.target || {}).tagName)) { event.preventDefault(); if (revealing.complete) revealing.complete(); } }
+    function pagehide() {
+      if (destroyed) return;
+      if (renderer && renderer.suspend) renderer.suspend();
+      cancel(null, true); model.disconnect(); mode = null; $('api-key').value = ''; controls();
+    }
+    function pageshow() { if (!destroyed && renderer && renderer.resume) renderer.resume(); }
     if (win.addEventListener) {
       win.addEventListener('keydown', keydown);
-      win.addEventListener('pagehide', () => { cancel(null, true); model.disconnect(); mode = null; $('api-key').value = ''; controls(); });
+      win.addEventListener('pagehide', pagehide);
+      win.addEventListener('pageshow', pageshow);
     }
     load(); renderPack();
-    return Object.freeze({ submit, selectPanel: name => selectPanel(name, true), snapshot: () => ({ state, visible, mode, activePanel, busy: !!pending, revealing: !!revealing, currentBeat, lastFailure, storageKey: key() }), destroy() { cancel(null, false); destroyed = true; model.disconnect(); if (renderer && renderer.destroy) renderer.destroy(); if (toastTimer) clearTimer(toastTimer); if (media && media.removeEventListener) media.removeEventListener('change', motionChanged); if (win.removeEventListener) win.removeEventListener('keydown', keydown); } });
+    return Object.freeze({ submit, selectPanel: name => selectPanel(name, true), snapshot: () => ({ state, visible, mode, activePanel, busy: !!pending, revealing: !!revealing, currentBeat, lastFailure, storageKey: key() }), destroy() { cancel(null, false); destroyed = true; model.disconnect(); if (renderer && renderer.destroy) renderer.destroy(); if (toastTimer) clearTimer(toastTimer); if (media && media.removeEventListener) media.removeEventListener('change', motionChanged); if (win.removeEventListener) { win.removeEventListener('keydown', keydown); win.removeEventListener('pagehide', pagehide); win.removeEventListener('pageshow', pageshow); } } });
   }
   return Object.freeze({ create });
 });

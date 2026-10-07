@@ -74,6 +74,17 @@ test('complete offline rain routes accept displayed explicit consent and decline
     assert(state.story.completed.includes('visitor'));
   }
 });
+test('offline weather selection clears particles and explicit rain can resume from clear', () => {
+  let state = E.create(packs.get('lantern-lab'));
+  for (const [input, kind] of [['/天气 雪', 'snow'], ['/天气 雾', 'mist'], ['/天气 晴', 'clear']]) { state = turn(state, input).state; assert.equal(state.world.weather.kind, kind); }
+  assert.equal(state.world.weather.intensity, 0);
+  state = turn(state, '/天气 恢复').state;
+  assert.equal(state.world.weather.kind, 'clear');
+  state = turn(state, '恢复下雨').state;
+  assert.equal(state.world.weather.kind, 'rain');
+  assert.equal(state.world.weather.paused, false);
+  assert.equal(state.world.weather.intensity, 1);
+});
 
 test('frozen legacy files remain byte identical to original runtime', () => {
   for (const file of ['engine.js', 'story.js', 'world-state.js', 'turn-protocol.js']) assert.equal(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), fs.readFileSync(path.join(__dirname, '../framework/legacy/v0.5.4', file), 'utf8'));
