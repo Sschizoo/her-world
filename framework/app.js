@@ -67,6 +67,7 @@
       text('save-status', saveProblem ? '存储不可用 · 仅本页保留' : 'LOCAL SAVE · 已保存');
     }
     function load() {
+      text('reveal-announcement', '');
       saveProblem = false; saveProtected = false; migrationBackupFailed = false; migrationBackedUp = false; lastFailure = null;
       state = runtime.create(pack);
       try {
@@ -397,7 +398,7 @@
       try { if (win.history && win.location) { const url = new URL(win.location.href); url.searchParams.set('pack', pack.id); win.history.replaceState(null, '', url.href); } } catch (_) {}
     });
     $('reset-button').addEventListener('click', () => { text('reset-copy', '这会清空“' + pack.title + '”当前版本在此浏览器里的框架进度。另一试验场和旧版 v0.5.4 存档会保留。'); $('reset-dialog').showModal(); });
-    $('confirm-reset').addEventListener('click', () => { cancel(null, false); model.disconnect(); mode = null; $('api-key').value = ''; state = runtime.create(pack); visible = runtime.view(state); lastFailure = null; saveProtected = false; migrationBackupFailed = false; migrationBackedUp = false; renderCache.clear(); save(); $('reset-dialog').close(); renderPack(); selectPanel('world', true); toast(saveProblem ? '本页已经重新开始，但浏览器没有允许写入；刷新可能恢复上次存档。' : '当前试验场已重新开始。'); });
+    $('confirm-reset').addEventListener('click', () => { cancel(null, false); text('reveal-announcement', ''); model.disconnect(); mode = null; $('api-key').value = ''; state = runtime.create(pack); visible = runtime.view(state); lastFailure = null; saveProtected = false; migrationBackupFailed = false; migrationBackedUp = false; renderCache.clear(); save(); $('reset-dialog').close(); renderPack(); selectPanel('world', true); toast(saveProblem ? '本页已经重新开始，但浏览器没有允许写入；刷新可能恢复上次存档。' : '当前试验场已重新开始。'); });
     $('offline-help-button').addEventListener('click', () => {
       const container = $('offline-examples'); container.replaceChildren();
       (offline.help ? offline.help() : []).forEach(example => { const button = el('button', example); button.type = 'button'; button.addEventListener('click', () => { if (pending || revealing) return; $('free-input').value = example; $('offline-help-dialog').close(); $('free-input').focus(); }); container.append(button); });
