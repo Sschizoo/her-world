@@ -291,7 +291,7 @@
         if (DIAGNOSTIC_CODES.has(detail.code)) lastFailure.detail = detail.code;
         if (DIAGNOSTIC_PATHS.has(detail.path)) lastFailure.path = detail.path;
       }
-      const explanation = lastFailure.rule === 'PLACEMENT_CAPACITY' ? '这次没有找到能安全放下这些物件的位置。可以缩小物件、换个位置，或先移走一些物件再试。' : FAILURES[code];
+      const explanation = lastFailure.rule === 'PLACEMENT_CAPACITY' ? '这次没有找到能安全放下这些物件的位置。可以缩小物件、换个位置，或先移走一些物件再试。' : lastFailure.rule === 'MEMORY_HANDLE_INVALID' ? '这个记忆引用已失效或不在当前列表中。请查看下方记忆面板，使用那条记录现在显示的引用编号。' : FAILURES[code];
       return (lastFailure.httpStatus ? 'HTTP ' + lastFailure.httpStatus + ' · ' : '') + explanation;
     }
     function stopReveal(settle) {

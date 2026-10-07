@@ -78,7 +78,7 @@ test('offline commands can revise and forget a displayed opaque reference withou
   const handle=r.app.snapshot().visible.memories[0].recallHandle;assert.match(handle,/^memory_[1-9][0-9]*$/);assert.match(r.ids['memory-list'].textContent,new RegExp('引用 '+handle));
   await r.say('/记住 '+handle+' 新的约定 | 一起看天亮');assert.equal(r.app.snapshot().state.memories.length,1);assert.match(r.ids['memory-list'].textContent,/一起看天亮/);
   await r.say('/忘记 '+handle);assert.equal(r.ids['memory-count'].textContent,'00');const state=r.app.snapshot().state;
-  await r.say('/记住 '+handle+' 旧的编号 | 不应重建');assert.equal(r.app.snapshot().state,state);assert.equal(r.app.snapshot().lastFailure.rule,'MEMORY_HANDLE_INVALID');
+  await r.say('/记住 '+handle+' 旧的编号 | 不应重建');assert.equal(r.app.snapshot().state,state);assert.equal(r.app.snapshot().lastFailure.rule,'MEMORY_HANDLE_INVALID');assert.match(r.ids['request-error-text'].textContent,/记忆引用已失效/);assert.match(r.ids['request-error-text'].textContent,/现在显示的引用编号/);
 });
 
 test('fresh entry is silent, has independent pack selection, and never reads or rewrites legacy saves',async()=>{
