@@ -51,7 +51,7 @@
     for (let i = 0; i <= cursor.event; i++) {
       const event = state.events[i];
       if (event.type === 'turn') {
-        const result = execute(replay, event.input, event.plan);
+        const result = execute(replay, event.input, event.plan, event.rulesVersion, true);
         assert(result.ok, 'REPLAY_INVALID');
         if (i === cursor.event) { assert(cursor.line >= 0 && cursor.line < result.frames.length, 'CURSOR_INVALID'); return result.frames[cursor.line]; }
         replay = result.state;
@@ -73,7 +73,7 @@
     const { width, height } = dimensions(item);
     return item.x >= 0 && item.y >= 0 && item.x + width <= 100 && item.y + height <= 60;
   }
-  function placed(item, placement, state, current) {
+  function placed(item, placement, state, current, env) {
     assert(shape({ ...item, x: 0, y: 0 }), 'GEOMETRY_INVALID');
     const { width, height } = dimensions(item), anchor = placement.anchor;
     const center = (start, total, size) => start + Math.floor(total / 2) - Math.floor(size / 2);
@@ -107,7 +107,65 @@
       if (side === 'left_of' || side === 'right_of') { x = side === 'left_of' ? target.x - gap - width : target.x + target.width + gap; y = clamp(y, 60 - height); }
       else { y = side === 'above' ? target.y - gap - height : target.y + target.height + gap; x = clamp(x, 100 - width); }
     }
-    const result = { ...item, x, y }; assert(shape(result), 'GEOMETRY_INVALID'); return result;
+    const result = { ...item, x, y };
+    const movableTarget = env?.rulesVersion !== '2' && state.world.objects.some(object => object.id === placement.target && object.source.createdEventId === env?.eventId);
+    assert(shape(result), movableTarget ? 'PLACEMENT_CAPACITY' : 'GEOMETRY_INVALID'); return result;
+  }
+  function overlaps(first, second) {
+    const a = dimensions(first), b = dimensions(second);
+    return first.x < second.x + b.width && first.x + a.width > second.x && first.y < second.y + b.height && first.y + a.height > second.y;
+  }
+  function resolvePlacement(item, op, state, current, env) {
+    assert(shape(item), 'GEOMETRY_INVALID');
+    const occupied = state.world.objects.filter(other => other.id !== current?.id);
+    const clear = candidate => !occupied.some(other => overlaps(candidate, other));
+    const anchor = op.placement?.anchor;
+    if (op.allowOverlap === true) return item;
+    // Fixed resize anchors cannot drift to make room. Explicit coordinates can
+    // also opt out of automatic search; neither mode moves neighboring objects.
+    if (op.placementPolicy === 'exact' || ['keep_center', 'keep_base'].includes(anchor)) { assert(clear(item), 'PLACEMENT_CAPACITY'); return item; }
+    if (current && clear(item)) return item;
+    const { width, height } = dimensions(item);
+    let minX = 0, maxX = 100 - width, minY = 0, maxY = 60 - height;
+    if (anchor === 'sky' || anchor === 'ground') {
+      const landmark = state.world.landmarks[anchor];
+      minX = landmark.x; maxX = landmark.x + landmark.width - width;
+      if (anchor === 'sky') { minY = landmark.y; maxY = landmark.y + landmark.height - height; }
+      else minY = maxY = item.y;
+    } else if (['window_left', 'window_right', 'left_of', 'right_of'].includes(anchor)) minX = maxX = item.x;
+    else if (['window_below', 'above', 'below'].includes(anchor)) minY = maxY = item.y;
+    const candidates = [];
+    for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
+      assert(++env.search.work <= 250000, 'PLACEMENT_CAPACITY');
+      const candidate = { ...item, x, y };
+      if (clear(candidate)) candidates.push(candidate);
+    }
+    candidates.sort((a, b) => {
+      if (!current && env.search.edge === 'top') return a.y - b.y || a.x - b.x;
+      if (!current && env.search.edge === 'bottom') return b.y - a.y || a.x - b.x;
+      return Number(a.y !== item.y) - Number(b.y !== item.y) || (!current && env.search.edge === 'left' ? a.x - b.x : 0) || ((a.x - item.x) ** 2 + (a.y - item.y) ** 2) - ((b.x - item.x) ** 2 + (b.y - item.y) ** 2) || a.y - b.y || a.x - b.x;
+    });
+    assert(candidates.length, 'PLACEMENT_CAPACITY');
+    if (current) return candidates[0];
+    const index = env.search.decisions.length, selected = env.search.choices[index] || 0;
+    env.search.decisions.push({ selected, count: candidates.length });
+    assert(selected < candidates.length, 'PLACEMENT_CAPACITY');
+    return candidates[selected];
+  }
+  function needsPlacement(op, current, item) {
+    if (own(op, 'placement') || own(op.changes, 'x') || own(op.changes, 'y')) return true;
+    const before = dimensions(current), after = dimensions(item);
+    return before.width !== after.width || before.height !== after.height;
+  }
+  function normalizeGeometry(op, state, previous) {
+    if (op.type !== 'world.create' && op.type !== 'world.update') return copy(op);
+    if (op.type === 'world.update' && !needsPlacement(op, previous, state.world.objects.find(item => item.id === op.target))) return copy(op);
+    const normalized = copy(op), object = op.type === 'world.create' ? state.world.objects.at(-1) : state.world.objects.find(item => item.id === op.target);
+    delete normalized.placement;
+    normalized.placementPolicy = 'exact';
+    if (op.type === 'world.create') normalized.object = { ...normalized.object, x: object.x, y: object.y };
+    else normalized.changes = { ...normalized.changes, x: object.x, y: object.y };
+    return normalized;
   }
   function complete(state, node, eventId, input, answer) {
     if (state.story.completed.includes(node.id)) return;
@@ -147,14 +205,19 @@
   function apply(state, op, env) {
     const { eventId, input, initialQuestions, topic, answered } = env;
     assert(CAPS.validate(op), 'OPERATION_INVALID');
+    if (env.rulesVersion === '2') assert(!own(op, 'placementPolicy') && !own(op, 'allowOverlap'), 'OPERATION_INVALID');
     assert(state.pack.capabilities.includes(op.type), 'CAPABILITY_DISABLED');
     assert(!own(op, 'evidence') || op.evidence === input, 'EVIDENCE_INVALID');
     const ref = source(eventId, input);
     if (op.type === 'world.create') {
       assert(state.world.objects.length < state.world.capacity && state.world.nextId <= 10000, 'WORLD_CAPACITY');
       assert(!own(op, 'placement') || !own(op.object, 'x') && !own(op.object, 'y'), 'PLACEMENT_INVALID');
-      const item = own(op, 'placement') ? placed(op.object, op.placement, state) : op.object;
+      let item = own(op, 'placement') ? placed(op.object, op.placement, state, undefined, env) : op.object;
       assert(shape(item), 'GEOMETRY_INVALID');
+      if (env.rulesVersion !== '2') {
+        assert(!env.replay || !own(op, 'placement') && op.placementPolicy === 'exact', 'EVENT_INVALID');
+        item = resolvePlacement(item, op, state, undefined, env);
+      }
       state.world.objects.push({ id: 'obj_' + state.world.nextId++, ...copy(item), source: { createdBy: input, lastChangedBy: input, createdEventId: eventId, eventId } });
     } else if (op.type === 'world.update') {
       const index = state.world.objects.findIndex(item => item.id === op.target); assert(index >= 0, 'TARGET_MISSING');
@@ -163,8 +226,12 @@
       assert(!own(op, 'placement') || !own(op.changes, 'x') && !own(op.changes, 'y'), 'PLACEMENT_INVALID');
       const { id, source: oldSource, ...base } = current;
       const shapeValue = { ...base, ...copy(op.changes) };
-      const item = own(op, 'placement') ? placed(shapeValue, op.placement, state, current) : shapeValue;
+      let item = own(op, 'placement') ? placed(shapeValue, op.placement, state, current, env) : shapeValue;
       assert(shape(item), 'GEOMETRY_INVALID');
+      if (env.rulesVersion !== '2' && needsPlacement(op, current, item)) {
+        assert(!env.replay || !own(op, 'placement') && op.placementPolicy === 'exact', 'EVENT_INVALID');
+        item = resolvePlacement(item, op, state, current, env);
+      }
       state.world.objects[index] = { id, ...item, source: { ...oldSource, lastChangedBy: input, eventId } };
     } else if (op.type === 'world.remove') {
       const index = state.world.objects.findIndex(item => item.id === op.target); assert(index >= 0, 'TARGET_MISSING');
@@ -222,8 +289,37 @@
     }
     return null;
   }
-  function execute(state, input, plan) {
+  function execute(state, input, plan, rulesVersion = CAPS.RULES_VERSION, replay = false) {
+    const search = { choices: [], decisions: [], work: 0, edge: false };
+    let attempts = 0;
+    while (attempts < 256) {
+      const firstAttempt = attempts++ === 0;
+      search.decisions = [];
+      const result = executeAttempt(state, input, plan, rulesVersion, search, replay);
+      if (result.ok || result.error.code !== 'PLACEMENT_CAPACITY' || search.work >= 250000) return result;
+      // Dense batches have equivalent dead ends around either central axis.
+      // Boundary seeds share the search budget and the same anchor constraints.
+      if (firstAttempt && search.decisions.length) {
+        for (const edge of ['left', 'top', 'bottom']) {
+          const edgeSearch = { choices: [], decisions: [], work: search.work, edge };
+          attempts++;
+          const packed = executeAttempt(state, input, plan, rulesVersion, edgeSearch, replay);
+          search.work = edgeSearch.work;
+          if (packed.ok) return packed;
+          if (search.work >= 250000) return result;
+        }
+      }
+      let index = search.decisions.length - 1;
+      while (index >= 0 && search.decisions[index].selected + 1 >= search.decisions[index].count) index--;
+      if (index < 0) return result;
+      search.choices = search.decisions.slice(0, index + 1).map(decision => decision.selected);
+      search.choices[index]++;
+    }
+    return fail('PLACEMENT_CAPACITY');
+  }
+  function executeAttempt(state, input, plan, rulesVersion, search, replay) {
     try {
+      assert(['2', CAPS.RULES_VERSION].includes(rulesVersion), 'EVENT_INVALID');
       assert(state.events.length < MAX_EVENTS, 'EVENT_CAPACITY');
       assert(safeText(input, MAX_INPUT), 'INPUT_INVALID');
       assert(fields(plan, ['schema', 'lines', 'beats', 'topic']) && plan.schema === CAPS.SCHEMA, 'PLAN_INVALID');
@@ -238,8 +334,8 @@
       }
       assert(count <= MAX_OPERATIONS, 'OPERATION_CAPACITY');
       const next = copy(state), eventId = 'event_' + (state.revision + 1), frames = [], initialQuestions = available(state);
-      const event = { id: eventId, type: 'turn', input, plan: copy(plan) };
-      const env = { input, eventId, initialQuestions, topic: plan.topic, answered: { value: false }, relationship: { trust: 0, familiarity: 0 }, initialRelationship: { trust: state.character.trust, familiarity: state.character.familiarity }, noteHistory: new Map(), activeQuestion: activeQuestion(state) };
+      const event = { id: eventId, type: 'turn', rulesVersion, input, plan: copy(plan) };
+      const env = { input, eventId, rulesVersion, search, replay, initialQuestions, topic: plan.topic, answered: { value: false }, relationship: { trust: 0, familiarity: 0 }, initialRelationship: { trust: state.character.trust, familiarity: state.character.familiarity }, noteHistory: new Map(), activeQuestion: activeQuestion(state) };
       next.revision++;
       next.transcript.push({ eventId, role: 'user', text: input });
       let panel = null;
@@ -253,7 +349,14 @@
         const beat = plan.beats.find(beat => beat.afterLine === index);
         if (beat) {
           const operations = [];
-          for (const op of beat.operations) { const requestedPanel = apply(next, op, env); if (requestedPanel) panel = requestedPanel; operations.push(op.type); }
+          const storedBeat = event.plan.beats.find(candidate => candidate.afterLine === index);
+          for (let operationIndex = 0; operationIndex < beat.operations.length; operationIndex++) {
+            const op = beat.operations[operationIndex], previous = op.type === 'world.update' ? next.world.objects.find(item => item.id === op.target) : null;
+            const requestedPanel = apply(next, op, env);
+            if (requestedPanel) panel = requestedPanel;
+            if (rulesVersion !== '2') storedBeat.operations[operationIndex] = normalizeGeometry(op, next, previous);
+            operations.push(op.type);
+          }
           const nonPanels = operations.filter(type => type !== 'panel.open');
           if (nonPanels.length) next.focus = { source: source(eventId, input), operations: nonPanels };
           next.logs.push({ id: eventId + '.beat.' + index, kind: 'operations', text: 'Validated operations', eventId, source: source(eventId, input), operations });
@@ -297,13 +400,16 @@
   }
   // Only these exact, previously released fixture definitions have a known
   // predecessor. Changing any other content requires a separate migration.
-  const WEATHER_RULES_PREDECESSORS = Object.freeze({ 'rain-lab': '402db16c', 'lantern-lab': '8dd7d018' });
+  const RULES_PREDECESSORS = freeze({
+    'rain-lab': { '1': '402db16c', '2': '362c6f2f' },
+    'lantern-lab': { '1': '8dd7d018', '2': '36792093' }
+  });
   function migrationBinding(saved, pack) {
     assert(fields(saved, ['id', 'version', 'rulesVersion', 'digest']), 'PACK_MISMATCH');
     if (saved.id === pack.id && saved.version === pack.version && saved.rulesVersion === pack.rulesVersion && saved.digest === digest(pack)) return null;
-    const predecessor = WEATHER_RULES_PREDECESSORS[pack.id];
-    assert(predecessor && pack.version === '1.0.0' && pack.rulesVersion === '2' && saved.id === pack.id && saved.version === pack.version && saved.rulesVersion === '1' && saved.digest === predecessor && digest({ ...copy(pack), rulesVersion: '1' }) === predecessor, 'PACK_MISMATCH');
-    return freeze({ type: 'weather-kinds-v2', fromRulesVersion: '1', toRulesVersion: '2', fromPackDigest: predecessor, toPackDigest: digest(pack) });
+    const predecessor = RULES_PREDECESSORS[pack.id]?.[saved.rulesVersion];
+    assert(predecessor && pack.version === '1.0.0' && pack.rulesVersion === CAPS.RULES_VERSION && saved.id === pack.id && saved.version === pack.version && saved.digest === predecessor && digest({ ...copy(pack), rulesVersion: saved.rulesVersion }) === predecessor, 'PACK_MISMATCH');
+    return freeze({ type: 'object-placement-v3', fromRulesVersion: saved.rulesVersion, toRulesVersion: CAPS.RULES_VERSION, fromPackDigest: predecessor, toPackDigest: digest(pack) });
   }
   function compatibleOldWeather(save, pack) {
     // Replay just weather using the old assignment semantics before current
@@ -329,13 +435,22 @@
       assert(fields(save, ['schema', 'pack', 'importedSnapshot', 'events']) && save.schema === 'her-world-save-v4', 'SAVE_INVALID');
       const migration = migrationBinding(save.pack, pack);
       assert(Array.isArray(save.events) && save.events.length <= MAX_EVENTS, 'SAVE_INVALID');
-      if (migration) compatibleOldWeather(save, pack);
-      let state = baseFromSave(pack, save.importedSnapshot);
+      if (migration?.fromRulesVersion === '1') compatibleOldWeather(save, pack);
+      let state = baseFromSave(pack, save.importedSnapshot), currentRulesSeen = false;
       for (const event of save.events) {
         assert(plain(event) && event.id === 'event_' + (state.revision + 1), 'EVENT_INVALID');
         if (event.type === 'turn') {
-          assert(fields(event, ['id', 'type', 'input', 'plan']), 'EVENT_INVALID');
-          const result = execute(state, event.input, event.plan); assert(result.ok, result.error?.code || 'EVENT_INVALID'); state = result.state;
+          assert(fields(event, ['id', 'type', 'rulesVersion', 'input', 'plan'], migration ? ['id', 'type', 'input', 'plan'] : ['id', 'type', 'rulesVersion', 'input', 'plan']), 'EVENT_INVALID');
+          const rulesVersion = migration ? '2' : event.rulesVersion;
+          assert(!migration || !own(event, 'rulesVersion'), 'EVENT_INVALID');
+          // Historical rules form a prefix. An observation does not end that
+          // prefix, but current-rule turns can never downgrade replay semantics.
+          assert(rulesVersion !== '2' || !currentRulesSeen, 'EVENT_INVALID');
+          if (rulesVersion === CAPS.RULES_VERSION) currentRulesSeen = true;
+          if (rulesVersion === CAPS.RULES_VERSION) for (const beat of event.plan?.beats || []) for (const op of beat.operations || []) {
+            if (op.type === 'world.create' || op.type === 'world.update' && (own(op, 'placement') || ['x', 'y'].some(key => own(op.changes || {}, key)))) assert(!own(op, 'placement') && op.placementPolicy === 'exact', 'EVENT_INVALID');
+          }
+          const result = execute(state, event.input, event.plan, rulesVersion, true); assert(result.ok, result.error?.code || 'EVENT_INVALID'); state = result.state;
         } else {
           assert(fields(event, ['id', 'type', 'panel']), 'EVENT_INVALID'); state = observe(state, { type: event.type, panel: event.panel });
         }

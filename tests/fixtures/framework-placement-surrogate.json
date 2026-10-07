@@ -1,0 +1,29 @@
+{
+  "kind": "independent OpenAI model substitute; not GLM or network evidence",
+  "date": "2026-10-07",
+  "pack": "rain-lab",
+  "rulesVersion": "3",
+  "records": [
+    {
+      "input": "在天空加两朵云，形状不一样，彼此分开一些。",
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"添两朵云，一朵圆些，一朵舒展开，中间留些空隙。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"圆云\",\"glyphs\":\"   .--.\\n .(    ).\\n(___.___)\",\"x\":18,\"y\":5,\"scale\":2}},{\"type\":\"world.create\",\"object\":{\"label\":\"长云\",\"glyphs\":\"      __\\n  ___(  )__\\n (_________)\",\"x\":60,\"y\":8,\"scale\":2}}]}],\"topic\":null}\n",
+      "sha256": "053b94e754fc3e487d0ef26df567604c51ab844b2feb04b67be8086f10b254a1",
+      "requestSha256": "97cfd3db88337019e0d530feed7541ebbd0ecbf4612997cd5b8102ecf6cc5611",
+      "requestUnchanged": true
+    },
+    {
+      "input": "再添两朵小云，在地面放一张两个人能坐的长椅。",
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"再添两朵小云，天空就有四朵了。\",\"地面放一张双人长椅，椅面宽一些。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"小扁云\",\"glyphs\":\" .--.\\n(____)\",\"x\":8,\"y\":12,\"scale\":1}},{\"type\":\"world.create\",\"object\":{\"label\":\"小卷云\",\"glyphs\":\"  _\\n ( )_\\n(____)\",\"x\":45,\"y\":6,\"scale\":1}}]},{\"afterLine\":1,\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"双人长椅\",\"glyphs\":\" .--------------.\\n |==============|\\n_|______________|_\\n  |            |\",\"scale\":2},\"placement\":{\"anchor\":\"ground\"}}]}],\"topic\":null}\n",
+      "sha256": "ecddb4d0ad306c4bbbb37fb672adfd988cd8546b8aeefb4ae00c897518fed738",
+      "requestSha256": "275de87dc8ffa7e3dc70df6302a01ec01e1afacdd75ea72995ed679d13e25557",
+      "requestUnchanged": true
+    },
+    {
+      "input": "把第一朵云稍微放大，长椅挪到窗下。别把它们堆在一起。",
+      "raw": "{\"schema\":\"her-world-turn-v2\",\"lines\":[\"把第一朵圆云放大一档，仍围着原来的中心展开。\",\"长椅移到窗下，和窗框留一点距离，物件之间不重叠。\"],\"beats\":[{\"afterLine\":0,\"operations\":[{\"type\":\"world.update\",\"target\":\"obj_1\",\"changes\":{\"scale\":3},\"placement\":{\"anchor\":\"keep_center\"}}]},{\"afterLine\":1,\"operations\":[{\"type\":\"world.update\",\"target\":\"obj_5\",\"changes\":{},\"placement\":{\"anchor\":\"window_below\",\"gap\":2}}]}],\"topic\":null}\n",
+      "sha256": "746e074e4d02ea52c4697b3e09bf3077468f7d90dd24986770b17baec6cf896d",
+      "requestSha256": "19fc15cff6621e62ab7e57da71e6bfcbb62a4f77c639cc9e9ad435297de3776f",
+      "requestUnchanged": true
+    }
+  ]
+}

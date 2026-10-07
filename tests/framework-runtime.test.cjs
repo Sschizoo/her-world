@@ -326,7 +326,14 @@ test('consent recognizes a current direct answer but rejects quoted or historica
 });
 
 const oldBinding = packId => ({ id: packId, version: '1.0.0', rulesVersion: '1', digest: { 'rain-lab': '402db16c', 'lantern-lab': '8dd7d018' }[packId] });
-const asOldSave = state => ({ ...clone(R.serialize(state)), pack: oldBinding(state.pack.id) });
+const asOldSave = state => {
+  const saved = { ...clone(R.serialize(state)), pack: oldBinding(state.pack.id) };
+  for (const event of saved.events) if (event.type === 'turn') {
+    delete event.rulesVersion;
+    for (const beat of event.plan.beats) for (const op of beat.operations) { delete op.placementPolicy; delete op.allowOverlap; }
+  }
+  return saved;
+};
 const weatherEvent = (number, changes) => ({ id: 'event_' + number, type: 'turn', input: '旧天气请求' + number, plan: plan([{ type: 'weather.set', changes }]) });
 const minimalImport = weather => ({ origin: { type: 'legacy-v3', version: '0.5.4', milestones: [] }, world: { objects: [], annotations: {}, weather: { ...weather, source: null } }, memories: [], transcript: [], facts: {} });
 
@@ -377,7 +384,7 @@ test('initial, imported and replayed weather obey the same supported kind and cl
   assert.equal(imported.ok, true); assert.equal(R.restore(R.serialize(imported.state), PACKS.get('rain-lab')).ok, true);
 });
 
-test('known rules1 saves migrate explicitly to rules2 with all state, sources and events preserved', () => {
+test('known rules1 saves migrate explicitly to rules3 with all state, sources and original plans preserved', () => {
   for (const packId of ['rain-lab', 'lantern-lab']) {
     let state = R.create(PACKS.get(packId));
     state = turn(state, '原来的造物请求', [{ type: 'world.create', object: object('旧灯') }, { type: 'memory.upsert', id: 'note_weather', title: '原来的记忆', body: '保留原文' }]);
@@ -385,12 +392,12 @@ test('known rules1 saves migrate explicitly to rules2 with all state, sources an
     const saved = asOldSave(state), original = JSON.stringify(saved);
     const restored = R.restore(saved, PACKS.get(packId));
     assert.equal(restored.ok, true, JSON.stringify(restored.error));
-    assert.deepEqual(restored.migration, { type: 'weather-kinds-v2', fromRulesVersion: '1', toRulesVersion: '2', fromPackDigest: oldBinding(packId).digest, toPackDigest: R.serialize(state).pack.digest });
+    assert.deepEqual(restored.migration, { type: 'object-placement-v3', fromRulesVersion: '1', toRulesVersion: '3', fromPackDigest: oldBinding(packId).digest, toPackDigest: R.serialize(state).pack.digest });
     assert.deepEqual(R.view(restored.state), R.view(state));
-    assert.deepEqual(restored.state.events, saved.events);
+    assert.deepEqual(restored.state.events, saved.events.map(event => event.type === 'turn' ? { ...event, rulesVersion: '2' } : event));
     assert.equal(JSON.stringify(saved), original);
     const currentSave = R.serialize(restored.state);
-    assert.equal(currentSave.pack.rulesVersion, '2');
+    assert.equal(currentSave.pack.rulesVersion, '3');
     assert.equal(R.restore(currentSave, PACKS.get(packId)).migration, undefined);
     assert.ok(Buffer.byteLength(JSON.stringify(R.context(restored.state))) <= R.constants.MAX_CONTEXT_BYTES);
   }

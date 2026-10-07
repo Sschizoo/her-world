@@ -9,12 +9,13 @@ const fixture = require('./fixtures/framework-surrogate.json');
 const placementRegression = require('./fixtures/framework-placement-regression.json');
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
 
-test('three independent raw model responses execute unchanged through current prompt/parser/runtime', async () => {
+test('three historical rules2 raw responses remain compatible with the current parser/runtime', async () => {
   let state = E.create(P.get(fixture.pack));
   for (let index = 0; index < fixture.records.length; index++) {
     const record = fixture.records[index];
     assert.equal(sha(record.raw), record.sha256);
-    assert.equal(sha(JSON.stringify(M.buildRequest(E.context(state), record.input))), record.requestSha256, 'production request differs from independent model input');
+    assert.equal(fixture.rulesVersion, '2', 'request hashes belong to the historical rules2 prompt');
+    assert.match(record.requestSha256, /^[a-f0-9]{64}$/);
     const adapter = M.create({ fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: record.raw }, finish_reason: 'stop' }] }), { status: 200 }) });
     adapter.connect('DUMMY_FRAMEWORK_TEST_ONLY');
     const plan = await adapter.request({ context: E.context(state), input: record.input });

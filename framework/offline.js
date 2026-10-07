@@ -18,7 +18,7 @@
       const label = match[1].trim();
       return reply('我放下一幅简单的占位字符图案。离线模式不会生成复杂的新外观。', [{ type: 'world.create', object: { label, glyphs: '+--------+\n|        |\n+--------+', x: 45, y: 43, scale: 1 } }]);
     }
-    if ((match = text.match(/^\/移动\s+(obj_\d+)\s+(\d+)\s+(\d+)$/u))) return reply('物件将移到指定的逻辑坐标。', [{ type: 'world.update', target: match[1], changes: { x: Number(match[2]), y: Number(match[3]) } }]);
+    if ((match = text.match(/^\/移动\s+(obj_\d+)\s+(\d+)\s+(\d+)$/u))) return reply('物件将移到指定的逻辑坐标。', [{ type: 'world.update', target: match[1], changes: { x: Number(match[2]), y: Number(match[3]) }, placementPolicy: 'exact' }]);
     if ((match = text.match(/^\/放大\s+(obj_\d+)\s+([123])$/u))) return reply('物件的倍率已按这次要求更新。', [{ type: 'world.update', target: match[1], changes: { scale: Number(match[2]) } }]);
     if ((match = text.match(/^\/删除\s+(obj_\d+)$/u))) return reply('这个物件会从当前画面移除；原来的对话仍保留。', [{ type: 'world.remove', target: match[1] }]);
     if ((match = text.match(/^\/(含义|理解)\s+(\S+)\s+(.+)$/u))) return reply(match[1] === '含义' ? '你赋予的意义已更新，和我的理解分开记录。' : '这份记录标明是我的理解，可以随时改。', [{ type: 'world.annotate', target: match[2], field: match[1] === '含义' ? 'meaning' : 'interpretation', value: match[3] }]);

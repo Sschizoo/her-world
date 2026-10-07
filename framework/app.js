@@ -14,7 +14,11 @@
   const PANELS = ['world', 'memory', 'focus', 'logs'];
   const FAILURES = Object.freeze({ disconnected: '连接已断开，请重新选择连接方式。', busy: '上一条回应尚未完成。', limit: '本页请求次数已达到上限。', timeout: '等待回应超时。', network: '这次连接没有完成。', response_read: '回应在传输时中断。', auth: '转发服务或上游返回了认证或权限错误，不能仅凭此判断密码是否有误。', quota: '转发服务或模型额度暂不可用。', upstream: '模型服务暂时不可用。', format: '回应格式不符合约定。', truncated: '回应没有完整返回。', empty: '模型没有返回可用的回应。', cancelled: '这次回应已取消。', invalid: '回应中的变化未通过本地规则校验。' });
   const RUNTIME_CODES = new Set(["ANSWER_BOUNDARY", "ANSWER_UNAVAILABLE", "BEATS_INVALID", "CAPABILITY_DISABLED", "CHOICE_INVALID", "CONSENT_REQUIRED", "CONTEXT_CAPACITY", "CURSOR_INVALID", "EVENT_CAPACITY", "EVENT_INVALID", "EVIDENCE_INVALID", "GEOMETRY_INVALID", "IMPORT_ANNOTATION", "IMPORT_FACTS", "IMPORT_INVALID", "IMPORT_MEMORY", "IMPORT_OBJECT", "IMPORT_ORIGIN", "IMPORT_TRANSCRIPT", "IMPORT_WEATHER", "IMPORT_WORLD", "INPUT_INVALID", "LINES_INVALID", "MEMORY_CAPACITY", "OBSERVATION_INVALID", "OPERATION_CAPACITY", "OPERATION_EMPTY", "OPERATION_INVALID", "PACK_INVALID", "PACK_MISMATCH", "PLACEMENT_INVALID", "PLACEMENT_TARGET", "PLAN_INVALID", "PROTOCOL_TEXT", "QUESTION_UNAVAILABLE", "RELATIONSHIP_BOUND", "REPLAY_INVALID", "SAVE_INVALID", "STALE_PROPOSAL", "STATE_INVALID", "TARGET_MISSING", "TEXT_INVALID", "TOPIC_INVALID", "WORLD_CAPACITY"]);
-  ['WEATHER_CONFLICT', 'RULES_VERSION_UNSUPPORTED', 'MIGRATION_WEATHER_INCOMPATIBLE'].forEach(code => RUNTIME_CODES.add(code));
+  ['WEATHER_CONFLICT', 'RULES_VERSION_UNSUPPORTED', 'MIGRATION_WEATHER_INCOMPATIBLE', 'PLACEMENT_CAPACITY'].forEach(code => RUNTIME_CODES.add(code));
+  const MIGRATION_PACK_DIGESTS = Object.freeze({
+    'rain-lab': Object.freeze({ '1': '402db16c', '2': '362c6f2f', '3': 'd63194b2' }),
+    'lantern-lab': Object.freeze({ '1': '8dd7d018', '2': '36792093', '3': 'ce388026' })
+  });
   const DIAGNOSTIC_STAGES = new Set(['LOCAL_CONTEXT', 'REQUEST', 'NETWORK', 'HTTP', 'RESPONSE_READ', 'ENVELOPE', 'FINAL_CONTENT', 'JSON', 'CANCELLED']);
   const DIAGNOSTIC_CODES = new Set(['CONTEXT_INVALID', 'INPUT_INVALID', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE', 'ROOT_INVALID', 'PAYLOAD_REQUIRED', 'PAYLOAD_MIXED', 'OUTPUT_UNSAFE', 'JSON_SYNTAX', 'JSON_BAD_ESCAPE', 'JSON_CONTROL_CHARACTER', 'JSON_UNTERMINATED', 'JSON_TRAILING_CONTENT', 'JSON_DUPLICATE_KEY']);
   const DIAGNOSTIC_PATHS = new Set(['context', 'input', 'request', 'response', 'content', 'root']);
@@ -48,12 +52,19 @@
     function toast(message) { text('toast', message); $('toast').hidden = false; if (toastTimer) clearTimer(toastTimer); toastTimer = timer(() => { $('toast').hidden = true; }, 5500); }
     function migrationBackup(raw, migration) {
       // Only locally generated, known migration metadata can select a backup key.
-      const recognized = migration && migration.type === 'weather-kinds-v2' && migration.fromRulesVersion === '1' && migration.toRulesVersion === '2' && /^[a-f0-9]{8}$/.test(migration.fromPackDigest || '') && /^[a-f0-9]{8}$/.test(migration.toPackDigest || '');
-      if (!recognized) return false;
-      let hash = 2166136261;
-      for (let index = 0; index < raw.length; index++) hash = Math.imul(hash ^ raw.charCodeAt(index), 16777619);
-      const backupKey = key() + ':backup:rules1:' + migration.fromPackDigest + ':' + (hash >>> 0).toString(16).padStart(8, '0');
       try {
+        const fields = ['type', 'fromRulesVersion', 'toRulesVersion', 'fromPackDigest', 'toPackDigest'];
+        if (!migration || Object.keys(migration).length !== fields.length || !fields.every(field => Object.prototype.hasOwnProperty.call(migration, field))) return false;
+        const known = MIGRATION_PACK_DIGESTS[pack.id], original = JSON.parse(raw).pack, current = runtime.serialize(state).pack;
+        const recognized = known && pack.version === '1.0.0' && pack.rulesVersion === '3'
+          && migration.type === 'object-placement-v3' && ['1', '2'].includes(migration.fromRulesVersion) && migration.toRulesVersion === '3'
+          && migration.fromPackDigest === known[migration.fromRulesVersion] && migration.toPackDigest === known['3']
+          && original.id === pack.id && original.version === pack.version && original.rulesVersion === migration.fromRulesVersion && original.digest === migration.fromPackDigest
+          && current.id === pack.id && current.version === pack.version && current.rulesVersion === migration.toRulesVersion && current.digest === migration.toPackDigest;
+        if (!recognized) return false;
+        let hash = 2166136261;
+        for (let index = 0; index < raw.length; index++) hash = Math.imul(hash ^ raw.charCodeAt(index), 16777619);
+        const backupKey = key() + ':backup:rules' + migration.fromRulesVersion + ':' + migration.fromPackDigest + ':' + (hash >>> 0).toString(16).padStart(8, '0');
         const prior = storage.getItem(backupKey);
         if (prior !== null && prior !== undefined) return prior === raw;
         storage.setItem(backupKey, raw);
@@ -275,7 +286,8 @@
         if (DIAGNOSTIC_CODES.has(detail.code)) lastFailure.detail = detail.code;
         if (DIAGNOSTIC_PATHS.has(detail.path)) lastFailure.path = detail.path;
       }
-      return (lastFailure.httpStatus ? 'HTTP ' + lastFailure.httpStatus + ' · ' : '') + FAILURES[code];
+      const explanation = lastFailure.rule === 'PLACEMENT_CAPACITY' ? '这次没有找到能安全放下这些物件的位置。可以缩小物件、换个位置，或先移走一些物件再试。' : FAILURES[code];
+      return (lastFailure.httpStatus ? 'HTTP ' + lastFailure.httpStatus + ' · ' : '') + explanation;
     }
     function stopReveal(settle) {
       if (!revealing) return;

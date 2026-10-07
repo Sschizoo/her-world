@@ -31,7 +31,7 @@ function setup(options={}){
   const storage={getItem(key){if(options.blocked)throw Error('denied');return store.get(key)||null;},setItem(key,value){if(options.blocked || options.writeFails && options.writeFails(key))throw Error('denied');if(options.writes)options.writes.push({key,value});if(!options.dropWrites || !options.dropWrites(key))store.set(key,value);}};
   const draws=[],motionCalls=[];let suspends=0,resumes=0,rendererDestroyed=0;
   const win={document,location:{search:options.search||'',href:'http://localhost/framework.html'+(options.search||'')},history:{replaceState(){}},matchMedia:()=>media,setTimeout:timers.setTimeout,clearTimeout:timers.clearTimeout,addEventListener(name,fn){(events[name]||=[]).push(fn);},removeEventListener(){}};
-  const app=UI.create({window:win,document,runtime,packs,offline,focus,legacy,model,storage,renderer:{update:view=>draws.push(view.world),setReducedMotion:value=>motionCalls.push(value),suspend(){suspends++;},resume(){resumes++;},destroy(){rendererDestroyed++;}}});
+  const app=UI.create({window:win,document,runtime:options.runtime||runtime,packs,offline,focus,legacy,model,storage,renderer:{update:view=>draws.push(view.world),setReducedMotion:value=>motionCalls.push(value),suspend(){suspends++;},resume(){resumes++;},destroy(){rendererDestroyed++;}}});
   return {app,ids,store,model,timers,draws,motionCalls,lifecycle:()=>({suspends,resumes,rendererDestroyed}),media,win,async offline(){await ids['offline-button'].emit('click');},async online(){ids['api-key'].value='TEST_ONLY_PASSWORD';await ids['connect-form'].emit('submit');},async say(text){ids['free-input'].value=text;return ids['free-form'].emit('submit');},async event(name,event={}){for(const fn of events[name]||[])await fn(event);}};
 }
 const plan=(lines,beats=[],topic=null)=>({schema:'her-world-turn-v2',lines,beats,topic});
@@ -67,6 +67,14 @@ test('newer manual navigation wins over a proposed panel, while accepted content
 });
 test('invalid plan leaves dialogue, world, memory and storage unchanged and only reports a safe failure',async()=>{
   const secret='do not expose provider response';const r=setup({request:async()=>({schema:'wrong',lines:[secret],beats:[],topic:null})});await r.online();const before=r.app.snapshot().state;await r.say('造纸船');assert.equal(r.app.snapshot().state,before);assert(!r.ids['request-error'].hidden);assert(!r.ids.transcript.textContent.includes(secret));assert(!r.ids['developer-content'].textContent.includes(secret));assert.equal(r.store.size,0);
+});
+test('a full placement area explains how to make room without displaying or saving a rejected success',async()=>{
+  const cloud={type:'world.create',object:{label:'大云',glyphs:Array(4).fill('C'.repeat(24)).join('\n'),scale:3},placement:{anchor:'sky'}};
+  const success='两朵大云已经放好了。',r=setup({request:async()=>plan([success],[{afterLine:0,operations:[addMemory,cloud,cloud]}])});
+  await r.online();const before=r.app.snapshot().state;await r.say('添两朵大云');
+  assert.equal(r.app.snapshot().state,before);assert.equal(r.app.snapshot().visible.world.objects.length,0);assert.equal(r.app.snapshot().visible.memories.length,0);assert.equal(r.store.size,0);assert.equal(r.app.snapshot().revealing,false);
+  assert.equal(r.ids['request-error'].hidden,false);assert.match(r.ids['request-error-text'].textContent,/没有找到能安全放下/);assert.match(r.ids['request-error-text'].textContent,/缩小物件、换个位置/);assert.match(r.ids['request-error-text'].textContent,/没有保存或改变/);
+  assert.deepEqual(r.app.snapshot().lastFailure,{code:'invalid',rule:'PLACEMENT_CAPACITY'});assert.match(r.ids['developer-content'].textContent,/PLACEMENT_CAPACITY/);assert(!r.ids.transcript.textContent.includes(success));assert.equal(r.ids['reveal-announcement'].textContent,'');
 });
 test('manual retry and explicit offline fallback never happen automatically',async()=>{
   const r=setup({request:async()=>{throw {code:'network',message:'UNSAFE_DETAIL'};}});await r.online();await r.say('/新建 长椅');assert.equal(r.model.calls(),1);assert.equal(r.app.snapshot().visible.world.objects.length,0);assert(!r.ids['request-error-text'].textContent.includes('UNSAFE_DETAIL'));await r.ids['fallback-button'].emit('click');assert.equal(r.model.calls(),1);assert.equal(r.app.snapshot().mode,'offline');assert.equal(r.app.snapshot().visible.world.objects.length,1);assert(!r.model.connected());
@@ -195,30 +203,65 @@ test('clear and unsupported weather kinds never paint rain even while fading fro
   for(const kind of ['clear','unsupported']){const r=animatedRenderer();r.render.update(r.view([],{kind:'rain',intensity:2,paused:false}));r.step();r.run(80);assert(r.pixels().length>0);r.render.update(r.view([],{kind,intensity:2,paused:false}));assert.equal(r.pixels().length,0);for(let i=0;i<45;i++){r.step();assert.equal(r.pixels().length,0);}assert.equal(r.scheduled.size,0);}
 });
 
-function rulesOneSave(id='rain-lab',eventPlan){
-  const currentPack=packs.get(id);let state=runtime.create(currentPack);
-  if(eventPlan){const proposal=runtime.propose(state,{text:'测试旧规则记录'}),result=runtime.commit(state,proposal,eventPlan);assert(result.ok,JSON.stringify(result.error));state=result.state;}
-  const saved=JSON.parse(JSON.stringify(runtime.serialize(state)));saved.pack.rulesVersion='1';saved.pack.digest=id==='rain-lab'?'402db16c':'8dd7d018';return JSON.stringify(saved);
+function historicalSave(rulesVersion='1',id='rain-lab',eventPlan){
+  const digests={'rain-lab':{'1':'402db16c','2':'362c6f2f'},'lantern-lab':{'1':'8dd7d018','2':'36792093'}};
+  // Historical turns had neither a rulesVersion marker nor normalized placement policies.
+  const saved={schema:'her-world-save-v4',pack:{id,version:'1.0.0',rulesVersion,digest:digests[id][rulesVersion]},importedSnapshot:null,events:eventPlan?[{id:'event_1',type:'turn',input:'测试旧规则记录',plan:eventPlan}]:[]};
+  return JSON.stringify(saved,null,2)+'\n';
 }
-test('compatible rules migration backs up exact original bytes once before a rules-two save can overwrite them',async()=>{
-  const key='her-world.framework.v4:rain-lab:1.0.0',raw=rulesOneSave('rain-lab',plan(['旧版纸船。'],[{afterLine:0,operations:[addObject]}])),store=new Map([[key,raw]]),writes=[];
-  const r=setup({store,writes});assert.equal(r.app.snapshot().state.world.objects.length,1);assert.equal(r.app.snapshot().state.pack.rulesVersion,'2');const backups=[...store].filter(([k])=>k.includes(':backup:rules1:'));assert.equal(backups.length,1);assert.equal(backups[0][1],raw);assert.equal(store.get(key),raw);assert.match(r.ids['save-status'].textContent,/旧存档已备份/);
-  const again=setup({store,writes});assert.equal([...store.keys()].filter(k=>k.includes(':backup:rules1:')).length,1);assert.equal(writes.length,1);await again.offline();await again.say('/天气 恢复');assert.equal(JSON.parse(store.get(key)).pack.rulesVersion,'2');assert.equal(store.get(backups[0][0]),raw);assert.equal(writes[0].key,backups[0][0]);assert(writes.slice(1).some(w=>w.key===key));
+test('rules1 and rules2 migrations back up exact bytes once before a rules3 save can overwrite them',async()=>{
+  for(const version of ['1','2']){
+    const key='her-world.framework.v4:rain-lab:1.0.0',raw=historicalSave(version,'rain-lab',plan(['旧版纸船。'],[{afterLine:0,operations:[addObject]}])),store=new Map([[key,raw]]),writes=[];
+    const r=setup({store,writes});assert.equal(r.app.snapshot().state.world.objects.length,1);assert.equal(r.app.snapshot().state.pack.rulesVersion,'3');const backups=[...store].filter(([k])=>k.includes(':backup:rules'+version+':'));assert.equal(backups.length,1);assert.equal(backups[0][1],raw);assert.equal(store.get(key),raw);assert.match(r.ids['save-status'].textContent,/旧存档已备份/);
+    const again=setup({store,writes});assert.equal([...store.keys()].filter(k=>k.includes(':backup:')).length,1);assert.equal(writes.length,1);await again.offline();await again.say('/天气 恢复');assert.equal(JSON.parse(store.get(key)).pack.rulesVersion,'3');assert.equal(store.get(backups[0][0]),raw);assert.equal(writes[0].key,backups[0][0]);assert(writes.slice(1).some(w=>w.key===key));
+  }
 });
 test('failed or unverified migration backup keeps the original save protected through new turns and panel observations',async()=>{
-  const key='her-world.framework.v4:rain-lab:1.0.0',raw=rulesOneSave();
-  for(const fault of ['throw','drop']){
-    const store=new Map([[key,raw]]),r=setup({store,...(fault==='throw'?{writeFails:k=>k.includes(':backup:')}:{dropWrites:k=>k.includes(':backup:')})});assert.equal(r.app.snapshot().state.pack.rulesVersion,'2');assert.match(r.ids['save-status'].textContent,/备份失败/);await r.offline();await r.ids['tab-logs'].emit('click');await r.say('/新建 长椅');assert.equal(store.get(key),raw);assert.equal(r.app.snapshot().state.world.objects.length,1);assert.match(r.ids['save-status'].textContent,/本页未保存/);
+  const key='her-world.framework.v4:rain-lab:1.0.0';
+  for(const version of ['1','2'])for(const fault of ['throw','drop']){
+    const raw=historicalSave(version),store=new Map([[key,raw]]),r=setup({store,...(fault==='throw'?{writeFails:k=>k.includes(':backup:')}:{dropWrites:k=>k.includes(':backup:')})});assert.equal(r.app.snapshot().state.pack.rulesVersion,'3');assert.match(r.ids['save-status'].textContent,/备份失败/);await r.offline();await r.ids['tab-logs'].emit('click');await r.say('/新建 长椅');assert.equal(store.get(key),raw);assert.equal(r.app.snapshot().state.world.objects.length,1);assert.match(r.ids['save-status'].textContent,/本页未保存/);
   }
 });
 test('a conflicting deterministic migration backup is never replaced or used to authorize overwrite',async()=>{
-  const key='her-world.framework.v4:rain-lab:1.0.0',raw=rulesOneSave(),first=setup({store:new Map([[key,raw]])}),backupKey=[...first.store.keys()].find(k=>k.includes(':backup:'));
-  const store=new Map([[key,raw],[backupKey,'different existing original']]),r=setup({store});await r.offline();await r.say('/新建 长椅');assert.equal(store.get(key),raw);assert.equal(store.get(backupKey),'different existing original');assert.match(r.ids['save-status'].textContent,/备份失败/);
+  for(const version of ['1','2']){
+    const key='her-world.framework.v4:rain-lab:1.0.0',raw=historicalSave(version),first=setup({store:new Map([[key,raw]])}),backupKey=[...first.store.keys()].find(k=>k.includes(':backup:'));
+    assert(backupKey);const store=new Map([[key,raw],[backupKey,'different existing original']]),r=setup({store});await r.offline();await r.say('/新建 长椅');assert.equal(store.get(key),raw);assert.equal(store.get(backupKey),'different existing original');assert.match(r.ids['save-status'].textContent,/备份失败/);
+  }
 });
 
 test('the second fixture also migrates into its own verified backup without touching the first fixture',async()=>{
-  const key='her-world.framework.v4:lantern-lab:1.0.0',other='her-world.framework.v4:rain-lab:1.0.0',raw=rulesOneSave('lantern-lab'),store=new Map([[key,raw],[other,'first fixture remains untouched']]);
-  const r=setup({store,search:'?pack=lantern-lab'});assert.equal(r.app.snapshot().state.pack.rulesVersion,'2');const backup=[...store.entries()].find(([k])=>k.startsWith(key+':backup:'));assert(backup);assert.equal(backup[1],raw);await r.offline();await r.say('/新建 长椅');assert.equal(JSON.parse(store.get(key)).pack.rulesVersion,'2');assert.equal(store.get(other),'first fixture remains untouched');
+  for(const version of ['1','2']){
+    const key='her-world.framework.v4:lantern-lab:1.0.0',other='her-world.framework.v4:rain-lab:1.0.0',raw=historicalSave(version,'lantern-lab'),store=new Map([[key,raw],[other,'first fixture remains untouched']]);
+    const r=setup({store,search:'?pack=lantern-lab'});assert.equal(r.app.snapshot().state.pack.rulesVersion,'3');const backup=[...store.entries()].find(([k])=>k.startsWith(key+':backup:rules'+version+':'));assert(backup);assert.equal(backup[1],raw);await r.offline();await r.say('/新建 长椅');assert.equal(JSON.parse(store.get(key)).pack.rulesVersion,'3');assert.equal(store.get(other),'first fixture remains untouched');
+  }
+});
+test('rules2 overlapping clouds retain their exact history while the next saved turn uses rules3 placement',async()=>{
+  const cloud={type:'world.create',object:{label:'云',glyphs:' (____)\n(______)',scale:1},placement:{anchor:'sky'}};
+  const oldPlan=plan(['原来的两朵云。'],[{afterLine:0,operations:[cloud,cloud]}]),raw=historicalSave('2','rain-lab',oldPlan),key='her-world.framework.v4:rain-lab:1.0.0',store=new Map([[key,raw]]);
+  const r=setup({store,request:async()=>plan(['又添了一朵云。'],[{afterLine:0,operations:[cloud]}])}),original=r.app.snapshot().state.world.objects;
+  assert.equal(original.length,2);assert.equal(original[0].x,original[1].x);assert.equal(original[0].y,original[1].y);assert.deepEqual(r.app.snapshot().state.events[0].plan,oldPlan);assert.equal(r.app.snapshot().state.events[0].rulesVersion,'2');
+  const backup=[...store].find(([k])=>k.includes(':backup:rules2:'));assert(backup);assert.equal(backup[1],raw);assert.equal(store.get(key),raw);
+  await r.online();await r.say('再添一朵云');const state=r.app.snapshot().state;
+  assert.equal(state.world.objects.length,3);assert.deepEqual(state.world.objects.slice(0,2),original);const newest=state.world.objects[2];assert(original.every(old=>newest.x>=old.x+8||newest.x+8<=old.x||newest.y>=old.y+2||newest.y+2<=old.y));
+  const saved=JSON.parse(store.get(key));assert.equal(saved.pack.rulesVersion,'3');assert.equal(saved.events[0].rulesVersion,'2');assert.equal(saved.events.at(-1).rulesVersion,'3');assert.deepEqual(saved.events[0].plan,oldPlan);assert.equal(store.get(backup[0]),raw);
+  const refreshed=setup({store});assert.deepEqual(refreshed.app.snapshot().state,state);assert.equal([...store.keys()].filter(k=>k.includes(':backup:')).length,1);assert.equal(refreshed.model.calls(),0);
+});
+test('unrecognized migration metadata cannot create a backup or allow the original save to be overwritten',async()=>{
+  const key='her-world.framework.v4:rain-lab:1.0.0',raw=historicalSave('2');
+  const changes=[{type:'unknown-migration'},{fromRulesVersion:'1'},{toRulesVersion:'2'},{fromPackDigest:'00000000'},{toPackDigest:'00000000'},{extra:'unexpected'}];
+  for(const change of changes){
+    const wrapped={...runtime,restore(raw,pack){const result=runtime.restore(raw,pack);assert(result.ok);return {...result,migration:{...result.migration,...change}};}},store=new Map([[key,raw]]),r=setup({store,runtime:wrapped});
+    assert.match(r.ids['save-status'].textContent,/备份失败/);await r.offline();await r.say('/新建 长椅');assert.equal(store.get(key),raw);assert.equal(store.size,1);assert.equal(r.app.snapshot().state.world.objects.length,1);assert.match(r.ids['save-status'].textContent,/本页未保存/);
+  }
+});
+test('failed migration validation preserves the original storage key while a fresh page remains usable',async()=>{
+  const key='her-world.framework.v4:rain-lab:1.0.0';
+  for(const invalid of ['digest','event-marker']){
+    const saved=JSON.parse(historicalSave('2','rain-lab',plan(['旧物件。'],[{afterLine:0,operations:[addObject]}])));
+    if(invalid==='digest')saved.pack.digest='00000000';else saved.events[0].rulesVersion='3';
+    const raw=JSON.stringify(saved),store=new Map([[key,raw]]),r=setup({store});assert.equal(r.app.snapshot().state.world.objects.length,0);assert.match(r.ids['save-status'].textContent,/原存档已保护/);
+    await r.offline();await r.ids['tab-logs'].emit('click');await r.say('/新建 长椅');assert.equal(r.app.snapshot().state.world.objects.length,1);assert.equal(store.get(key),raw);assert.equal(store.size,1);assert.match(r.ids['save-status'].textContent,/本页未保存/);
+  }
 });
 
 test('completed reply announcements clear on pack load and confirmed reset without changing the previous pack transcript',async()=>{

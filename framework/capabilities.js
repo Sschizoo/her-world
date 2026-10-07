@@ -18,12 +18,14 @@
   ] });
   const createPlacement = placementSchema(['sky', 'ground']);
   const placement = placementSchema(['sky', 'ground', 'keep_center', 'keep_base']);
+  const placementPolicy = enumeration(['auto', 'exact']);
+  const allowOverlap = { type: 'boolean' };
   const shape = { label: text(40), glyphs: text(249), x: integer(0, 99), y: integer(0, 59), scale: integer(1, 3) };
   const weatherKinds = ['rain', 'snow', 'mist', 'clear'];
   const weather = { kind: enumeration(weatherKinds), name: text(40), intensity: integer(0, 3), paused: { type: 'boolean' } };
   const definitions = [
-    ['world.create', 'Create one original printable ASCII object (24 columns by 10 rows, scale 1..3, grid 100x60, maximum world.capacity objects); label and glyphs may be creatively derived. Use both integer x/y or top-level placement, never both. Sky and ground accept anchor only and need the named landmark in world.landmarks. Window anchors need the window landmark and accept optional gap 0..10 (default 2), never target. Relative anchors require an existing object or landmark target and accept optional gap 0..10 (default 2). Entire footprint must fit the grid. IDs and provenance are assigned locally.', { object: record(shape, ['label', 'glyphs', 'scale']), placement: createPlacement, evidence }, ['object', 'evidence']],
-    ['world.update', 'Edit an existing object by stable ID, preserving printable ASCII <=24 columns by10 rows and a footprint inside100x60. Use nonempty changes without placement, or visual changes plus placement without x/y. Fixed window anchors accept optional gap 0..10 (default 2), never target; relative anchors require target and allow the same gap. Sky, ground, keep_center and keep_base accept anchor only. Keep modes require an existing object and preserve its resize anchor.', { target, changes: record(shape, []), placement, evidence }, ['target', 'changes', 'evidence']],
+    ['world.create', 'Create one original printable ASCII object (24 columns by 10 rows, scale 1..3, grid 100x60, maximum world.capacity objects); label and glyphs may be creatively derived. Use both integer x/y or top-level placement, never both. Sky and ground accept anchor only and need the named landmark in world.landmarks. Window anchors need the window landmark and accept optional gap 0..10 (default 2), never target. Relative anchors require an existing object or landmark target and accept optional gap 0..10 (default 2). Entire scaled glyph rectangle, including spaces, must fit the grid. placementPolicy defaults to auto: numeric x/y are preferred coordinates; search first along that row, then nearest remaining point (squared distance, ties y then x), avoiding every other object, including earlier operations this turn. Sky stays inside its rectangle; ground keeps its baseline and width; window/relative anchors keep the exact side/gap axis and search only the other axis. Auto creations in the same turn try that preferred layout, then a left-boundary-packed layout, then a bounded joint search so earlier uncommitted creations may be repositioned before any line is shown; existing or saved objects never move. exact preserves the chosen position and rejects overlap; allowOverlap:true requires exact and is only for a player explicitly requesting overlap. No free position rejects the entire turn. Do not promise a specific auto position in dialogue. IDs and provenance are assigned locally.', { object: record(shape, ['label', 'glyphs', 'scale']), placement: createPlacement, placementPolicy, allowOverlap, evidence }, ['object', 'evidence']],
+    ['world.update', 'Edit an existing object by stable ID, preserving printable ASCII <=24 columns by10 rows and a footprint inside100x60. Use nonempty changes without placement, or visual changes plus placement without x/y. Fixed window anchors accept optional gap 0..10 (default 2), never target; relative anchors require target and allow the same gap. Sky, ground, keep_center and keep_base accept anchor only. Keep modes require an existing object, preserve its resize anchor exactly and fail if blocked. placementPolicy defaults to auto with the same collision search and anchor constraints as world.create; the edited object’s old footprint is excluded. Only this object moves. An edit with no placement or coordinates and unchanged footprint preserves position, including historical overlap. exact preserves requested coordinates; allowOverlap:true requires exact and an explicit player request to overlap. Failed placement rejects the entire turn. Do not promise a specific auto position in dialogue.', { target, changes: record(shape, []), placement, placementPolicy, allowOverlap, evidence }, ['target', 'changes', 'evidence']],
     ['world.remove', 'Remove an existing object and its annotations.', { target, evidence }],
     ['world.annotate', 'Set or clear a user meaning (maximum120 characters) or the fictional character interpretation independently; never combine these fields.', { target, field: enumeration(['meaning', 'interpretation']), value: { anyOf: [text(120), { type: 'null' }] }, evidence }],
     ['weather.set', 'Change rendered weather: kind is rain, snow, mist, or clear only. Clear has no particles and requires intensity 0. Setting kind clear without intensity resets it to 0; an explicitly positive intensity with clear is invalid, including when clear is already current. Other kinds retain their current intensity unless supplied.', { changes: record(weather, [], { minProperties: 1 }), evidence }],
@@ -48,11 +50,16 @@
       { properties: { placement: false, changes: { minProperties: 1 } } },
       { required: ['placement'], properties: { changes: record(visualShape, []) } }
     ];
+    if (id === 'world.create' || id === 'world.update') schema.allOf = [{ anyOf: [
+      { properties: { allowOverlap: { const: false } } },
+      { required: ['placementPolicy'], properties: { placementPolicy: { const: 'exact' } } }
+    ] }];
     return [id, freeze({ id, description, schema })];
   }));
   const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value));
   function matches(value, schema) {
     if (typeof schema === 'boolean') return schema;
+    if (schema.allOf && !schema.allOf.every(candidate => matches(value, candidate))) return false;
     if (schema.anyOf && !schema.anyOf.some(candidate => matches(value, candidate))) return false;
     if ('const' in schema && value !== schema.const) return false;
     if (schema.enum && !schema.enum.includes(value)) return false;
@@ -79,5 +86,5 @@
     return [...encoded].reduce((total, character) => { const point = character.codePointAt(0); return total + (point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4); }, 0);
   }
 
-  return freeze({ SCHEMA: 'her-world-turn-v2', RULES_VERSION: '2', weatherKinds, ids: Object.keys(registry), panels, descriptors, validate, modelDefinition, requestContextBytes });
+  return freeze({ SCHEMA: 'her-world-turn-v2', RULES_VERSION: '3', weatherKinds, ids: Object.keys(registry), panels, descriptors, validate, modelDefinition, requestContextBytes });
 });
