@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0a141a">
+  <meta name="description" content="她的世界：由对话共同改变的字符世界。独立框架试验场。">
+  <title>她的世界 · 对话试验场</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./framework/styles.css">
+  <script src="./framework/capabilities.js" defer></script>
+  <script src="./framework/pack-validator.js" defer></script>
+  <script src="./framework/runtime.js" defer></script>
+  <script src="./framework/packs.js" defer></script>
+  <script src="./framework/model.js" defer></script>
+  <script src="./framework/offline.js" defer></script>
+  <script src="./framework/focus.js" defer></script>
+  <script src="./framework/legacy/v0.5.4/story.js" defer></script>
+  <script src="./framework/legacy/v0.5.4/world-state.js" defer></script>
+  <script src="./framework/legacy/v0.5.4/turn-protocol.js" defer></script>
+  <script src="./framework/legacy/v0.5.4/engine.js" defer></script>
+  <script src="./framework/legacy-adapter.js" defer></script>
+  <script src="./framework/renderer.js" defer></script>
+  <script src="./framework/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#free-input">跳到对话输入</a>
+  <main class="app" id="framework-app">
+    <header class="topbar">
+      <a class="brand" href="./framework.html"><span class="status-light" aria-hidden="true"></span>她的世界 <span class="brand-divider">/</span><span class="brand-en">HER WORLD</span></a>
+      <div class="top-actions"><label class="sr-only" for="pack-select">选择独立试验场</label><select id="pack-select"></select><button id="motion-toggle" class="quiet-button" aria-pressed="false" title="立即显示文字">逐句显示</button><button id="developer-toggle" class="quiet-button" aria-expanded="false" aria-controls="developer-view">开发视图</button></div>
+    </header>
+    <div class="workspace">
+      <section class="conversation" aria-label="与她对话">
+        <div class="section-label"><span><i></i> <span id="connection-label">WAITING FOR YOU</span></span><span>CONVERSATION LAB / v4</span></div>
+        <div class="intro" id="intro"><div class="eyebrow" id="intro-eyebrow">一个可以一起改变的世界</div><h1 id="intro-title">从一句话开始<span class="cursor">_</span></h1><p id="intro-copy">说说你想看见的东西。她会试着理解，你们也可以继续修改它。</p><div class="boot-lines"><span>&gt; world.init()</span><span>&gt; listening for your words</span><span class="amber">&gt; you are here.</span></div><button class="start-button" id="start-button">选择连接方式 <span aria-hidden="true">↗</span></button></div>
+        <div class="transcript" id="transcript" role="log" aria-live="off" aria-label="已经发生的对话" tabindex="0"></div>
+        <div class="reveal-controls" id="reveal-controls" hidden><span id="reveal-status"></span><button id="skip-reveal">显示本句 <kbd>Space</kbd></button></div>
+        <div class="sr-only" id="reveal-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div class="response-area">
+          <div class="story-invitation" id="story-invitation" hidden><span class="invitation-label">也可以一起试试</span><p id="invitation-question"></p><span class="invitation-note">可以回答，也可以先聊别的</span></div>
+          <form class="free-form" id="free-form"><label class="sr-only" for="free-input">用自己的话回应，最多 200 个字</label><input id="free-input" type="text" maxlength="400" autocomplete="off" placeholder="把想到的东西，告诉她…" aria-describedby="input-note"><button id="free-send" type="submit" aria-label="发送">↗</button></form>
+          <div class="hint-list" id="hint-list" aria-label="只填入输入框的对话提示"></div><button id="offline-help-button" class="offline-help-button" hidden>全部离线功能示例 ↗</button><p class="input-note" id="input-note"></p>
+          <div class="request-error" id="request-error" role="alert" hidden><p id="request-error-text"></p><div><button id="retry-button">手动重试</button><button id="fallback-button">用离线规则重试</button><button id="cancel-request-button">取消</button></div></div>
+          <button class="cancel-pending" id="cancel-pending" hidden>取消等待</button>
+        </div>
+      </section>
+      <section class="world" aria-label="共同改变的字符世界">
+        <div class="world-title"><h2>她正在理解的世界</h2><span>// A WORLD SHE IS LEARNING</span></div>
+        <div class="world-art"><canvas id="world-canvas" aria-hidden="true"></canvas><div class="world-index"><span id="world-pack-label">WORLD / 001</span><br><span id="world-status">awaiting words</span></div><div class="world-caption"><span id="world-caption">这里，留着你们说过的话</span><span class="caption-line"></span></div></div>
+        <div class="world-footer"><span id="world-code">const world = await you;</span><span id="weather-status">WEATHER / CLEAR</span></div>
+      </section>
+    </div>
+    <section class="inspector" aria-label="已经发生的变化">
+      <div class="tabbar" role="tablist" aria-label="世界记录">
+        <button class="tab active" id="tab-world" role="tab" aria-selected="true" aria-controls="panel-world" data-panel="world">世界 <span id="object-count">00</span></button>
+        <button class="tab" id="tab-memory" role="tab" aria-selected="false" aria-controls="panel-memory" data-panel="memory" tabindex="-1">记忆 <span id="memory-count">00</span></button>
+        <button class="tab" id="tab-focus" role="tab" aria-selected="false" aria-controls="panel-focus" data-panel="focus" tabindex="-1">关注与角色</button>
+        <button class="tab" id="tab-logs" role="tab" aria-selected="false" aria-controls="panel-logs" data-panel="logs" tabindex="-1">运行记录 <span id="log-count">00</span></button>
+        <span class="panel-note" id="panel-note">变化跟随她说到的那一句</span>
+      </div>
+      <div class="inspector-body">
+        <div id="panel-world" class="panel" role="tabpanel" aria-labelledby="tab-world" tabindex="0"><div class="world-summary" id="world-summary"></div><div class="cards" id="objects-list"></div></div>
+        <div id="panel-memory" class="panel" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" hidden><div class="cards" id="memory-list"></div></div>
+        <div id="panel-focus" class="panel focus-panel" role="tabpanel" aria-labelledby="tab-focus" tabindex="0" hidden><div class="focus-column"><div class="trace-title">conversation focus <span>游戏内内容统计</span></div><div id="focus-bars"></div><p class="muted small">由已经显示的对话与事件计算，不代表模型内部注意力</p></div><div class="character-column" id="character-summary"></div></div>
+        <div id="panel-logs" class="panel" role="tabpanel" aria-labelledby="tab-logs" tabindex="0" hidden><div id="log-list"></div></div>
+      </div>
+    </section>
+    <footer class="statusbar"><button id="connection-button">未连接 · 选择试玩模式</button><div><button id="legacy-import-button" hidden>复制旧序章记录</button><button id="reset-button">重新开始当前试验场</button><span id="save-status">LOCAL SAVE</span></div></footer>
+    <section class="developer-view" id="developer-view" aria-label="已验证状态诊断" hidden><div class="developer-title">已验证状态 <button id="developer-close" aria-label="关闭开发视图">×</button></div><pre id="developer-content"></pre><p>角色、关系与关注均为游戏内容。此处不显示访问密码、模型原始响应或思维过程。</p></section>
+  </main>
+  <dialog id="connect-dialog" aria-labelledby="connect-title"><button class="dialog-close" data-close="connect-dialog" aria-label="关闭">×</button><div class="eyebrow">CONNECTION / 连接方式</div><h2 id="connect-title">让她回应，或者先试着造一个世界。</h2><p>在线模式会把本局对话、世界、记忆及来源，经专用 VPS 转发服务器 216.235.248.104 发送给 DMXAPI，使用 glm-5.3-flash。每次发送发起一次模型请求，可能产生费用；不会自动重试。</p><form id="connect-form" autocomplete="off"><label for="api-key">转发访问密码</label><input id="api-key" name="her-world-framework-volatile" type="password" autocomplete="off" spellcheck="false" maxlength="500" placeholder="由你亲自输入" aria-describedby="key-note"><p class="muted" id="key-note">密码只发送给上述 VPS 用于验证，不是 DMXAPI Key。不写入本地存储、网址或日志；刷新、离开或断开后需重新输入。</p><button class="start-button" type="submit" id="connect-button">连接在线模式 <span>↗</span></button></form><p id="connection-error" role="alert" hidden></p><div class="dialog-actions"><button class="secondary-button" id="offline-button">选择离线规则试玩</button><button class="secondary-button" id="disconnect-button" hidden>断开并清除访问密码</button></div><p class="muted small">离线模式只理解有限的测试表达，会明确告知没有识别的内容。两种模式都经相同规则校验；只有通过的变化才会保存。</p></dialog>
+  <dialog id="reset-dialog" aria-labelledby="reset-title"><div class="eyebrow">RESET / CURRENT LAB</div><h2 id="reset-title">从这里重新开始？</h2><p id="reset-copy"></p><div class="dialog-actions"><button class="secondary-button" data-close="reset-dialog">留在这里</button><button class="start-button" id="confirm-reset">确认重新开始</button></div></dialog>
+  <dialog id="legacy-dialog" aria-labelledby="legacy-title"><div class="eyebrow">IMPORT / KEEP THE ORIGINAL</div><h2 id="legacy-title">把旧序章记录复制到这里？</h2><p id="legacy-summary"></p><p>确认后会替换当前“雨与记忆”试验场的框架进度。旧序章存档保持原样；连接密码不会复制。内容包里的新问题需要重新确认。</p><div class="dialog-actions"><button class="secondary-button" data-close="legacy-dialog">取消</button><button class="start-button" id="confirm-legacy-import">确认复制</button></div></dialog>
+  <dialog id="offline-help-dialog" aria-labelledby="offline-help-title"><button class="dialog-close" data-close="offline-help-dialog" aria-label="关闭">×</button><div class="eyebrow">OFFLINE / TRY SOMETHING</div><h2 id="offline-help-title">挑一个例子，改成你的想法。</h2><p>离线模式支持这些明确表达。点击只会填入对话框；可以修改后再发送。物件编号可以在世界面板找到。</p><div class="offline-examples" id="offline-examples"></div></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <noscript><p>这段互动需要 JavaScript。</p></noscript>
+</body>
+</html>
