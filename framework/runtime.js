@@ -16,7 +16,7 @@
   const freeze = value => { if (value && typeof value === 'object' && !Object.isFrozen(value)) { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
   const states = new WeakSet(), proposals = new WeakMap();
   const metadata = pack => ({ id: pack.id, version: pack.version, rulesVersion: pack.rulesVersion });
-  const fail = (code, path = '$') => ({ ok: false, error: { code, path } });
+  const fail = (code, path = '$', diagnostic) => ({ ok: false, error: { code, path, ...(diagnostic ? { diagnostic } : {}) } });
   const assert = (condition, code, path = '$') => { if (!condition) { const error = new Error(code); error.code = code; error.path = path; throw error; } };
   // Stable content binding is a corruption check, not an authentication signature.
   function stable(value) { return Array.isArray(value) ? '[' + value.map(stable).join(',') + ']' : plain(value) ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}' : JSON.stringify(value); }
@@ -378,6 +378,15 @@
     return fail('PLACEMENT_CAPACITY');
   }
   function executeAttempt(state, input, plan, rulesVersion, search, replay) {
+    // Only local reason tokens and validated array coordinates enter diagnostics.
+    // Keep the legacy error code/path and the validation order unchanged.
+    let diagnostic;
+    const checkBeat = (condition, reason, path, beatIndex) => {
+      if (!condition) {
+        diagnostic = { stage: 'RUNTIME', reason, path, ...(beatIndex === undefined ? {} : { beatIndex }) };
+        assert(false, 'BEATS_INVALID');
+      }
+    };
     try {
       assert(['2', '3', '4'].includes(rulesVersion), 'EVENT_INVALID');
       assert(state.events.length < MAX_EVENTS, 'EVENT_CAPACITY');
@@ -386,10 +395,17 @@
       assert(validOutput(plan), 'PROTOCOL_TEXT');
       assert(Array.isArray(plan.lines) && plan.lines.length >= 1 && plan.lines.length <= 4 && plan.lines.every(line => safeText(line, 500)), 'LINES_INVALID');
       assert(plan.topic === null || state.pack.topics.some(topic => topic.id === plan.topic), 'TOPIC_INVALID');
-      assert(Array.isArray(plan.beats) && plan.beats.length <= 4, 'BEATS_INVALID');
+      checkBeat(Array.isArray(plan.beats), 'BEATS_ARRAY_REQUIRED', 'beats');
+      checkBeat(plan.beats.length <= 4, 'BEATS_LIMIT', 'beats');
       const lines = new Set(); let count = 0, last = -1;
-      for (const beat of plan.beats) {
-        assert(fields(beat, ['afterLine', 'operations']) && Number.isInteger(beat.afterLine) && beat.afterLine >= 0 && beat.afterLine < plan.lines.length && beat.afterLine > last && !lines.has(beat.afterLine) && Array.isArray(beat.operations) && beat.operations.length > 0, 'BEATS_INVALID');
+      for (let beatIndex = 0; beatIndex < plan.beats.length; beatIndex++) {
+        const beat = plan.beats[beatIndex], path = 'beats[' + beatIndex + ']';
+        checkBeat(fields(beat, ['afterLine', 'operations']), 'BEAT_FIELDS', path, beatIndex);
+        checkBeat(Number.isInteger(beat.afterLine), 'BEAT_LINE_INTEGER', path + '.afterLine', beatIndex);
+        checkBeat(beat.afterLine >= 0 && beat.afterLine < plan.lines.length, 'BEAT_LINE_RANGE', path + '.afterLine', beatIndex);
+        checkBeat(beat.afterLine > last && !lines.has(beat.afterLine), 'BEAT_LINE_ORDER', path + '.afterLine', beatIndex);
+        checkBeat(Array.isArray(beat.operations), 'BEAT_OPERATIONS_ARRAY', path + '.operations', beatIndex);
+        checkBeat(beat.operations.length > 0, 'BEAT_OPERATIONS_EMPTY', path + '.operations', beatIndex);
         lines.add(beat.afterLine); last = beat.afterLine; count += beat.operations.length;
       }
       assert(count <= MAX_OPERATIONS, 'OPERATION_CAPACITY');
@@ -416,12 +432,23 @@
           const operations = [];
           const storedBeat = event.plan.beats.find(candidate => candidate.afterLine === index);
           for (let operationIndex = 0; operationIndex < beat.operations.length; operationIndex++) {
-            const op = resolveMemoryOperation(beat.operations[operationIndex], next, rulesVersion, replay, env.exposedHandles), previous = op.type === 'world.update' ? next.world.objects.find(item => item.id === op.target) : null;
-            const requestedPanel = apply(next, op, env);
-            env.operationIndex++;
-            if (requestedPanel) panel = requestedPanel;
-            if (rulesVersion !== '2') storedBeat.operations[operationIndex] = normalizeGeometry(op, next, previous);
-            operations.push(op.type);
+            try {
+              const op = resolveMemoryOperation(beat.operations[operationIndex], next, rulesVersion, replay, env.exposedHandles), previous = op.type === 'world.update' ? next.world.objects.find(item => item.id === op.target) : null;
+              const requestedPanel = apply(next, op, env);
+              env.operationIndex++;
+              if (requestedPanel) panel = requestedPanel;
+              if (rulesVersion !== '2') storedBeat.operations[operationIndex] = normalizeGeometry(op, next, previous);
+              operations.push(op.type);
+            } catch (error) {
+              const beatIndex = plan.beats.indexOf(beat), op = beat.operations[operationIndex];
+              diagnostic = { stage: 'RUNTIME', reason: 'OPERATION_REJECTED', path: 'beats[' + beatIndex + '].operations[' + operationIndex + ']', beatIndex, operationIndex };
+              if (typeof op?.type === 'string' && CAPS.ids.includes(op.type)) diagnostic.operationType = op.type;
+              if (error.code === 'EVIDENCE_INVALID') {
+                diagnostic.reason = typeof op?.evidence === 'string' && input.includes(op.evidence) ? 'EVIDENCE_INPUT_EXCERPT' : 'EVIDENCE_INPUT_MISMATCH';
+                diagnostic.path += '.evidence';
+              }
+              throw error;
+            }
           }
           const nonPanels = operations.filter(type => type !== 'panel.open');
           if (nonPanels.length) next.focus = { source: source(eventId, input), operations: nonPanels };
@@ -435,7 +462,7 @@
       frames[frames.length - 1] = projection(next, panel);
       makeContext(next);
       return { ok: true, state: seal(next), frames: freeze(frames), lines: freeze(copy(plan.lines)) };
-    } catch (error) { return fail(error.code || 'PLAN_INVALID', error.path || '$'); }
+    } catch (error) { return fail(error.code || 'PLAN_INVALID', error.path || '$', diagnostic); }
   }
   function commit(state, candidate, plan) {
     if (!states.has(state)) return fail('STATE_INVALID');

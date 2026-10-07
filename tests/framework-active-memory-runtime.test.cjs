@@ -236,7 +236,11 @@ test('only the final byte-budgeted retrieval projection contributes direct depen
   const next = turn(state, '现在换个心情', [{ type: 'character.update', changes: { mood: '平静' } }]);
   const record = next.recall.records[next.recall.bindings[M.recordIds.character('mood')]];
   assert.deepEqual([...record.dependencies].sort(), expected.sort());
-  assert.ok(trimmed.every(id => !record.dependencies.includes(id)));
+  // Interned sibling lines from one turn may share a node. A retained sibling
+  // legitimately retains that provenance, without exposing the trimmed text.
+  const exclusivelyTrimmed = trimmed.filter(id => !expected.includes(id));
+  assert.ok(exclusivelyTrimmed.length > 0, 'fixture must omit at least one distinct provenance node');
+  assert.ok(exclusivelyTrimmed.every(id => !record.dependencies.includes(id)));
   assert.ok(CAPS.requestContextBytes(R.context(next)) <= R.constants.MAX_CONTEXT_BYTES);
   roundTrip(next);
 });

@@ -22,8 +22,36 @@
   });
   const DIAGNOSTIC_STAGES = new Set(['LOCAL_CONTEXT', 'REQUEST', 'NETWORK', 'HTTP', 'RESPONSE_READ', 'ENVELOPE', 'FINAL_CONTENT', 'JSON', 'CANCELLED']);
   const DIAGNOSTIC_CODES = new Set(['CONTEXT_INVALID', 'INPUT_INVALID', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE', 'ROOT_INVALID', 'PAYLOAD_REQUIRED', 'PAYLOAD_MIXED', 'OUTPUT_UNSAFE', 'JSON_SYNTAX', 'JSON_BAD_ESCAPE', 'JSON_CONTROL_CHARACTER', 'JSON_UNTERMINATED', 'JSON_TRAILING_CONTENT', 'JSON_DUPLICATE_KEY']);
+  ['TURN_ROOT_FIELDS', 'TURN_LINES_INVALID', 'TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT'].forEach(code => DIAGNOSTIC_CODES.add(code));
   const DIAGNOSTIC_PATHS = new Set(['context', 'input', 'request', 'response', 'content', 'root']);
   const OP_LABELS = Object.freeze({ 'world.create': '新增物件', 'world.update': '修改物件', 'world.remove': '移除物件', 'world.annotate': '更新注解', 'weather.set': '改变天气', 'memory.upsert': '写入记忆', 'memory.remove': '移除记忆', 'story.answer': '记录回答', 'story.defer': '暂放问题', 'character.update': '更新角色状态', 'log.note': '记录想法', 'panel.open': '打开面板' });
+  function runtimeDiagnostic(detail, rule) {
+    if (!detail || detail.stage !== 'RUNTIME' || !RUNTIME_CODES.has(rule)) return null;
+    let path;
+    const result = { stage: 'RUNTIME' };
+    if (rule === 'BEATS_INVALID' && ['BEATS_ARRAY_REQUIRED', 'BEATS_LIMIT'].includes(detail.reason)) path = 'beats';
+    else {
+      if (!Number.isInteger(detail.beatIndex) || detail.beatIndex < 0 || detail.beatIndex > 3) return null;
+      result.beatIndex = detail.beatIndex;
+      path = 'beats[' + detail.beatIndex + ']';
+      if (rule === 'BEATS_INVALID') {
+        if (detail.reason === 'BEAT_FIELDS') { /* The whole beat shape failed. */ }
+        else if (['BEAT_LINE_INTEGER', 'BEAT_LINE_RANGE', 'BEAT_LINE_ORDER'].includes(detail.reason)) path += '.afterLine';
+        else if (['BEAT_OPERATIONS_ARRAY', 'BEAT_OPERATIONS_EMPTY'].includes(detail.reason)) path += '.operations';
+        else return null;
+      } else {
+        if (!Number.isInteger(detail.operationIndex) || detail.operationIndex < 0 || detail.operationIndex > 11) return null;
+        result.operationIndex = detail.operationIndex;
+        path += '.operations[' + detail.operationIndex + ']';
+        if (rule === 'EVIDENCE_INVALID' && ['EVIDENCE_INPUT_EXCERPT', 'EVIDENCE_INPUT_MISMATCH'].includes(detail.reason)) path += '.evidence';
+        else if (detail.reason !== 'OPERATION_REJECTED') return null;
+        if (typeof detail.operationType === 'string' && Object.prototype.hasOwnProperty.call(OP_LABELS, detail.operationType)) result.operationType = detail.operationType;
+      }
+    }
+    // Rebuild the display object; never copy model/provider metadata wholesale.
+    if (typeof detail.path !== 'string' || detail.path !== path) return null;
+    return { ...result, reason: detail.reason, path };
+  }
   function list(value) { return Array.isArray(value) ? value : value && typeof value === 'object' ? Object.values(value) : []; }
   function string(value, fallback) { return typeof value === 'string' || typeof value === 'number' ? String(value) : fallback || ''; }
   function source(value) { return value && typeof value === 'object' ? string(value.text) : string(value); }
@@ -290,7 +318,10 @@
         lastFailure.stage = detail.stage;
         if (DIAGNOSTIC_CODES.has(detail.code)) lastFailure.detail = detail.code;
         if (DIAGNOSTIC_PATHS.has(detail.path)) lastFailure.path = detail.path;
+        if (detail.stage === 'JSON' && detail.path === 'content' && ['TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT'].includes(detail.code) && Number.isInteger(detail.rowIndex) && detail.rowIndex >= 0 && detail.rowIndex <= 3) lastFailure.rowIndex = detail.rowIndex;
       }
+      const runtimeDetail = runtimeDiagnostic(detail, lastFailure.rule);
+      if (runtimeDetail) Object.assign(lastFailure, runtimeDetail);
       const explanation = lastFailure.rule === 'PLACEMENT_CAPACITY' ? '这次没有找到能安全放下这些物件的位置。可以缩小物件、换个位置，或先移走一些物件再试。' : lastFailure.rule === 'MEMORY_HANDLE_INVALID' ? '这个记忆引用已失效或不在当前列表中。请查看下方记忆面板，使用那条记录现在显示的引用编号。' : FAILURES[code];
       return (lastFailure.httpStatus ? 'HTTP ' + lastFailure.httpStatus + ' · ' : '') + explanation;
     }
@@ -369,7 +400,7 @@
         const plan = mode === 'online' ? await model.request({ context, input, signal: controller && controller.signal }) : await offline.respond(context, input);
         if (!pending || token !== generation || state !== base) return false;
         const result = runtime.commit(base, proposal, plan);
-        if (!result.ok) throw { code: 'invalid', ruleCode: result.error && result.error.code };
+        if (!result.ok) throw { code: 'invalid', ruleCode: result.error && result.error.code, diagnostic: result.error && result.error.diagnostic };
         state = result.state; pending = null; lastFailure = null; save();
         $('free-input').value = ''; beginReveal(result, requestNavigation); return true;
       } catch (error) {

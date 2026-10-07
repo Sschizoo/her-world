@@ -75,7 +75,8 @@ test('legacy rules reject rules4 metadata while preserving old exact memory oper
       assert.equal(Caps.validate(note(extra), rulesVersion), false);
     }
     const schema = Caps.descriptors(['memory.upsert'], rulesVersion)[0].schema;
-    assert.deepEqual(Object.keys(schema.properties), ['type', 'id', 'title', 'body', 'evidence']);
+    assert.deepEqual(Object.keys(schema.properties), ['type', 'id', 'title', 'body']);
+    assert.equal(Caps.validate(note({ evidence: '完整历史输入' }), rulesVersion), true, 'legacy validator retains optional echo although model advertisement omits it');
     assert.equal(Caps.validate({ type: 'memory.remove', id: 'note_concept' }, rulesVersion), true);
     assert.equal(Caps.validate(note({ id: 'memory_1' }), rulesVersion), false);
     assert.equal(Caps.validate({ type: 'memory.remove', id: 'memory_1' }, rulesVersion), false);

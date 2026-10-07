@@ -1,0 +1,30 @@
+{
+  "kind": "independent OpenAI model substitute; not GLM or network evidence",
+  "date": "2026-10-07",
+  "pack": "rain-lab",
+  "rulesVersion": "4",
+  "modelProtocol": "her-world-turn-v3",
+  "records": [
+    {
+      "input": "先不急着讲雨。我更喜欢风声，听着会让我安静下来。",
+      "raw": "{\"schema\":\"her-world-turn-v3\",\"lines\":[{\"text\":\"那就先聊风，雨的问题留着以后再说。\",\"operations\":[{\"type\":\"story.defer\",\"questionId\":\"q_rain\"}]},{\"text\":\"我记下了：你更喜欢风声，听着会让你安静下来。\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_wind_preference\",\"title\":\"风声让你安静下来\",\"body\":\"我更喜欢风声，听着会让我安静下来。\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我更喜欢风声，听着会让我安静下来。\"}}]}],\"topic\":null}\n",
+      "sha256": "47bfd9eae64a5ecaffef4eada80de8290e8ccc73355d0de546c3218a50893182",
+      "requestSha256": "cce8e0b614300bd6bebeb7bcb4879bd021fdf87f0d215c9ba83957f82dbfd7e4",
+      "requestUnchanged": true
+    },
+    {
+      "input": "先在天上放两朵云，大小不一样，别叠在一起。",
+      "raw": "{\"schema\":\"her-world-turn-v3\",\"lines\":[{\"text\":\"先在天上放一朵大云。\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"大云\",\"glyphs\":\"  .--.\\n.(    ).\\n '--'--'\",\"scale\":2},\"placement\":{\"anchor\":\"sky\"}}]},{\"text\":\"再放一朵小云，两朵分开，不叠在一起。\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"小云\",\"glyphs\":\"  .--.\\n.(    ).\\n '--'--'\",\"scale\":1},\"placement\":{\"anchor\":\"sky\"}}]}],\"topic\":null}\n",
+      "sha256": "04645f14cc0a7453685ab7f7ccfe68995e64cb3f1b749be482728ef8bdb37641",
+      "requestSha256": "ba98c42bb1a3c9fdd9b8e57a36251f983d0b5ef93afebcd2a99b448e1ab137cc",
+      "requestUnchanged": true
+    },
+    {
+      "input": "雨就是从天空落下的小水珠，打在树叶上会轻轻响。现在让它下小雨吧。",
+      "raw": "{\"schema\":\"her-world-turn-v3\",\"lines\":[{\"text\":\"我记下了你的描述：雨是从天空落下的小水珠，打在树叶上会轻轻响。\",\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_rain\",\"value\":\"雨就是从天空落下的小水珠，打在树叶上会轻轻响。\"},{\"type\":\"memory.upsert\",\"id\":\"note_rain_description\",\"title\":\"你教我的雨\",\"body\":\"雨就是从天空落下的小水珠，打在树叶上会轻轻响。\",\"kind\":\"concept\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"雨就是从天空落下的小水珠，打在树叶上会轻轻响。\"}}]},{\"text\":\"现在下起小雨了。\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"kind\":\"rain\",\"intensity\":1,\"paused\":false}}]}],\"topic\":\"rain\"}\n",
+      "sha256": "6646275b8511474a08ff3d4a587ab64d5299d9b8ea95055a14035b4760127f7e",
+      "requestSha256": "64b9026ef6c01a1d0a6312bd901b6539d2ab6e0911ecb434198b1c3a8c2aa835",
+      "requestUnchanged": true
+    }
+  ]
+}

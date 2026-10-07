@@ -93,7 +93,13 @@
   }
   function descriptors(ids, rulesVersion = '4') {
     const selected = registryFor(rulesVersion);
-    return selected ? (ids || Object.keys(selected)).map(id => selected[id]).filter(Boolean) : [];
+    // This optional legacy echo is not authority or provenance. Keep strict
+    // validation for saved/local plans, but do not ask a model to reproduce it.
+    return selected ? (ids || Object.keys(selected)).map(id => selected[id]).filter(Boolean).map(item => {
+      const exposed = JSON.parse(JSON.stringify(item));
+      delete exposed.schema.properties.evidence;
+      return freeze(exposed);
+    }) : [];
   }
   // Shared with the model adapter. Field order is part of the captured request
   // contract; these values are also duplicated inside escaped message strings.

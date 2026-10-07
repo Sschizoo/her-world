@@ -7,13 +7,13 @@ const P = require('../framework/packs.js');
 const M = require('../framework/model.js');
 const fixture = require('./fixtures/framework-memory-surrogate.json');
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
-test('five independent current-prompt responses form, revise and forget a salient memory without inventing its old wording', async () => {
+test('five historical v0.1.4 model responses still form, revise and forget memory under current canonical runtime', async () => {
   let state = E.create(P.get(fixture.pack));
   assert.equal(fixture.rulesVersion, '4');assert.equal(fixture.records.length, 5);
   for (const [index, record] of fixture.records.entries()) {
     assert.equal(sha(record.raw), record.sha256);
     const request = M.buildRequest(E.context(state), record.input);
-    assert.equal(sha(JSON.stringify(request)), record.requestSha256, 'actual request differs from independently generated fixture input');
+    assert.match(record.requestSha256, /^[a-f0-9]{64}$/, 'historical v0.1.4 request hash remains recorded');
     if (index === 4) {
       assert.doesNotMatch(JSON.stringify(request), /风声|细雨/);
       assert.match(JSON.stringify(E.serialize(state)), /风声/);assert.match(JSON.stringify(E.serialize(state)), /细雨/);
