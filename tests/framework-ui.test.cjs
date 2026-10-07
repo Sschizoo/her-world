@@ -38,6 +38,26 @@ const plan=(lines,beats=[],topic=null)=>({schema:'her-world-turn-v2',lines,beats
 const addObject={type:'world.create',object:{label:'纸船',glyphs:' /\\\n/==\\',x:48,y:42,scale:1}};
 const addMemory={type:'memory.upsert',id:'note_visit',title:'窗边',body:'一起看天亮'};
 
+test('online new aliases never overwrite earlier memories and explicit handles still revise',async()=>{
+  let turn=0;
+  const r=setup({request:async({context,input})=>{
+    const id=turn++<2?'note_preference':context.memories[0].id;
+    return plan(['这个偏好记下了。'],[{afterLine:0,operations:[{type:'memory.upsert',id,title:'当前偏好',body:input,perspective:'player_report',support:{quote:input}}]}]);
+  }});
+  await r.online();await r.say('我喜欢雨声。');await r.say('我也喜欢灯光。');
+  assert.deepEqual(r.app.snapshot().state.memories.map(note=>note.body),['我喜欢雨声。','我也喜欢灯光。']);
+  assert.notEqual(r.app.snapshot().state.memories[0].id,r.app.snapshot().state.memories[1].id);
+  await r.say('现在我更喜欢风声。');
+  assert.deepEqual(r.app.snapshot().state.memories.map(note=>note.body),['现在我更喜欢风声。','我也喜欢灯光。']);
+  assert.equal(r.app.snapshot().state.memories[0].currentRevision.number,2);
+  const next=setup({store:r.store});assert.deepEqual(next.app.snapshot().state.memories,r.app.snapshot().state.memories);
+});
+
+test('a mixed cached runtime without the online alias boundary stops before storage access',()=>{
+  const {commitModel,...oldRuntime}=runtime;
+  assert.throws(()=>setup({runtime:oldRuntime}),/runtime_version_mismatch/);
+});
+
 test('salient memory without a remember command reveals at its sentence and labels the player quotation',async()=>{
   const input='我喜欢在窗边听雨。';
   const r=setup({reduced:false,request:async()=>plan(['窗边适合慢慢听。','这个偏好，我记下了。'],[{afterLine:1,operations:[{type:'memory.upsert',id:'note_quiet',title:'听雨的偏好',body:input,kind:'preference',perspective:'player_report',support:{quote:input}}]}])});
@@ -63,8 +83,8 @@ test('dependent retained memories show withheld status and fresh exact correctio
   const operations=[
     {type:'memory.upsert',id:'note_signal',title:'代号',body:inputs[0],perspective:'player_report',support:{quote:inputs[0]}},
     {type:'memory.upsert',id:'note_view',title:'她对窗边的理解',body:'她觉得窗边是一个安静的地方。'},
-    {type:'memory.remove',id:'note_signal'},
-    {type:'memory.upsert',id:'note_view',title:'当前口味',body:inputs[3],kind:'preference',perspective:'player_report',support:{quote:inputs[3]}}
+    {type:'memory.remove',id:'memory_1'},
+    {type:'memory.upsert',id:'memory_2',title:'当前口味',body:inputs[3],kind:'preference',perspective:'player_report',support:{quote:inputs[3]}}
   ];let index=0;
   const r=setup({request:async()=>plan(['这次记录已更新。'],[{afterLine:0,operations:[operations[index++]]}])});await r.online();
   for(const input of inputs.slice(0,3))await r.say(input);

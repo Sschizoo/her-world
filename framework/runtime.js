@@ -193,8 +193,41 @@
     else normalized.changes = { ...normalized.changes, x: object.x, y: object.y };
     return normalized;
   }
-  function resolveMemoryOperation(op, state, rulesVersion, replay, exposedHandles) {
-    if (!['memory.upsert', 'memory.remove'].includes(op?.type) || typeof op.id !== 'string' || !/^memory_[1-9][0-9]*$/u.test(op.id)) return op;
+  function modelMemoryAliases(state) {
+    // Reserve the entire local namespace, including forgotten and imported
+    // notes. Neither opaque model handles nor model-chosen slugs own these IDs.
+    const used = new Set([...state.memories, ...(state.importedSnapshot?.memories || [])].map(note => note.id));
+    for (const id of [...Object.keys(state.recall.generations), ...Object.keys(state.recall.active), ...state.recall.tombstones.map(item => item.noteId)]) used.add(id);
+    for (const key of [...Object.keys(state.recall.bindings), ...Object.keys(state.recall.handles)]) {
+      const match = /^memory:(note_[a-z0-9_]{1,32}):[1-9][0-9]*(?::title)?$/u.exec(key);
+      if (match) used.add(match[1]);
+    }
+    for (const event of state.events) if (event.type === 'turn') for (const beat of event.plan.beats) for (const op of beat.operations) {
+      if (['memory.upsert', 'memory.remove'].includes(op.type)) used.add(op.id);
+    }
+    return { used, ids: new Map(), next: 1 };
+  }
+  function resolveMemoryOperation(op, state, rulesVersion, replay, exposedHandles, aliases) {
+    if (!['memory.upsert', 'memory.remove'].includes(op?.type)) return op;
+    if (aliases) {
+      // Validate the original ID and fields before replacing an alias. This
+      // entry point must never normalize an otherwise invalid model operation.
+      assert(CAPS.validate(op, rulesVersion), 'OPERATION_INVALID');
+      if (/^note_[a-z0-9_]{1,32}$/u.test(op.id)) {
+        let id = aliases.ids.get(op.id);
+        if (id) {
+          // Removal ends this alias's lifetime. Recreating it would silently
+          // resurrect a deleted record; a distinct new alias is required.
+          assert(state.memories.some(note => note.id === id), 'MEMORY_HANDLE_INVALID');
+        } else {
+          assert(op.type === 'memory.upsert', 'MEMORY_HANDLE_INVALID');
+          do { id = 'note_local_' + aliases.next++; } while (aliases.used.has(id));
+          aliases.used.add(id); aliases.ids.set(op.id, id);
+        }
+        return { ...op, id };
+      }
+    }
+    if (typeof op.id !== 'string' || !/^memory_[1-9][0-9]*$/u.test(op.id)) return op;
     assert(rulesVersion === '4' && !replay, 'EVENT_INVALID');
     assert(exposedHandles.has(op.id), 'MEMORY_HANDLE_INVALID');
     const id = MEMORY.resolveHandle(state.recall, op.id);
@@ -349,13 +382,13 @@
     }
     return null;
   }
-  function execute(state, input, plan, rulesVersion = CAPS.RULES_VERSION, replay = false) {
+  function execute(state, input, plan, rulesVersion = CAPS.RULES_VERSION, replay = false, model = false) {
     const search = { choices: [], decisions: [], work: 0, edge: false };
     let attempts = 0;
     while (attempts < 256) {
       const firstAttempt = attempts++ === 0;
       search.decisions = [];
-      const result = executeAttempt(state, input, plan, rulesVersion, search, replay);
+      const result = executeAttempt(state, input, plan, rulesVersion, search, replay, model);
       if (result.ok || result.error.code !== 'PLACEMENT_CAPACITY' || search.work >= 250000) return result;
       // Dense batches have equivalent dead ends around either central axis.
       // Boundary seeds share the search budget and the same anchor constraints.
@@ -363,7 +396,7 @@
         for (const edge of ['left', 'top', 'bottom']) {
           const edgeSearch = { choices: [], decisions: [], work: search.work, edge };
           attempts++;
-          const packed = executeAttempt(state, input, plan, rulesVersion, edgeSearch, replay);
+          const packed = executeAttempt(state, input, plan, rulesVersion, edgeSearch, replay, model);
           search.work = edgeSearch.work;
           if (packed.ok) return packed;
           if (search.work >= 250000) return result;
@@ -377,7 +410,7 @@
     }
     return fail('PLACEMENT_CAPACITY');
   }
-  function executeAttempt(state, input, plan, rulesVersion, search, replay) {
+  function executeAttempt(state, input, plan, rulesVersion, search, replay, model) {
     // Only local reason tokens and validated array coordinates enter diagnostics.
     // Keep the legacy error code/path and the validation order unchanged.
     let diagnostic;
@@ -409,6 +442,7 @@
         lines.add(beat.afterLine); last = beat.afterLine; count += beat.operations.length;
       }
       assert(count <= MAX_OPERATIONS, 'OPERATION_CAPACITY');
+      const aliases = model ? modelMemoryAliases(state) : null;
       const next = stage(state), eventId = 'event_' + (state.revision + 1), frames = [], initialQuestions = available(state);
       const event = { id: eventId, type: 'turn', rulesVersion, input, plan: copy(plan) };
       const recalled = recallContext(state);
@@ -433,7 +467,7 @@
           const storedBeat = event.plan.beats.find(candidate => candidate.afterLine === index);
           for (let operationIndex = 0; operationIndex < beat.operations.length; operationIndex++) {
             try {
-              const op = resolveMemoryOperation(beat.operations[operationIndex], next, rulesVersion, replay, env.exposedHandles), previous = op.type === 'world.update' ? next.world.objects.find(item => item.id === op.target) : null;
+              const op = resolveMemoryOperation(beat.operations[operationIndex], next, rulesVersion, replay, env.exposedHandles, aliases), previous = op.type === 'world.update' ? next.world.objects.find(item => item.id === op.target) : null;
               const requestedPanel = apply(next, op, env);
               env.operationIndex++;
               if (requestedPanel) panel = requestedPanel;
@@ -464,11 +498,15 @@
       return { ok: true, state: seal(next), frames: freeze(frames), lines: freeze(copy(plan.lines)) };
     } catch (error) { return fail(error.code || 'PLAN_INVALID', error.path || '$', diagnostic); }
   }
-  function commit(state, candidate, plan) {
+  function commitTurn(state, candidate, plan, model) {
     if (!states.has(state)) return fail('STATE_INVALID');
     if (!candidate || proposals.get(candidate) !== state || candidate.baseRevision !== state.revision || candidate.baseDigest !== digest(state)) return fail('STALE_PROPOSAL');
-    return execute(state, candidate.text, plan);
+    return execute(state, candidate.text, plan, CAPS.RULES_VERSION, false, model);
   }
+  // Model slugs are turn-local aliases. Canonical/offline commits and saved
+  // event replay retain their historical stable-ID semantics without remapping.
+  function commit(state, candidate, plan) { return commitTurn(state, candidate, plan, false); }
+  function commitModel(state, candidate, plan) { return commitTurn(state, candidate, plan, true); }
   function observe(state, event) {
     requireState(state);
     assert(fields(event, ['type', 'panel']) && event.type === 'panel.viewed' && CAPS.panels.includes(event.panel), 'OBSERVATION_INVALID');
@@ -605,5 +643,5 @@
       return { ok: true, state: seal(state) };
     } catch (error) { return fail(error.code || 'IMPORT_INVALID', error.path || '$'); }
   }
-  return Object.freeze({ create, propose: proposal, commit, view, observe, restore, serialize, context, validatePack: PACKS.validatePack, importLegacy, explicitConsent, constants: freeze({ MAX_INPUT, MAX_EVENTS, MAX_MEMORIES, MAX_OPERATIONS, MAX_CONTEXT_BYTES }) });
+  return Object.freeze({ create, propose: proposal, commit, commitModel, view, observe, restore, serialize, context, validatePack: PACKS.validatePack, importLegacy, explicitConsent, constants: freeze({ MAX_INPUT, MAX_EVENTS, MAX_MEMORIES, MAX_OPERATIONS, MAX_CONTEXT_BYTES }) });
 });

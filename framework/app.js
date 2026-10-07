@@ -22,7 +22,7 @@
   });
   const DIAGNOSTIC_STAGES = new Set(['LOCAL_CONTEXT', 'REQUEST', 'NETWORK', 'HTTP', 'RESPONSE_READ', 'ENVELOPE', 'FINAL_CONTENT', 'JSON', 'CANCELLED']);
   const DIAGNOSTIC_CODES = new Set(['CONTEXT_INVALID', 'INPUT_INVALID', 'REQUEST_TOO_LARGE', 'RESPONSE_TOO_LARGE', 'ROOT_INVALID', 'PAYLOAD_REQUIRED', 'PAYLOAD_MIXED', 'OUTPUT_UNSAFE', 'JSON_SYNTAX', 'JSON_BAD_ESCAPE', 'JSON_CONTROL_CHARACTER', 'JSON_UNTERMINATED', 'JSON_TRAILING_CONTENT', 'JSON_DUPLICATE_KEY']);
-  ['TURN_ROOT_FIELDS', 'TURN_LINES_INVALID', 'TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT'].forEach(code => DIAGNOSTIC_CODES.add(code));
+  ['TURN_ROOT_FIELDS', 'TURN_LINES_INVALID', 'TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT', 'REPORT_SUPPORT_REQUIRED', 'REPORT_SUPPORT_INVALID', 'REPORT_SUPPORT_AMBIGUOUS'].forEach(code => DIAGNOSTIC_CODES.add(code));
   const DIAGNOSTIC_PATHS = new Set(['context', 'input', 'request', 'response', 'content', 'root']);
   const OP_LABELS = Object.freeze({ 'world.create': '新增物件', 'world.update': '修改物件', 'world.remove': '移除物件', 'world.annotate': '更新注解', 'weather.set': '改变天气', 'memory.upsert': '写入记忆', 'memory.remove': '移除记忆', 'story.answer': '记录回答', 'story.defer': '暂放问题', 'character.update': '更新角色状态', 'log.note': '记录想法', 'panel.open': '打开面板' });
   function runtimeDiagnostic(detail, rule) {
@@ -59,6 +59,7 @@
     options = options || {};
     const win = options.window || (typeof window !== 'undefined' ? window : {}), doc = options.document || win.document;
     const runtime = options.runtime || win.HerFramework, packs = options.packs || win.HerFrameworkPacks;
+    if (typeof runtime?.commitModel !== 'function') throw new Error('runtime_version_mismatch');
     const legacy = options.legacy || win.HerFrameworkLegacy;
     const offline = options.offline || win.HerFrameworkOffline, focus = options.focus || win.HerFrameworkFocus;
     const model = options.model || win.HerFrameworkModel.create();
@@ -318,7 +319,7 @@
         lastFailure.stage = detail.stage;
         if (DIAGNOSTIC_CODES.has(detail.code)) lastFailure.detail = detail.code;
         if (DIAGNOSTIC_PATHS.has(detail.path)) lastFailure.path = detail.path;
-        if (detail.stage === 'JSON' && detail.path === 'content' && ['TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT'].includes(detail.code) && Number.isInteger(detail.rowIndex) && detail.rowIndex >= 0 && detail.rowIndex <= 3) lastFailure.rowIndex = detail.rowIndex;
+        if (detail.stage === 'JSON' && detail.path === 'content' && ['TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT', 'REPORT_SUPPORT_REQUIRED', 'REPORT_SUPPORT_INVALID', 'REPORT_SUPPORT_AMBIGUOUS'].includes(detail.code) && Number.isInteger(detail.rowIndex) && detail.rowIndex >= 0 && detail.rowIndex <= 3) lastFailure.rowIndex = detail.rowIndex;
       }
       const runtimeDetail = runtimeDiagnostic(detail, lastFailure.rule);
       if (runtimeDetail) Object.assign(lastFailure, runtimeDetail);
@@ -399,7 +400,7 @@
         const context = runtime.context(base);
         const plan = mode === 'online' ? await model.request({ context, input, signal: controller && controller.signal }) : await offline.respond(context, input);
         if (!pending || token !== generation || state !== base) return false;
-        const result = runtime.commit(base, proposal, plan);
+        const result = mode === 'online' ? runtime.commitModel(base, proposal, plan) : runtime.commit(base, proposal, plan);
         if (!result.ok) throw { code: 'invalid', ruleCode: result.error && result.error.code, diagnostic: result.error && result.error.diagnostic };
         state = result.state; pending = null; lastFailure = null; save();
         $('free-input').value = ''; beginReveal(result, requestNavigation); return true;

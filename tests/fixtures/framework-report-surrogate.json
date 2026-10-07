@@ -1,0 +1,37 @@
+{
+  "kind": "independent OpenAI model substitute; not GLM or network evidence",
+  "date": "2026-10-07",
+  "pack": "rain-lab",
+  "rulesVersion": "4",
+  "modelProtocol": "her-world-turn-v3",
+  "records": [
+    {
+      "input": "先不急着讲雨。我更喜欢风声，听着会让我安静下来。",
+      "raw": "{\"schema\":\"her-world-turn-v3\",\"lines\":[{\"text\":\"好，雨的话题先放一放。\",\"operations\":[{\"type\":\"story.defer\",\"questionId\":\"q_rain\"}]},{\"text\":\"我记下了，你更喜欢风声，听着会安静下来。\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_wind_preference\",\"title\":\"喜欢风声\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我更喜欢风声，听着会让我安静下来。\"}}]}],\"topic\":null}\n",
+      "sha256": "021f4d743b3241a5da5a960a3d520be8311cfba4eb7e43857043c64ae2287e9d",
+      "requestSha256": "76cb68f1bb3034601a9e3b9d582b81fd43c191f4b3f677b25aa61c2ecab293f8",
+      "requestUnchanged": true
+    },
+    {
+      "input": "先在天上放两朵云，大小不一样，别叠在一起。",
+      "raw": "{\"schema\":\"her-world-turn-v3\",\"lines\":[{\"text\":\"两朵云放到天上了，一大一小，没有叠在一起。\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"小云\",\"glyphs\":\"  .--.\\n (    )\\n(_.___)\",\"scale\":1},\"placement\":{\"anchor\":\"sky\"}},{\"type\":\"world.create\",\"object\":{\"label\":\"大云\",\"glyphs\":\"  .--.\\n (    )\\n(_.___)\",\"scale\":2},\"placement\":{\"anchor\":\"sky\"}}]}],\"topic\":null}\n",
+      "sha256": "8fa3d324196faf5d3e6a71097cb569980c85b43c74991bd47cbf010b2b14bdeb",
+      "requestSha256": "2e955935926ca797dbb42739acf444d1dc518c7d9f54e2a010af9491c45a0fb7",
+      "requestUnchanged": true
+    },
+    {
+      "input": "雨就是从天空落下的小水珠，打在树叶上会轻轻响。现在让它下小雨吧。",
+      "raw": "{\"schema\":\"her-world-turn-v3\",\"lines\":[{\"text\":\"我记下了，雨是从天空落下的小水珠，打在树叶上会轻轻响。\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_rain_concept\",\"title\":\"你教我的雨\",\"kind\":\"concept\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"雨就是从天空落下的小水珠，打在树叶上会轻轻响。\"}},{\"type\":\"story.answer\",\"questionId\":\"q_rain\",\"value\":\"雨就是从天空落下的小水珠，打在树叶上会轻轻响。\"}]},{\"text\":\"现在下起小雨了。\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"kind\":\"rain\",\"intensity\":1,\"paused\":false}}]}],\"topic\":\"rain\"}\n",
+      "sha256": "9b7d1ab32d9d7153745a3e3921540d5794e839bc93d8216d9a1c97306807e5f4",
+      "requestSha256": "3ac243cfc20c889f507d3fb9987db8a6ea8189341b5d78adaac3626ded6b5284",
+      "requestUnchanged": true
+    },
+    {
+      "input": "刚才我说风声，其实现在更喜欢雨落在叶子上的声音。把这个偏好改一下。",
+      "raw": "{\"schema\":\"her-world-turn-v3\",\"lines\":[{\"text\":\"改好了，你现在更喜欢雨落在叶子上的声音。\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"memory_1\",\"title\":\"现在更喜欢雨落在叶子上的声音\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"刚才我说风声，其实现在更喜欢雨落在叶子上的声音。\"}}]}],\"topic\":null}\n",
+      "sha256": "4c419f7c63d31b1eb5f1737645e61fe8a44a9dadb8104b68c6afb92839226ba8",
+      "requestSha256": "64faf91753c136aba0dad515c3a92f1127a17602e2c06fedd93c76f9a651aa51",
+      "requestUnchanged": true
+    }
+  ]
+}

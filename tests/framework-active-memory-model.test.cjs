@@ -92,7 +92,7 @@ test('captured current prompt allows selective memory initiative while preservin
   for (const required of [
     '不必等玩家说“记住”', '普通问候、随口回应、重复信息无需每轮入记忆',
     '主动记忆不授权额外造物、天气、故事推进或同意', '不改写原始来源',
-    'body必须逐字等于', 'character_interpretation', 'Unicode码点',
+    'player_report必须显式填写perspective和support，不输出body', 'character_interpretation', 'Unicode码点',
     '实际一起经历的事件或明确承诺', '同意须来自当前输入',
     '不要声称抹去了独立的原始审计', '不声称仍记得被遗忘的原话',
     '不透明操作句柄', '新记忆使用note_slug', '准确引用本轮要求忘记的子句',

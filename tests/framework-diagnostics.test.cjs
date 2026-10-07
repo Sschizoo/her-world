@@ -197,7 +197,7 @@ test('app accepts only internally consistent beat diagnostic paths and ignores e
 });
 
 test('injected runtime error metadata is filtered again before the app displays it', async () => {
-  const runtime = { ...R, commit: () => ({ ok: false, error: { code: 'BEATS_INVALID', path: secret, diagnostic: expected(secret, secret, { [secret]: secret }) } }) };
+  const runtime = { ...R, commitModel: () => ({ ok: false, error: { code: 'BEATS_INVALID', path: secret, diagnostic: expected(secret, secret, { [secret]: secret }) } }) };
   const r = ui(async () => plan(), runtime);
   assert.deepEqual(await r.send(), { code: 'invalid', rule: 'BEATS_INVALID' });
   assert.equal(r.ids['developer-content'].textContent.includes(secret), false);
@@ -219,5 +219,17 @@ test('app accepts row location only with a matching fixed JSON row diagnostic', 
   for (const change of [{rowIndex:'0'},{rowIndex:-1},{rowIndex:4},{rowIndex:Infinity},{rowIndex:secret},{code:'ROOT_INVALID'},{path:'root'},{stage:'FINAL_CONTENT'}]) {
     const r=ui(async()=>{throw {code:'format',diagnostic:{stage:'JSON',code:'TURN_ROW_FIELDS',path:'content',rowIndex:1,...change}};});
     const result=await r.send();assert.equal(result.rowIndex,undefined);assert(!JSON.stringify(result).includes(secret));
+  }
+});
+
+test('report-source diagnostics expose only fixed categories and bounded row positions', async () => {
+  for(const code of ['REPORT_SUPPORT_REQUIRED','REPORT_SUPPORT_INVALID','REPORT_SUPPORT_AMBIGUOUS']){
+    const r=ui(async()=>{throw {code:'format',diagnostic:{stage:'JSON',code,path:'content',rowIndex:1,quote:secret},message:secret};});
+    assert.deepEqual(await r.send(),{code:'format',stage:'JSON',detail:code,path:'content',rowIndex:1});
+    assert(!r.ids['developer-content'].textContent.includes(secret));
+    for(const rowIndex of [-1,4,'1',secret]){
+      const forged=ui(async()=>{throw {code:'format',diagnostic:{stage:'JSON',code,path:'content',rowIndex}};});
+      const value=await forged.send();assert.equal(value.rowIndex,undefined);assert(!JSON.stringify(value).includes(secret));
+    }
   }
 });

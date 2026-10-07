@@ -29,7 +29,7 @@ const envelope = (content, choice = {}, message = {}) => ({ choices: [{ message:
 const response = (content = JSON.stringify(plan()), choice, message) => new Response(JSON.stringify(envelope(content, choice, message)), { status: 200 });
 function runtime(fetchImpl = async () => response(), overrides = {}) {
   const listeners = {};
-  const window = { HerCapabilities: require('../framework/capabilities.js'), fetch: fetchImpl, addEventListener: (name, fn) => { (listeners[name] ||= []).push(fn); } };
+  const window = { HerCapabilities: require('../framework/capabilities.js'), HerMemoryPolicy: require('../framework/memory-policy.js'), fetch: fetchImpl, addEventListener: (name, fn) => { (listeners[name] ||= []).push(fn); } };
   vm.runInNewContext(source, { window, AbortController, TextEncoder, TextDecoder, setTimeout, clearTimeout, ...overrides });
   return { factory: window.HerFrameworkModel, api: window.HerFrameworkModel.create({ fetch: fetchImpl }), listeners, window };
 }
