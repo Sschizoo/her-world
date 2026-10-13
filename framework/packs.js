@@ -33,7 +33,7 @@
       initialFacts: {},
       nodes: [
         { id: 'purpose', topic: 'purpose', requires: {}, question: { id: 'q_purpose', text: '你想把窗边变成一个可以做什么的地方？', kind: 'open' }, completion: { type: 'answer' }, sets: { purpose_known: true } },
-        { id: 'make', topic: 'making', requires: { purpose_known: true }, question: { id: 'q_make', text: '可以直接告诉我，要在这里添上什么。', kind: 'open' }, completion: { type: 'operation', operation: 'world.create' }, sets: { object_made: true } },
+        { id: 'make', topic: 'making', requires: { purpose_known: true }, question: { id: 'q_make', text: '可以直接告诉我，要在这里添上什么。', kind: 'open' }, completion: { type: 'operation', operation: 'world.create', existing: 'created-object' }, sets: { object_made: true } },
         { id: 'inspect', topic: 'place', requires: { object_made: true }, question: { id: 'q_inspect', text: '打开世界面板，可以看到物件、位置和它的来源。', kind: 'open' }, completion: { type: 'ui', panel: 'world' }, sets: { world_seen: true } },
         { id: 'route', topic: 'route', requires: { world_seen: true }, question: { id: 'q_route', text: '接下来想留在这里，还是想象窗外更远的地方？', kind: 'choice', choices: [{ id: 'stay', label: '留在这里' }, { id: 'explore', label: '看看远处' }] }, completion: { type: 'answer' }, sets: { route_chosen: true } },
         { id: 'stay', topic: 'stay', requires: { 'answer.q_route': 'stay' }, question: { id: 'q_stay', text: '留在这里时，你最想保留哪个细节？', kind: 'open' }, completion: { type: 'answer' }, sets: { route_expressed: true } },

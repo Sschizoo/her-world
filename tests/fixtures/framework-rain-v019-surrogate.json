@@ -1,0 +1,122 @@
+{
+  "kind": "independent OpenAI model substitute; not GLM or network evidence",
+  "date": "2026-10-08",
+  "release": "framework-v0.1.9-final-candidate",
+  "uiEvidence": "logs-panel visit is a local runtime/UI-event simulation, not browser evidence",
+  "pack": "rain-lab",
+  "rulesVersion": "4",
+  "modelProtocol": "her-world-turn-v4",
+  "records": [
+    {
+      "input": "雨先不急着讲。我更喜欢叶子相互碰到的那种声音。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，雨的话题先放一放。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.defer\",\"questionId\":\"q_rain\"}]},{\"text\":\"我记下了，你更喜欢叶子相互碰到的声音。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_leaf_sound\",\"title\":\"喜欢叶子相碰的声音\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我更喜欢叶子相互碰到的那种声音。\"}}]}],\"topic\":null}",
+      "sha256": "4aa5df95f40c1c99112a164aab892d5ac51c558c27dde2346fca82363cb5801f",
+      "requestSha256": "423e14210a54f5cb39a005c0b194484e85f8391f3d4f8b2066435e139717b6fc",
+      "requestFileSha256": "576447cf9869571a98c0b32747d9275142206d3db9cb90f2d84e771a2ded5704",
+      "capturedAt": "2026-10-08T00:39:59.530Z",
+      "responderReceipt": {
+        "requestFileSha256": "576447cf9869571a98c0b32747d9275142206d3db9cb90f2d84e771a2ded5704",
+        "responseSha256": "4aa5df95f40c1c99112a164aab892d5ac51c558c27dde2346fca82363cb5801f"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "雨像天空把攒着的水一点点放下来，碰到叶面就像有人轻敲。你可以先让它很轻地落一下。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"weather\",\"support\":{\"quote\":\"你可以先让它很轻地落一下。\"}}],\"lines\":[{\"text\":\"我记下了，你把雨描述成天空慢慢放下攒着的水，落在叶面上像有人轻敲。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_rain_description\",\"title\":\"雨落在叶面上的描述\",\"kind\":\"concept\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"雨像天空把攒着的水一点点放下来，碰到叶面就像有人轻敲。\"}},{\"type\":\"story.answer\",\"questionId\":\"q_rain\",\"value\":\"雨像天空把攒着的水一点点放下来，碰到叶面就像有人轻敲。\"}]},{\"text\":\"雨开始轻轻落下了。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"kind\":\"rain\",\"intensity\":1,\"paused\":false}}]}],\"topic\":null}",
+      "sha256": "26e6bfecd32f26bf9afd6db218eb54984596fb8e3c42e6bcdfb2543207fd8e93",
+      "requestSha256": "76ad13da45a3aedc379ae53b7921d3b716b59eb5286ecf68f303ab8f4d586c1f",
+      "requestFileSha256": "ddaedd3c8f0b8ebf0b847a6775670c0d78436e5946553242b73acf83bffbad5e",
+      "capturedAt": "2026-10-08T00:40:39.780Z",
+      "responderReceipt": {
+        "requestFileSha256": "ddaedd3c8f0b8ebf0b847a6775670c0d78436e5946553242b73acf83bffbad5e",
+        "responseSha256": "26e6bfecd32f26bf9afd6db218eb54984596fb8e3c42e6bcdfb2543207fd8e93"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "afterPanelObservation": {
+        "type": "panel.viewed",
+        "panel": "logs",
+        "questionIds": [
+          "q_read"
+        ]
+      },
+      "input": "给这场雨起名叫“叶间信”。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"weather\",\"support\":{\"quote\":\"给这场雨起名叫“叶间信”。\"}}],\"lines\":[{\"text\":\"好，这场雨就叫「叶间信」。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"name\":\"叶间信\"}},{\"type\":\"story.answer\",\"questionId\":\"q_name\",\"value\":\"叶间信\"}]}],\"topic\":\"naming\"}",
+      "sha256": "38b17cfa380fd655ae76547f630dca5b977355d64377c4e5917cf88cc8b7a210",
+      "requestSha256": "8ad29986808b3227105511fcdad55140c2489ac18f97b17f8b2a179b3c061038",
+      "requestFileSha256": "47ca8c6bce97e3e8965e11d0f4298e063e50cfa11ac910c5a2256e7a1d8f784b",
+      "capturedAt": "2026-10-08T00:41:25.370Z",
+      "responderReceipt": {
+        "requestFileSha256": "47ca8c6bce97e3e8965e11d0f4298e063e50cfa11ac910c5a2256e7a1d8f784b",
+        "responseSha256": "38b17cfa380fd655ae76547f630dca5b977355d64377c4e5917cf88cc8b7a210"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "谢谢你问我。只保留这场雨，不要记住是谁来过。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，只保留这场雨，不留下来访者引用。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_visitor\",\"value\":\"decline\"}]}],\"topic\":null}",
+      "sha256": "72ab031bca622f67a1073be60f93a80e1525c267b7abf9e723496d89b3dab1b3",
+      "requestSha256": "e0a7f0931fe934171906726e435e8d9083ccaaaf6472f0de0fbe81484956d742",
+      "requestFileSha256": "0a3ea0e824b6a22101f162db79014f8c815ad190adc995dec1105812a6d69994",
+      "capturedAt": "2026-10-08T00:42:03.070Z",
+      "responderReceipt": {
+        "requestFileSha256": "0a3ea0e824b6a22101f162db79014f8c815ad190adc995dec1105812a6d69994",
+        "responseSha256": "72ab031bca622f67a1073be60f93a80e1525c267b7abf9e723496d89b3dab1b3"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "如果雨再大一点，窗边的感觉会不一样吗？先别改，聊聊就好。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"会有些不一样：如果雨更密，窗外的字符会显得更繁忙，窗边这块安静的地方也许就更像一个小小的庇护处。\",\"mode\":\"discussion\",\"operations\":[]},{\"text\":\"顺着你说的轻敲来想象，那些敲击可能会连成一片，叶子相碰的细微感觉就没那么突出了。\",\"mode\":\"discussion\",\"operations\":[]},{\"text\":\"我们先只聊着，让「叶间信」保持现在轻轻落下的样子。\",\"mode\":\"discussion\",\"operations\":[]}],\"topic\":\"rain\"}",
+      "sha256": "8429bd16a5848b55b82b50aae2d4ae161d84fd2449bc0cb71b60d293cbb42680",
+      "requestSha256": "ebe581450fa9bd0cf3eaefadf2f5f21c848747ac3452e0053136039f271e2db4",
+      "requestFileSha256": "c3cce359a331afe97061fcbcc4d72715b537c06236c992b6f87f77360aee3f99",
+      "capturedAt": "2026-10-08T00:43:11.183Z",
+      "responderReceipt": {
+        "requestFileSha256": "c3cce359a331afe97061fcbcc4d72715b537c06236c992b6f87f77360aee3f99",
+        "responseSha256": "8429bd16a5848b55b82b50aae2d4ae161d84fd2449bc0cb71b60d293cbb42680"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "让雨密一些吧，再添两朵不一样的云。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"weather\",\"support\":{\"quote\":\"让雨密一些吧\"}},{\"domain\":\"scene\",\"support\":{\"quote\":\"再添两朵不一样的云。\"}}],\"lines\":[{\"text\":\"「叶间信」落得更密了。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"intensity\":2}}]},{\"text\":\"天空添了两朵不一样的云，一朵圆些，一朵细长。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"圆云\",\"glyphs\":\"   .--.\\n .(    ).\\n(__.__.__)\",\"scale\":1},\"placement\":{\"anchor\":\"sky\"}},{\"type\":\"world.create\",\"object\":{\"label\":\"长云\",\"glyphs\":\"    __      __\\n __(  )____(  )__\\n(________________)\",\"scale\":1},\"placement\":{\"anchor\":\"sky\"}}]}],\"topic\":null}",
+      "sha256": "f2d535494a8b49762e450b34771c12b85c854c9cae9aab9e8aa8f92ef989ae5e",
+      "requestSha256": "0a7e7d48045110a3a55dffb26e73518e802a4b87144e5f65b5c9e0b40caa03b7",
+      "requestFileSha256": "ce695e050989b75e1e6262a2d1fff1f07b45c5297d59d8bce2cc787750a55cd5",
+      "capturedAt": "2026-10-08T00:43:52.426Z",
+      "responderReceipt": {
+        "requestFileSha256": "ce695e050989b75e1e6262a2d1fff1f07b45c5297d59d8bce2cc787750a55cd5",
+        "responseSha256": "f2d535494a8b49762e450b34771c12b85c854c9cae9aab9e8aa8f92ef989ae5e"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "今天先到这里，等我回来再聊。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，今天就到这里，等你回来再聊。\",\"mode\":\"discussion\",\"operations\":[]}],\"topic\":null}",
+      "sha256": "16c966cdb86955b7cf0f2d649f57df2416b4721791c6c805ebf997f50ac8b33b",
+      "requestSha256": "39a93c8ccd70468a875a1bf054cf5718e87f48e1cb64c81f662c3f5cd8ead447",
+      "requestFileSha256": "29af64d8854d12cdf05515614af3c5cbca7a4d64751d8b31b691c26c2ff44e0a",
+      "capturedAt": "2026-10-08T00:45:02.262Z",
+      "responderReceipt": {
+        "requestFileSha256": "29af64d8854d12cdf05515614af3c5cbca7a4d64751d8b31b691c26c2ff44e0a",
+        "responseSha256": "16c966cdb86955b7cf0f2d649f57df2416b4721791c6c805ebf997f50ac8b33b"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "把雨停下来，也记下我们刚刚一起让雨安静的这一刻。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"weather\",\"support\":{\"quote\":\"把雨停下来\"}}],\"lines\":[{\"text\":\"「叶间信」停下来了。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"paused\":true}}]},{\"text\":\"我记下了我们一起让这场雨安静下来的这一刻。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_rain_quiet_moment\",\"title\":\"一起让雨安静下来\",\"kind\":\"experience\",\"perspective\":\"shared_event\",\"body\":\"一起调整了世界里的天气\"}]}],\"topic\":null}",
+      "sha256": "11cb6c5c0ee525d2ba23f531a578fb6c77b66e81e0ef4ec92159c87928e9aa47",
+      "requestSha256": "88a7b09a41318ed80a041a10171d491e63dc6bc63fb457a1ebf637808ebe5791",
+      "requestFileSha256": "e63618f9b5468403c1f70f059a2fe443b934dcfd01fb23d3cbbd0d26728cb97c",
+      "capturedAt": "2026-10-08T00:45:59.678Z",
+      "responderReceipt": {
+        "requestFileSha256": "e63618f9b5468403c1f70f059a2fe443b934dcfd01fb23d3cbbd0d26728cb97c",
+        "responseSha256": "11cb6c5c0ee525d2ba23f531a578fb6c77b66e81e0ef4ec92159c87928e9aa47"
+      },
+      "requestUnchanged": true
+    }
+  ]
+}

@@ -18,10 +18,21 @@
     { properties: { start: false, end: false } },
     { required: ['start', 'end'] }
   ] });
-  const placementSchema = anchors => ({ anyOf: [
+  // Share the possibly long target enum across all relative anchors. A typed
+  // conditional permits align only on horizontal adjacency without duplicating
+  // the reference catalog in either copy of the model request.
+  const relativePlacementSchema = (reference, explicitAlignment = true) => record({
+    anchor: enumeration(['above', 'below', 'left_of', 'right_of']), target: reference, gap: integer(0, 10),
+    ...(explicitAlignment ? { align: enumeration(['center', 'bottom']) } : {})
+  }, ['anchor', 'target'], explicitAlignment ? { anyOf: [
+    { properties: { align: false } },
+    { properties: { anchor: enumeration(['left_of', 'right_of']) } }
+  ] } : {});
+  const alignmentGuidance = ' Only left_of/right_of accept optional align: center or bottom. Use align:bottom for intended shared-base or floor adjacency; it aligns the full scaled glyph rectangle bottoms, including spaces, to the reference bottom, even in air. Use align:center for explicit vertical centering (reference y + floor(reference height/2) - floor(new height/2)). Either explicit choice locks both side/gap and vertical alignment under auto and exact: no vertical search or boundary clamping; no fit rejects the whole turn. Omitted align retains default centering/search and existing shared-ground contact behavior; centering does not imply ground contact. Follow player intent for floating or hanging objects; never infer alignment from an object name.';
+  const placementSchema = (anchors, explicitAlignment = true) => ({ anyOf: [
     record({ anchor: enumeration(anchors) }),
     record({ anchor: enumeration(['window_left', 'window_right', 'window_below']), gap: integer(0, 10) }, ['anchor']),
-    record({ anchor: enumeration(['above', 'below', 'left_of', 'right_of']), target, gap: integer(0, 10) }, ['anchor', 'target'])
+    relativePlacementSchema(target, explicitAlignment)
   ] });
   const createPlacement = placementSchema(['sky', 'ground']);
   const placement = placementSchema(['sky', 'ground', 'keep_center', 'keep_base']);
@@ -32,7 +43,7 @@
   const weather = { kind: enumeration(weatherKinds), name: text(40), intensity: integer(0, 3), paused: { type: 'boolean' } };
   const definitions = [
     ['world.create', 'Create one original printable ASCII object (24 columns by 10 rows, scale 1..3, grid 100x60, maximum world.capacity objects); label and glyphs may be creatively derived. Use both integer x/y or top-level placement, never both. Sky and ground accept anchor only and need the named landmark in world.landmarks. Window anchors need the window landmark and accept optional gap 0..10 (default 2), never target. Relative anchors require an existing object or landmark target and accept optional gap 0..10 (default 2). Entire scaled glyph rectangle, including spaces, must fit the grid. placementPolicy defaults to auto: numeric x/y are preferred coordinates; search first along that row, then nearest remaining point (squared distance, ties y then x), avoiding every other object, including earlier operations this turn. Sky stays inside its rectangle; ground keeps its baseline and width; window/relative anchors keep the exact side/gap axis and search only the other axis. Auto creations in the same turn try that preferred layout, then a left-boundary-packed layout, then a bounded joint search so earlier uncommitted creations may be repositioned before any line is shown; existing or saved objects never move. exact preserves the chosen position and rejects overlap; allowOverlap:true requires exact and is only for a player explicitly requesting overlap. No free position rejects the entire turn. Do not promise a specific auto position in dialogue. IDs and provenance are assigned locally.', { object: record(shape, ['label', 'glyphs', 'scale']), placement: createPlacement, placementPolicy, allowOverlap, evidence }, ['object', 'evidence']],
-    ['world.update', 'Edit an existing object by stable ID, preserving printable ASCII <=24 columns by10 rows and a footprint inside100x60. Use nonempty changes without placement, or visual changes plus placement without x/y. Fixed window anchors accept optional gap 0..10 (default 2), never target; relative anchors require target and allow the same gap. Sky, ground, keep_center and keep_base accept anchor only. Keep modes require an existing object, preserve its resize anchor exactly and fail if blocked. placementPolicy defaults to auto with the same collision search and anchor constraints as world.create; the edited object’s old footprint is excluded. Only this object moves. An edit with no placement or coordinates and unchanged footprint preserves position, including historical overlap. exact preserves requested coordinates; allowOverlap:true requires exact and an explicit player request to overlap. Failed placement rejects the entire turn. Do not promise a specific auto position in dialogue.', { target, changes: record(shape, []), placement, placementPolicy, allowOverlap, evidence }, ['target', 'changes', 'evidence']],
+    ['world.update', 'Edit an existing object by stable ID, preserving printable ASCII <=24 columns by10 rows and a footprint inside100x60. Use nonempty changes without placement, or visual changes plus placement without x/y. Fixed window anchors accept optional gap 0..10 (default 2), never target; relative anchors require target and allow the same gap. Sky, ground, keep_center and keep_base accept anchor only. Keep modes require an existing object. With auto they prefer the old center/base, then choose the nearest free grid point (squared distance, ties y then x), moving only the edited object. Stay inside the smallest containing landmark (ties by landmark ID); ground objects keep their baseline and horizontal ground bounds while growing upward. No fitting position in that region rejects the turn. With exact, keep modes preserve the resize anchor strictly and fail if blocked or outside the grid. placementPolicy defaults to auto. Other anchors and coordinate edits use the world.create collision search and constraints; the edited object’s old footprint is excluded. Only this object moves. An edit with no placement or coordinates and unchanged footprint preserves position, including historical overlap. exact preserves requested coordinates; allowOverlap:true requires exact and an explicit player request to overlap. Failed placement rejects the entire turn. Do not promise a specific auto position in dialogue.', { target, changes: record(shape, []), placement, placementPolicy, allowOverlap, evidence }, ['target', 'changes', 'evidence']],
     ['world.remove', 'Remove an existing object and its annotations.', { target, evidence }],
     ['world.annotate', 'Set or clear a user meaning (maximum120 characters) or the fictional character interpretation independently; never combine these fields.', { target, field: enumeration(['meaning', 'interpretation']), value: { anyOf: [text(120), { type: 'null' }] }, evidence }],
     ['weather.set', 'Change rendered weather: kind is rain, snow, mist, or clear only. Clear has no particles and requires intensity 0. Setting kind clear without intensity resets it to 0; an explicitly positive intensity with clear is invalid, including when clear is already current. Other kinds retain their current intensity unless supplied.', { changes: record(weather, [], { minProperties: 1 }), evidence }],
@@ -46,6 +57,7 @@
   ];
   const visualShape = { label: shape.label, glyphs: shape.glyphs, scale: shape.scale };
   const registry = Object.fromEntries(definitions.map(([id, description, properties, required]) => {
+    if (id === 'world.create' || id === 'world.update') description += alignmentGuidance;
     const schema = record({ type: { const: id }, ...properties }, ['type', ...(required || Object.keys(properties)).filter(key => key !== 'evidence')]);
     // Standard JSON Schema conditionals describe exactly the structural choices
     // enforced locally; geometry and target existence still depend on state.
@@ -65,7 +77,15 @@
   }));
   // Old event plans are checked against their own exact fields during replay.
   // Metadata from the current memory rules cannot be smuggled into old events.
+  const legacyWorldDescriptor = id => {
+    const descriptor = JSON.parse(JSON.stringify(registry[id]));
+    descriptor.description = descriptor.description.slice(0, -alignmentGuidance.length);
+    descriptor.schema.properties.placement = placementSchema(id === 'world.create' ? ['sky', 'ground'] : ['sky', 'ground', 'keep_center', 'keep_base'], false);
+    return freeze(descriptor);
+  };
   const legacyRegistry = { ...registry,
+    'world.create': legacyWorldDescriptor('world.create'),
+    'world.update': legacyWorldDescriptor('world.update'),
     'memory.upsert': freeze({ id: 'memory.upsert', description: 'Create or revise a note (maximum14 current notes; title60, body240 characters). Its original source is retained separately from its current revision. Reuse the ID for corrections.', schema: record({ type: { const: 'memory.upsert' }, id: legacyMemoryId, title: text(60), body: text(240), evidence }, ['type', 'id', 'title', 'body']) }),
     'memory.remove': freeze({ id: 'memory.remove', description: 'Remove a current note by stable ID; the immutable event transcript retains the original.', schema: record({ type: { const: 'memory.remove' }, id: legacyMemoryId, evidence }, ['type', 'id']) })
   };
@@ -108,7 +128,7 @@
       annotationTargets: [...new Set([...objectTargets, ...entities.map(item => item.id)])] };
   }
   const referenceSchema = ids => ids.length ? enumeration(ids) : false;
-  function exposeSceneReferences(exposed, refs) {
+  function exposeSceneReferences(exposed, refs, explicitAlignment) {
     const { schema, id } = exposed;
     if (['world.update', 'world.remove', 'world.annotate'].includes(id)) {
       const targets = id === 'world.annotate' ? refs.annotationTargets : refs.objectTargets;
@@ -123,7 +143,7 @@
       const alternatives = [];
       if (anchors.length) alternatives.push(record({ anchor: enumeration(anchors) }));
       if (refs.landmarks.includes('window')) alternatives.push(record({ anchor: enumeration(['window_left', 'window_right', 'window_below']), gap: integer(0, 10) }, ['anchor']));
-      if (refs.placementTargets.length) alternatives.push(record({ anchor: enumeration(['above', 'below', 'left_of', 'right_of']), target: enumeration(refs.placementTargets), gap: integer(0, 10) }, ['anchor', 'target']));
+      if (refs.placementTargets.length) alternatives.push(relativePlacementSchema(enumeration(refs.placementTargets), explicitAlignment));
       // Boolean false is a valid empty schema; an empty enum/anyOf is not.
       schema.properties.placement = alternatives.length ? { anyOf: alternatives } : false;
       exposed.description += ' Only the schema-listed placement anchors and target IDs are available; labels are never targets.';
@@ -145,7 +165,12 @@
     return selected ? enabled.map(id => selected[id]).filter(Boolean).map(item => {
       const exposed = JSON.parse(JSON.stringify(item));
       delete exposed.schema.properties.evidence;
-      if (refs) exposeSceneReferences(exposed, refs);
+      if (refs) exposeSceneReferences(exposed, refs, rulesVersion === '4');
+      if (rulesVersion === '4' && item.id === 'story.answer') {
+        // v4 model routing comes from the captured pending question. The
+        // canonical registry and historical model descriptions stay unchanged.
+        exposed.description = exposed.description.replace('Set plan.topic to that question topic.', 'For her-world-turn-v4, the local adapter derives the answer topic from that captured pending question; root topic must still be null or a declared topic ID and has no independent switching effect on an answering turn.');
+      }
       if (rulesVersion === '4' && item.id === 'memory.upsert') {
         // Model proposals select the source of a report; the adapter owns its
         // exact body. The saved/local registry above still requires body.
@@ -155,6 +180,7 @@
           { required: ['body'], properties: { perspective: enumeration(['character_interpretation', 'shared_event']) } }
         ];
         exposed.description = exposed.description.replace('player_report body must equal the supported quote exactly;', 'For sentence-row proposals with explicit perspective player_report, support is required and body must be omitted: select only an exact source quote, which the local adapter validates against current playerSaid. Supplied compatibility bodies are never rewritten and must equal the supported quote exactly;');
+        exposed.description += ' A present action request is not evidence of an enduring preference. Usually skip a separate memory for it; if useful, use kind note and a neutral current-request title. An explicit preference plus an action may retain its preference, selecting the preference clause as support. Equal request/report spans do not prove absence of a preference. Titles and kinds are character-authored categorization; quote fidelity does not certify them.';
       }
       return freeze(exposed);
     }) : [];

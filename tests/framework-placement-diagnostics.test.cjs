@@ -117,7 +117,7 @@ test('landmark size, fixed collisions and object count capacity have distinct lo
   const pack = P.get('rain-lab'); pack.world.landmarks.sky = { x: 0, y: 0, width: 1, height: 1 };
   rejected(fresh(pack), [anchor({ anchor: 'sky' }, 'XX')], 'GEOMETRY_INVALID', 'LANDMARK_FOOTPRINT');
   const state = turn(fresh(), [create(), create('邻居', 22)]);
-  const collision = rejected(state, [update('obj_1', { anchor: 'keep_center' }, { scale: 3 })], 'PLACEMENT_CAPACITY', 'POSITION_OCCUPIED');
+  const collision = rejected(state, [{ ...update('obj_1', { anchor: 'keep_center' }, { scale: 3 }), placementPolicy: 'exact' }], 'PLACEMENT_CAPACITY', 'POSITION_OCCUPIED');
   assert.equal(collision.occupiedCount, 1); assert.equal(collision.footprintCols, 6); assert.equal(collision.footprintRows, 3);
   rejected(state, [create()], 'PLACEMENT_CAPACITY', 'POSITION_OCCUPIED');
   const full = turn(fresh(), Array.from({ length: 8 }, (_, i) => create('云', i * 3)));

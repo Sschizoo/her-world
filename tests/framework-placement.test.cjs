@@ -145,14 +145,15 @@ test('joint placement recomputes a relative constraint when its earlier same-tur
   disjoint(state); roundTrip(state);
 });
 
-test('fixed self anchors exclude their old footprint and refuse displacement when blocked', () => {
+test('self anchors exclude their old footprint and exact refuses displacement when blocked', () => {
   for (const anchor of ['keep_center', 'keep_base']) {
-    const start = turn(R.create(pack()), [{ type: 'world.create', object: { label: '灯', glyphs: 'XX\nXX', scale: 1, x: 40, y: 30 } }]);
+    const p = pack(); p.world.landmarks = {};
+    const start = turn(R.create(p), [{ type: 'world.create', object: { label: '灯', glyphs: 'XX\nXX', scale: 1, x: 40, y: 30 } }]);
     const enlarged = turn(start, [{ type: 'world.update', target: 'obj_1', changes: { scale: 2 }, placement: { anchor } }]);
     assert.equal(enlarged.world.objects[0].x, 39);
     assert.equal(enlarged.world.objects[0].y, anchor === 'keep_center' ? 29 : 28);
     const blocked = turn(start, [{ type: 'world.create', object: { label: '邻居', glyphs: 'X', scale: 1, x: 39, y: 30 }, placementPolicy: 'exact' }]);
-    const result = commit(blocked, [{ type: 'world.update', target: 'obj_1', changes: { scale: 2 }, placement: { anchor } }]);
+    const result = commit(blocked, [{ type: 'world.update', target: 'obj_1', changes: { scale: 2 }, placement: { anchor }, placementPolicy: 'exact' }]);
     assert.equal(result.error.code, 'PLACEMENT_CAPACITY');
     assert.deepEqual(positions(blocked).slice(0, 1), positions(start));
   }

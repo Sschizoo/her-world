@@ -40,7 +40,10 @@
       return reply('这份回答会交给当前问题的完成规则检查。', [{ type: 'story.answer', questionId: pending.id, value }], pending.topic);
     }
     if (/^\/稍后$/u.test(text)) return pending?.id ? reply('这个问题先放在一边。你可以继续聊，之后再回来。', [{ type: 'story.defer', questionId: pending.id }]) : reply('这里没有需要赶着回答的问题。');
-    if (/^(?:停雨|让雨停下|雨先停一下)[吧。！!]*$/u.test(text)) return reply('雨先停在这里，密度仍然保留。', [{ type: 'weather.set', changes: { paused: true } }]);
+    if (/^(?:停雨|让雨停下|雨先停一下)[吧。！!]*$/u.test(text)) {
+      if (context.world?.weather?.kind !== 'rain') return reply('现在不是雨，这句话没有改变当前天气。如果想暂停眼前的天气，可以用“/天气 停”。');
+      return reply('雨先停在这里，密度仍然保留。', [{ type: 'weather.set', changes: { paused: true } }]);
+    }
     if (/^(?:恢复下雨|让雨继续|继续下雨)[吧。！!]*$/u.test(text)) return reply('雨继续落下。', [{ type: 'weather.set', changes: { kind: 'rain', paused: false, intensity: context.world?.weather?.intensity || 1 } }]);
     return reply('离线模式只识别少量明确操作，刚才这句话没有改变世界或问题进度。可以继续写，或使用下方的功能测试示例。');
   }

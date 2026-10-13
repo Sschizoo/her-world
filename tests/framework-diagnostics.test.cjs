@@ -143,8 +143,8 @@ function ui(request, runtime = R) {
     all.push(node);
   }
   const document = { getElementById: id => ids[id], createElement: tag => new Element(tag), querySelectorAll: () => all.filter(node => node.dataset.close) };
-  let connected = false;
-  const model = { connect: () => connected = true, connected: () => connected, disconnect: () => connected = false, calls: () => 0, request };
+  // Synthetic diagnostics never fetch; credential handling remains real.
+  const model = { ...require('../framework/model.js').create({ fetch: () => { throw Error('unexpected network'); } }), calls: () => 0, request };
   const window = { document, location: { search: '', href: 'http://localhost/framework.html' }, matchMedia: () => ({ matches: true, addEventListener() {} }), setTimeout: () => 1, clearTimeout() {}, addEventListener() {}, removeEventListener() {} };
   const app = UI.create({ window, document, runtime, packs: PACKS, model, storage: { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) } });
   return { app, ids, store, async send() { ids['api-key'].value = 'TEST_ONLY_PASSWORD'; await ids['connect-form'].emit('submit'); const before = app.snapshot().state; await app.submit('请在窗边放一盏灯。'); assert.equal(app.snapshot().state, before); assert.equal(store.size, 0); return app.snapshot().lastFailure; } };

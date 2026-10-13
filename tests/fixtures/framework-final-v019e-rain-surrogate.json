@@ -1,0 +1,70 @@
+{
+  "kind": "independent OpenAI model substitute; not GLM or network evidence",
+  "date": "2026-10-08",
+  "release": "framework-v0.1.9-final-attribution-candidate",
+  "uiEvidence": "logs-panel visit is a local runtime/UI-event simulation, not browser evidence",
+  "pack": "rain-lab",
+  "rulesVersion": "4",
+  "modelProtocol": "her-world-turn-v4",
+  "records": [
+    {
+      "input": "雨像天空把攒着的水一点点放下来，碰到叶面就像有人轻敲。你可以先让它很轻地落一下。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"weather\",\"support\":{\"quote\":\"你可以先让它很轻地落一下。\"}}],\"lines\":[{\"text\":\"我记下了你的描述：天空一点点放下攒着的水，落到叶面，像有人轻敲。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_rain_description\",\"title\":\"你对雨的描述\",\"kind\":\"concept\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"雨像天空把攒着的水一点点放下来，碰到叶面就像有人轻敲。\"}},{\"type\":\"story.answer\",\"questionId\":\"q_rain\",\"value\":\"雨像天空把攒着的水一点点放下来，碰到叶面就像有人轻敲。\"}]},{\"text\":\"眼前的雨开始轻轻落下了。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"kind\":\"rain\",\"intensity\":1,\"paused\":false}}]}],\"topic\":\"rain\"}",
+      "sha256": "38d1334f1a262183edf2fc6a9785c3196cf9e9730630211ae516aed390b0008b",
+      "requestSha256": "5ddbe8f14f2cd9e3f5d0b24bacc5f1ae2b137009c0fbe70228ae18dbd27b3387",
+      "requestFileSha256": "4b36d2276423b7479a1b31a4e6df1f0a3f048c9594ee1c930a0bd31b76ddc7e3",
+      "capturedAt": "2026-10-08T02:28:29.918Z",
+      "responderReceipt": {
+        "requestFileSha256": "4b36d2276423b7479a1b31a4e6df1f0a3f048c9594ee1c930a0bd31b76ddc7e3",
+        "responseSha256": "38d1334f1a262183edf2fc6a9785c3196cf9e9730630211ae516aed390b0008b"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "afterPanelObservation": {
+        "type": "panel.viewed",
+        "panel": "logs",
+        "questionIds": [
+          "q_read"
+        ]
+      },
+      "input": "这场雨就叫“叶间信”吧。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"weather\",\"support\":{\"quote\":\"这场雨就叫“叶间信”吧。\"}}],\"lines\":[{\"text\":\"好，这场雨就叫「叶间信」。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"name\":\"叶间信\"}},{\"type\":\"story.answer\",\"questionId\":\"q_name\",\"value\":\"叶间信\"}]}],\"topic\":\"naming\"}",
+      "sha256": "908ff26aec19c134ca91c907c1bb0552117e4b48406bae7cf2990e1bface57e9",
+      "requestSha256": "d59235db50ed7905ef2722cf59b8da82292bb38b0233d2345213ffb4d5df74ed",
+      "requestFileSha256": "57f17f6350f5ea7c78568cec5b6633a5969cee9d1a97a9a21dae3b5ef26f37a0",
+      "capturedAt": "2026-10-08T02:30:57.440Z",
+      "responderReceipt": {
+        "requestFileSha256": "57f17f6350f5ea7c78568cec5b6633a5969cee9d1a97a9a21dae3b5ef26f37a0",
+        "responseSha256": "908ff26aec19c134ca91c907c1bb0552117e4b48406bae7cf2990e1bface57e9"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "谢谢你问我。只保留这场雨，不要记住是谁来过。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，只保留这场雨，不留下来访者引用。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_visitor\",\"value\":\"decline\"}]}],\"topic\":null}",
+      "sha256": "72ab031bca622f67a1073be60f93a80e1525c267b7abf9e723496d89b3dab1b3",
+      "requestSha256": "9a7d48bde84a31302864f5db54026782a5cf8bdc8fdca8cfb1d1f43fc5646176",
+      "requestFileSha256": "abc2e25d79f0a31ad3161b1691a4dea3885160e32cffa56e7271e2ca7de884a4",
+      "capturedAt": "2026-10-08T02:35:04.270Z",
+      "responderReceipt": {
+        "requestFileSha256": "abc2e25d79f0a31ad3161b1691a4dea3885160e32cffa56e7271e2ca7de884a4",
+        "responseSha256": "72ab031bca622f67a1073be60f93a80e1525c267b7abf9e723496d89b3dab1b3"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "我回来了。窗下放一把椅子，然后在它右边加一盏灯，底边齐平。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"窗下放一把椅子，然后在它右边加一盏灯，底边齐平。\"}}],\"lines\":[{\"text\":\"欢迎回来。\",\"mode\":\"discussion\",\"operations\":[]},{\"text\":\"椅子放在窗下了。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"椅子\",\"glyphs\":\"[   ]\\n|___|\\n|   |\",\"scale\":1},\"placement\":{\"anchor\":\"window_below\",\"gap\":2}}]},{\"text\":\"灯放在椅子右边，两者的底边齐平。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"灯\",\"glyphs\":\" .-. \\n(   )\\n  |  \\n _|_ \",\"scale\":1},\"placement\":{\"anchor\":\"right_of\",\"target\":\"obj_1\",\"gap\":2,\"align\":\"bottom\"}}]}],\"topic\":null}",
+      "sha256": "f62d83888ba7f9ec2471965bdb95be88d41201b567ef03d556fb075a2d0ef3b9",
+      "requestSha256": "600a7cf3a6678e9212701160b7e66fa021edb5d57f05519425df79b763254d88",
+      "requestFileSha256": "ef8fbd43e6100b78d4aafa74fad42692c0fcea37e5c5b31b4c6818ef10002ec4",
+      "capturedAt": "2026-10-08T02:41:11.890Z",
+      "responderReceipt": {
+        "requestFileSha256": "ef8fbd43e6100b78d4aafa74fad42692c0fcea37e5c5b31b4c6818ef10002ec4",
+        "responseSha256": "f62d83888ba7f9ec2471965bdb95be88d41201b567ef03d556fb075a2d0ef3b9"
+      },
+      "requestUnchanged": true
+    }
+  ]
+}

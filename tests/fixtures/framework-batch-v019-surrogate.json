@@ -1,0 +1,187 @@
+{
+  "kind": "independent OpenAI model substitute; not GLM or network evidence",
+  "date": "2026-10-08",
+  "release": "framework-v0.1.9-final-candidate",
+  "uiEvidence": "world-panel visit is a local runtime/UI-event simulation, not browser evidence",
+  "pack": "lantern-lab",
+  "rulesVersion": "4",
+  "modelProtocol": "her-world-turn-v4",
+  "records": [
+    {
+      "afterPanelObservation": {
+        "type": "panel.viewed",
+        "panel": "world",
+        "questionIds": [
+          "q_inspect"
+        ]
+      },
+      "input": "我想在窗边读书。先添一把能坐两个人的长椅吧。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"先添一把能坐两个人的长椅吧。\"}}],\"lines\":[{\"text\":\"好，窗边就用来读书，我记下了。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_purpose\",\"value\":\"在窗边读书\"},{\"type\":\"memory.upsert\",\"id\":\"note_window_reading\",\"title\":\"窗边的用途\",\"kind\":\"note\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我想在窗边读书。\"}}]},{\"text\":\"我在窗边添了一把能坐两个人的长椅。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"双人长椅\",\"glyphs\":\" .--------------.\\n |              |\\n |==============|\\n  |            |\",\"scale\":1},\"placement\":{\"anchor\":\"window_below\",\"gap\":1}}]}],\"topic\":null}",
+      "sha256": "b75de27cf9c9fcfc48be0082e90130452f58ca138e76b4b56ed5b0aa79cef215",
+      "requestSha256": "7412106ca3e9830ad7983f0c52b3ef3f10fb025ba7e3821b41de27750c2af65c",
+      "requestFileSha256": "7fd6df89b1733f96cd546f17d34cde5833cb0e6a8c68490181a2da863c1ec922",
+      "capturedAt": "2026-10-08T00:26:13.762Z",
+      "responderReceipt": {
+        "requestFileSha256": "7fd6df89b1733f96cd546f17d34cde5833cb0e6a8c68490181a2da863c1ec922",
+        "responseSha256": "b75de27cf9c9fcfc48be0082e90130452f58ca138e76b4b56ed5b0aa79cef215"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "我想先留在这里。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，我们先留在这里。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_route\",\"value\":\"stay\"}]},{\"text\":\"窗边的长椅已经备好了，你想安静读一会儿，还是聊聊这间工坊？\",\"mode\":\"discussion\",\"operations\":[]}],\"topic\":null}",
+      "sha256": "1ba8eabd57bdf40f2fa3eddf008f59c49e91cb57de0150672d83b277ee8d977e",
+      "requestSha256": "f34350479ee00b7b89c8dbe6bb97dc6bb645d7099d93b66886c386df7c347665",
+      "requestFileSha256": "d9346c933e8f41b4a82136a7e2de06871564e0c5b320d48463649057d9a1ac88",
+      "capturedAt": "2026-10-08T00:30:12.154Z",
+      "responderReceipt": {
+        "requestFileSha256": "d9346c933e8f41b4a82136a7e2de06871564e0c5b320d48463649057d9a1ac88",
+        "responseSha256": "1ba8eabd57bdf40f2fa3eddf008f59c49e91cb57de0150672d83b277ee8d977e"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "最想留住的是这把长椅，坐下来的时候就可以不着急了。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"嗯，最想留住的是这把长椅，坐下来就可以不着急。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_stay\",\"value\":\"这把长椅，坐下来的时候就可以不着急了。\"},{\"type\":\"world.annotate\",\"target\":\"obj_1\",\"field\":\"meaning\",\"value\":\"坐下来的时候就可以不着急了。\"}]},{\"text\":\"我记下了它对你的这份意义。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_bench_meaning\",\"title\":\"想留住的长椅\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"最想留住的是这把长椅，坐下来的时候就可以不着急了。\"}}]}],\"topic\":null}",
+      "sha256": "c8096ccae4c074ebe11921105c8f1ead20c4ae16580dd1e0446a87775ab4a4d6",
+      "requestSha256": "32ad897f0148efb7775ea161f8719fda831d2cf650b50c93a0e231840be5401e",
+      "requestFileSha256": "c45985f8aec269dededfab7e4ce78eaecdf536d8d9d60eaffdd8f691b1343328",
+      "capturedAt": "2026-10-08T00:31:27.923Z",
+      "responderReceipt": {
+        "requestFileSha256": "c45985f8aec269dededfab7e4ce78eaecdf536d8d9d60eaffdd8f691b1343328",
+        "responseSha256": "c8096ccae4c074ebe11921105c8f1ead20c4ae16580dd1e0446a87775ab4a4d6"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "再在椅子右边加一盏小灯，和椅子隔开四格。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"再在椅子右边加一盏小灯，和椅子隔开四格。\"}}],\"lines\":[{\"text\":\"小灯放好了，在长椅右边，隔着四格。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"小灯\",\"glyphs\":\"  ___\\n /___\\\\\\n   |\\n __|__\",\"scale\":1},\"placement\":{\"anchor\":\"right_of\",\"target\":\"obj_1\",\"gap\":4},\"placementPolicy\":\"exact\"}]}],\"topic\":null}",
+      "sha256": "560a86f81382bad9179546d04a105fdc58bbe54443620165f74587124a8c0450",
+      "requestSha256": "8a612c45a5b41ec31ce0025c893035cf48834ff49c36a35f0018da83376600a6",
+      "requestFileSha256": "d0c3d424a98d7638a19be08a5d6d7772058c6acd6a73319a1bd3fb0981b51a3b",
+      "capturedAt": "2026-10-08T00:32:35.314Z",
+      "responderReceipt": {
+        "requestFileSha256": "d0c3d424a98d7638a19be08a5d6d7772058c6acd6a73319a1bd3fb0981b51a3b",
+        "responseSha256": "560a86f81382bad9179546d04a105fdc58bbe54443620165f74587124a8c0450"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "只把灯挪得离椅子远些，椅子别动。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"只把灯挪得离椅子远些，椅子别动。\"}}],\"lines\":[{\"text\":\"我把小灯往右挪远了些，长椅留在原处。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.update\",\"target\":\"obj_2\",\"changes\":{},\"placement\":{\"anchor\":\"right_of\",\"target\":\"obj_1\",\"gap\":8},\"placementPolicy\":\"exact\"}]}],\"topic\":null}",
+      "sha256": "922882775640d15f9f71d1546c669e09c2f41582a011f3dcf8729a988ce4a7e3",
+      "requestSha256": "e68543c7a8d80835bf74b1b907f885222bbcf3318a75a454f287cbd6cb1bb7b6",
+      "requestFileSha256": "6ef38e5518669f846e4601bca7367fdebdcdb8cd7e3ec00ce353141841b574dc",
+      "capturedAt": "2026-10-08T00:33:49.937Z",
+      "responderReceipt": {
+        "requestFileSha256": "6ef38e5518669f846e4601bca7367fdebdcdb8cd7e3ec00ce353141841b574dc",
+        "responseSha256": "922882775640d15f9f71d1546c669e09c2f41582a011f3dcf8729a988ce4a7e3"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "如果把灯拿走会不会显得太空？我只是想想，先别删。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"拿走小灯的话，长椅右边可能会显得空一些，视线也会更集中在长椅和窗上。\",\"mode\":\"discussion\",\"operations\":[]},{\"text\":\"先留着，我们只想一想这个样子。\",\"mode\":\"discussion\",\"operations\":[]}],\"topic\":null}",
+      "sha256": "1c55d9992b2902df4bed7f4e92a4d8b026aee26e47f33b9f021ecef327f22f6f",
+      "requestSha256": "edfc39d633d13152776d3e6dc1ac4cb1283120275559133a0fd538ab59631cc2",
+      "requestFileSha256": "88e73a5dfb5ea61402c7de8b483429ca581afcc7f8284a51878c0f1295e5089a",
+      "capturedAt": "2026-10-08T00:34:59.597Z",
+      "responderReceipt": {
+        "requestFileSha256": "88e73a5dfb5ea61402c7de8b483429ca581afcc7f8284a51878c0f1295e5089a",
+        "responseSha256": "1c55d9992b2902df4bed7f4e92a4d8b026aee26e47f33b9f021ecef327f22f6f"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "我很喜欢窗边有一盏小灯的感觉，这件事对我挺重要。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"我记下了：你很喜欢窗边有一盏小灯的感觉，这对你很重要。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_window_lamp\",\"title\":\"窗边小灯的偏好\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我很喜欢窗边有一盏小灯的感觉，这件事对我挺重要。\"}}]}],\"topic\":null}",
+      "sha256": "03ea8e95660ee05106a8fbe28e7b86116b918ee431347f1187fc5e4856f92089",
+      "requestSha256": "5e94c0db6b256bf5016477e68d34bd773fcab91d273cf9109d24968811299fb0",
+      "requestFileSha256": "9fc50cfb3cb6a05a0532e0d01c3caebbb10c090cc232644138f26c7e7dc3ec0c",
+      "capturedAt": "2026-10-08T00:35:43.899Z",
+      "responderReceipt": {
+        "requestFileSha256": "9fc50cfb3cb6a05a0532e0d01c3caebbb10c090cc232644138f26c7e7dc3ec0c",
+        "responseSha256": "03ea8e95660ee05106a8fbe28e7b86116b918ee431347f1187fc5e4856f92089"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "更正一下，我喜欢的其实是能坐下来慢慢看书，不是灯本身。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"嗯，我把这条偏好更正了：你喜欢的是能坐下来慢慢看书，不是灯本身。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"memory_3\",\"title\":\"慢慢读书的偏好\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"更正一下，我喜欢的其实是能坐下来慢慢看书，不是灯本身。\"}}]}],\"topic\":null}",
+      "sha256": "8216243c5d8602161ba520d6f2eaba9c8f3962ae51e532d52477e330d685a5ec",
+      "requestSha256": "5f222502176ee5af46346ca1e69eaf18f7efead8476f78dffac43605d37274dd",
+      "requestFileSha256": "c8af29e452b9dfc7a246b868301d8a5d52c8ad17e0f8296f33acd446ce434e2a",
+      "capturedAt": "2026-10-08T00:36:15.928Z",
+      "responderReceipt": {
+        "requestFileSha256": "c8af29e452b9dfc7a246b868301d8a5d52c8ad17e0f8296f33acd446ce434e2a",
+        "responseSha256": "8216243c5d8602161ba520d6f2eaba9c8f3962ae51e532d52477e330d685a5ec"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "忘掉刚才关于喜欢什么的那条记忆吧。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，我把刚才那条偏好记忆移除了。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.remove\",\"id\":\"memory_3\",\"support\":{\"quote\":\"忘掉刚才关于喜欢什么的那条记忆吧。\"}}]}],\"topic\":null}",
+      "sha256": "a4248b914ed55d99eeac513e912b38b22408d2af8dee365a660f5d77a0bb8b7b",
+      "requestSha256": "7e03d62c3161e04e7b5581d11376cf3be1c2a44abbb3ba67daf8b613eac588dc",
+      "requestFileSha256": "aa6b16d21105f71b70059d92606e083c98f9585f16278e3b835709a645976a06",
+      "capturedAt": "2026-10-08T00:36:59.462Z",
+      "responderReceipt": {
+        "requestFileSha256": "aa6b16d21105f71b70059d92606e083c98f9585f16278e3b835709a645976a06",
+        "responseSha256": "a4248b914ed55d99eeac513e912b38b22408d2af8dee365a660f5d77a0bb8b7b"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "我刚才说喜欢什么来着？",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"我现在保留的是你这句话：“最想留住的是这把长椅，坐下来的时候就可以不着急了。”\",\"mode\":\"discussion\",\"operations\":[]},{\"text\":\"如果你指的是刚才另一条喜好，我这里没有保留那句原话。\",\"mode\":\"discussion\",\"operations\":[]}],\"topic\":null}",
+      "sha256": "7a7c4ec1c1064ea4c824ae107b3623b1c12cfd5ffd3a8b3f40a545f947ddd37b",
+      "requestSha256": "a6b9f8f66de49a53724e4d263ca0a0493756ebde7e4813e51ffae35a2f30bc10",
+      "requestFileSha256": "8ea3b4cf965687d3861cbe7f77b92e04883249551b4d6bdda4fac2aaae03fa0c",
+      "capturedAt": "2026-10-08T00:37:44.644Z",
+      "responderReceipt": {
+        "requestFileSha256": "8ea3b4cf965687d3861cbe7f77b92e04883249551b4d6bdda4fac2aaae03fa0c",
+        "responseSha256": "7a7c4ec1c1064ea4c824ae107b3623b1c12cfd5ffd3a8b3f40a545f947ddd37b"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "我重新告诉你：现在我更喜欢一盏很小、不会抢走注意力的灯。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"我记下你现在的偏好了：一盏很小、不会抢走注意力的灯。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_small_lamp_preference\",\"title\":\"现在喜欢的小灯\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"现在我更喜欢一盏很小、不会抢走注意力的灯。\"}}]}],\"topic\":null}",
+      "sha256": "ee01175903d8019d0107c5b0b5743afb5273921535402ffe08d35fb7e137b220",
+      "requestSha256": "0b1222520e2ab9aa17505350c218fbe123ce93d96ab48ccf893803786dea3af3",
+      "requestFileSha256": "2bc278c5e560244e01aad38bda6bf967d11d9ad571e7d78476e515c34155316e",
+      "capturedAt": "2026-10-08T00:38:49.298Z",
+      "responderReceipt": {
+        "requestFileSha256": "2bc278c5e560244e01aad38bda6bf967d11d9ad571e7d78476e515c34155316e",
+        "responseSha256": "ee01175903d8019d0107c5b0b5743afb5273921535402ffe08d35fb7e137b220"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "保持灯的字符图案不变，只把它放大一点，长椅留在原处。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"保持灯的字符图案不变，只把它放大一点，长椅留在原处。\"}}],\"lines\":[{\"text\":\"灯保留原来的字符图案，放大了一档，长椅还在原处。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.update\",\"target\":\"obj_2\",\"changes\":{\"scale\":2},\"placement\":{\"anchor\":\"keep_base\"}}]}],\"topic\":null}",
+      "sha256": "2789650a1261715aad8302c8122b288e80b751fc21290bc6100c146ae6f7d7a1",
+      "requestSha256": "06d3e98c7b8d8e5c4edccecd60251ed789bf01a76331d5167ef5de6993585610",
+      "requestFileSha256": "10dac0e4f054900cdc72cbb852ec8704add84c7e1ee30b079e3bd4b71c85c320",
+      "capturedAt": "2026-10-08T00:39:30.736Z",
+      "responderReceipt": {
+        "requestFileSha256": "10dac0e4f054900cdc72cbb852ec8704add84c7e1ee30b079e3bd4b71c85c320",
+        "responseSha256": "2789650a1261715aad8302c8122b288e80b751fc21290bc6100c146ae6f7d7a1"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "先把灯挪到长椅左边，隔三格；再把雨停一下。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"先把灯挪到长椅左边，隔三格\"}},{\"domain\":\"weather\",\"support\":{\"quote\":\"再把雨停一下。\"}}],\"lines\":[{\"text\":\"灯的位置调整好了。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.update\",\"target\":\"obj_2\",\"changes\":{},\"placement\":{\"anchor\":\"left_of\",\"target\":\"obj_1\",\"gap\":3}}]},{\"text\":\"雨已经暂停了，就让它继续歇着。\",\"mode\":\"discussion\",\"operations\":[]}],\"topic\":null}",
+      "sha256": "67857837239640e9ca170a7bc05ea015b8b0a0784b32e7065ed74b3205c8900f",
+      "requestSha256": "87fda37dabcc648b9362584ff7968387d8fae20e392485b3f328f0f8e02513ba",
+      "requestFileSha256": "9a019723343c04844104122431c9b07ff8fa77d329bec1cee07de405a5c1240d",
+      "capturedAt": "2026-10-08T00:40:18.465Z",
+      "responderReceipt": {
+        "requestFileSha256": "9a019723343c04844104122431c9b07ff8fa77d329bec1cee07de405a5c1240d",
+        "responseSha256": "67857837239640e9ca170a7bc05ea015b8b0a0784b32e7065ed74b3205c8900f"
+      },
+      "requestUnchanged": true
+    }
+  ]
+}

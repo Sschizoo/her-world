@@ -9,3 +9,7 @@
 .intro{overflow:auto;justify-content:safe center}
 
 .change-receipt{grid-column:2;font:10px/1.6 var(--mono);color:var(--blue);margin-top:-6px;opacity:.85}
+
+.save-conflict{flex:none;display:flex;align-items:center;gap:18px;padding:10px 29px;border:1px solid var(--amber);font-size:12px}.save-conflict p{flex:1;margin:0;line-height:1.6}
+
+.qa-banner{flex:none;display:flex;align-items:center;gap:12px;padding:10px 29px;border:1px solid var(--amber);background:#292518;color:var(--amber);font:12px/1.5 var(--mono)}.qa-banner span{color:var(--ink);font-family:var(--serif)}

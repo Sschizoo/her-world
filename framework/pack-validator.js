@@ -42,7 +42,12 @@
       const c = node.completion;
       if (!plain(c)) return fail('nodes.completion');
       if (c.type === 'answer') { if (!fields(c, ['type']) || !pack.capabilities.includes('story.answer')) return fail('nodes.completion'); }
-      else if (c.type === 'operation') { if (!fields(c, ['type', 'operation', 'target'], ['type', 'operation']) || !pack.capabilities.includes(c.operation) || ['story.answer', 'story.defer', 'panel.open'].includes(c.operation) || own(c, 'target') && !pack.entities.some(entity => entity.id === c.target)) return fail('nodes.completion'); }
+      else if (c.type === 'operation') {
+        if (!fields(c, ['type', 'operation', 'target', 'existing'], ['type', 'operation']) || !pack.capabilities.includes(c.operation) || ['story.answer', 'story.defer', 'panel.open'].includes(c.operation) || own(c, 'target') && !pack.entities.some(entity => entity.id === c.target)) return fail('nodes.completion');
+        // One closed, author-selected predicate; other operations still require
+        // a future successful action. No expressions or source-text matching.
+        if (own(c, 'existing') && (c.existing !== 'created-object' || c.operation !== 'world.create' || own(c, 'target'))) return fail('nodes.completion');
+      }
       else if (c.type === 'ui') { if (!fields(c, ['type', 'panel']) || !CAPS.panels.includes(c.panel)) return fail('nodes.completion'); }
       else return fail('nodes.completion');
     }

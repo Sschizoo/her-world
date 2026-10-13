@@ -1,0 +1,48 @@
+{
+  "kind": "Synthetic canonical save from frozen pre-completion v019 runtime; not a provider reply",
+  "runtimeSha256": "817ab63f8388fa0168d9941bdd8421978e0a94c8a0f6ea5d6aec30747b572773",
+  "save": {
+    "schema": "her-world-save-v4",
+    "pack": {
+      "id": "lantern-lab",
+      "version": "1.0.0",
+      "rulesVersion": "4",
+      "digest": "d11120d9"
+    },
+    "importedSnapshot": null,
+    "events": [
+      {
+        "id": "event_1",
+        "type": "turn",
+        "rulesVersion": "4",
+        "consentVersion": 2,
+        "input": "先在窗边放一把长椅，用途稍后再想。",
+        "plan": {
+          "schema": "her-world-turn-v2",
+          "lines": [
+            "长椅放好了。"
+          ],
+          "beats": [
+            {
+              "afterLine": 0,
+              "operations": [
+                {
+                  "type": "world.create",
+                  "object": {
+                    "label": "长椅",
+                    "glyphs": "|__|",
+                    "x": 24,
+                    "y": 45,
+                    "scale": 1
+                  },
+                  "placementPolicy": "exact"
+                }
+              ]
+            }
+          ],
+          "topic": null
+        }
+      }
+    ]
+  }
+}

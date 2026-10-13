@@ -26,17 +26,25 @@ function clock(){let time=0,serial=0;const tasks=new Map();return{setTimeout(fn,
 function dom(){const ids={},all=[];for(const match of html.matchAll(/<(\w+)\b([^>]*)>/g)){const node=new Element(match[1]);for(const a of match[2].matchAll(/([\w-]+)="([^"]*)"/g)){node.attrs[a[1]]=a[2];if(a[1]==='id')ids[a[2]]=node;if(a[1]==='class')node.className=a[2];if(a[1].startsWith('data-'))node.dataset[a[1].slice(5)]=a[2];}node.hidden=/\bhidden\b/.test(match[2]);all.push(node);}return{ids,document:{getElementById:id=>ids[id],createElement:tag=>new Element(tag),querySelectorAll:selector=>selector==='[data-close]'?all.filter(n=>n.dataset.close):[]}};}
 function setup(options={}){
   const {ids,document}=dom(),timers=clock(),store=options.store||new Map(),events={},media={matches:options.reduced!==false,addEventListener(name,fn){this.fn=fn;},removeEventListener(){}};
-  let connected=false,calls=0;
-  const model={connect(key){connected=key.length>=8;return connected;},connected:()=>connected,disconnect(){connected=false;},calls:()=>calls,async request(args){calls++;return options.request?options.request(args):plan(['我听见了。']);}};
+  const documentEvents={};document.visibilityState='visible';document.addEventListener=(name,fn)=>(documentEvents[name]||=[]).push(fn);document.removeEventListener=()=>{};
+  let calls=0;
+  // Synthetic requests still use the real credential-owner boundary.
+  const credentials=require('../framework/model.js').create({fetch:()=>{throw Error('unexpected network');}});
+  const model=options.model||{...credentials,calls:()=>calls,async request(args){calls++;return options.request?options.request(args):plan(['我听见了。']);}};
   const storage={getItem(key){if(options.blocked)throw Error('denied');return store.get(key)||null;},setItem(key,value){if(options.blocked || options.writeFails && options.writeFails(key))throw Error('denied');if(options.writes)options.writes.push({key,value});if(!options.dropWrites || !options.dropWrites(key))store.set(key,value);}};
   const draws=[],motionCalls=[];let suspends=0,resumes=0,rendererDestroyed=0;
   const win={document,location:{search:options.search||'',href:'http://localhost/framework.html'+(options.search||'')},history:{replaceState(){}},matchMedia:()=>media,setTimeout:timers.setTimeout,clearTimeout:timers.clearTimeout,addEventListener(name,fn){(events[name]||=[]).push(fn);},removeEventListener(){}};
-  const app=UI.create({window:win,document,runtime:options.runtime||runtime,packs,offline,focus,legacy,model,storage,renderer:{update:view=>draws.push(view.world),setReducedMotion:value=>motionCalls.push(value),suspend(){suspends++;},resume(){resumes++;},destroy(){rendererDestroyed++;}}});
-  return {app,ids,store,model,timers,draws,motionCalls,lifecycle:()=>({suspends,resumes,rendererDestroyed}),media,win,async offline(){await ids['offline-button'].emit('click');},async online(){ids['api-key'].value='TEST_ONLY_PASSWORD';await ids['connect-form'].emit('submit');},async say(text){ids['free-input'].value=text;return ids['free-form'].emit('submit');},async event(name,event={}){for(const fn of events[name]||[])await fn(event);}};
+  const app=UI.create({window:win,document,runtime:options.runtime||runtime,packs:options.packs||packs,offline,focus,legacy,model,storage,renderer:{update:view=>draws.push(view.world),setReducedMotion:value=>motionCalls.push(value),suspend(){suspends++;},resume(){resumes++;},destroy(){rendererDestroyed++;}}});
+  return {app,ids,store,model,timers,draws,motionCalls,lifecycle:()=>({suspends,resumes,rendererDestroyed}),media,win,document,async offline(){await ids['offline-button'].emit('click');},async online(){ids['api-key'].value='TEST_ONLY_PASSWORD';await ids['connect-form'].emit('submit');},async say(text){ids['free-input'].value=text;return ids['free-form'].emit('submit');},async event(name,event={}){for(const fn of [...(events[name]||[]),...(documentEvents[name]||[])])await fn(event);}};
 }
 const plan=(lines,beats=[],topic=null)=>({schema:'her-world-turn-v2',lines,beats,topic});
 const addObject={type:'world.create',object:{label:'纸船',glyphs:' /\\\n/==\\',x:48,y:42,scale:1}};
 const addMemory={type:'memory.upsert',id:'note_visit',title:'窗边',body:'一起看天亮'};
+async function prepareRainQuestion(r, name=true) {
+  await r.offline();await r.say('/回答 雨是水滴');await r.timers.flush();
+  if(name){await r.say('/回答 夜航');await r.timers.flush();}
+  await r.online();
+}
 
 test('online new aliases never overwrite earlier memories and explicit handles still revise',async()=>{
   let turn=0;
@@ -58,6 +66,11 @@ test('a mixed cached runtime without the online alias boundary stops before stor
   assert.throws(()=>setup({runtime:oldRuntime}),/runtime_version_mismatch/);
 });
 
+test('a mixed cached runtime without the stable recall budget stops before storage access',()=>{
+  const {contextBudgetBytes,...oldRuntime}=runtime;
+  assert.throws(()=>setup({runtime:oldRuntime}),/runtime_version_mismatch/);
+});
+
 test('salient memory without a remember command reveals at its sentence and labels the player quotation',async()=>{
   const input='我喜欢在窗边听雨。';
   const r=setup({reduced:false,request:async()=>plan(['窗边适合慢慢听。','这个偏好，我记下了。'],[{afterLine:1,operations:[{type:'memory.upsert',id:'note_quiet',title:'听雨的偏好',body:input,kind:'preference',perspective:'player_report',support:{quote:input}}]}])});
@@ -65,7 +78,7 @@ test('salient memory without a remember command reveals at its sentence and labe
   await r.ids['skip-reveal'].emit('click');assert.equal(r.ids['memory-count'].textContent,'00');
   await r.timers.advance(360);
   await r.ids['skip-reveal'].emit('click');assert.equal(r.ids['memory-count'].textContent,'01');
-  assert.match(r.ids['memory-list'].textContent,/偏好 · 你的原话/);assert.match(r.ids['memory-list'].textContent,/我喜欢在窗边听雨/);
+  assert.match(r.ids['memory-list'].textContent,/她记作：听雨的偏好/);assert.match(r.ids['memory-list'].textContent,/她的归类：偏好/);assert.match(r.ids['memory-list'].textContent,/你的原话：我喜欢在窗边听雨/);
   assert.equal(r.app.snapshot().state.story.completed.length,0);
   const restored=runtime.restore(r.store.get(r.app.snapshot().storageKey),packs.get('rain-lab'));assert(restored.ok);assert.equal(restored.state.memories[0].perspective,'player_report');
 });
@@ -136,6 +149,95 @@ test('duplicate submits and stale response after cancel cannot double commit',as
 test('newer manual navigation wins over a proposed panel, while accepted content still updates',async()=>{
   let finish;const r=setup({request:()=>new Promise(resolve=>finish=resolve)});await r.online();const sending=r.app.submit('造纸船');await r.ids['tab-memory'].emit('click');finish(plan(['纸船来了。'],[{afterLine:0,operations:[addObject,{type:'panel.open',panel:'world'}]}]));await sending;assert.equal(r.app.snapshot().activePanel,'memory');assert.equal(r.ids['object-count'].textContent,'01');assert(!r.ids['panel-memory'].hidden);
 });
+test('an actual eligible panel visit during a pending request survives cancellation, success and failure',async()=>{
+  for(const outcome of ['cancel','success','failure']){
+    let resolve,reject;const r=setup({request:()=>new Promise((yes,no)=>{resolve=yes;reject=no;})});await prepareRainQuestion(r);
+    const before=r.app.snapshot().state,sending=r.app.submit('我想再聊聊');
+    await r.ids['tab-logs'].emit('click');await r.ids['tab-memory'].emit('click');
+    assert.equal(r.app.snapshot().state,before);assert.equal(r.app.snapshot().visible.facts.records_seen,undefined);
+    if(outcome==='cancel'){await r.ids['cancel-pending'].emit('click');resolve(plan(['迟到的回应。']));}
+    else if(outcome==='success')resolve(plan(['继续聊吧。']));else reject({code:'network'});
+    await sending;
+    assert.equal(r.app.snapshot().state.facts.records_seen,true);assert.equal(r.app.snapshot().activePanel,'memory');
+    assert.equal(r.app.snapshot().state.events.filter(event=>event.type==='turn').length,before.events.filter(event=>event.type==='turn').length+(outcome==='success'?1:0));
+    assert(!r.ids.transcript.textContent.includes('迟到的回应'));
+    const restored=runtime.restore(r.store.get(r.app.snapshot().storageKey),packs.get('rain-lab'));assert(restored.ok);assert.equal(restored.state.facts.records_seen,true);
+    if(outcome==='failure')assert.equal(r.app.snapshot().lastFailure.code,'network');
+  }
+});
+test('a visible eligible panel visited during typing is retained after navigating elsewhere',async()=>{
+  const r=setup({reduced:false,request:async()=>plan(['先说一句。','然后慢慢说完。'])});await prepareRainQuestion(r);await r.say('我们聊聊');
+  await r.ids['tab-logs'].emit('click');await r.ids['tab-memory'].emit('click');assert.equal(r.app.snapshot().visible.facts.records_seen,undefined);
+  await r.timers.flush();assert.equal(r.app.snapshot().state.facts.records_seen,true);assert.equal(r.app.snapshot().activePanel,'memory');
+});
+test('a panel visit cannot complete a question unlocked by a later unshown sentence, including after restore',async()=>{
+  const r=setup({reduced:false,request:async()=>plan(['我先听你说。','这个名字已经记下。'],[{afterLine:1,operations:[{type:'story.answer',questionId:'q_name',value:'夜航'}]}],'naming')});
+  await prepareRainQuestion(r,false);await r.say('叫它夜航');assert.equal(r.app.snapshot().state.facts.rain_named,true);assert.equal(r.app.snapshot().visible.facts.rain_named,undefined);
+  await r.ids['tab-logs'].emit('click');await r.ids['tab-memory'].emit('click');await r.timers.flush();assert.equal(r.app.snapshot().state.facts.records_seen,undefined);
+  const next=setup({store:r.store});assert.equal(next.app.snapshot().state.facts.records_seen,undefined);await next.ids['tab-logs'].emit('click');assert.equal(next.app.snapshot().state.facts.records_seen,true);
+});
+test('a newly eligible panel actually displayed at a sentence remains observed after later navigation',async()=>{
+  const r=setup({reduced:false,request:async()=>plan(['名字已记下，请看日志。','还有下一句。'],[{afterLine:0,operations:[{type:'story.answer',questionId:'q_name',value:'夜航'},{type:'panel.open',panel:'logs'}]}],'naming')});
+  await prepareRainQuestion(r,false);await r.say('叫它夜航，打开日志');await r.ids['skip-reveal'].emit('click');assert.equal(r.app.snapshot().activePanel,'logs');assert.equal(r.app.snapshot().visible.facts.rain_named,true);
+  await r.ids['tab-memory'].emit('click');await r.timers.flush();assert.equal(r.app.snapshot().state.facts.records_seen,true);
+});
+test('instant multi-line replies do not count an intermediate panel that is replaced before display',async()=>{
+  const r=setup({request:async()=>plan(['先打开日志。','再打开记忆。'],[{afterLine:0,operations:[{type:'panel.open',panel:'logs'}]},{afterLine:1,operations:[{type:'panel.open',panel:'memory'}]}])});
+  await prepareRainQuestion(r);await r.say('打开记忆');assert.equal(r.app.snapshot().activePanel,'memory');assert.equal(r.app.snapshot().state.facts.records_seen,undefined);
+  const restored=runtime.restore(r.store.get(r.app.snapshot().storageKey),packs.get('rain-lab'));assert(restored.ok);assert.equal(restored.state.facts.records_seen,undefined);
+});
+test('motion settlement records one displayed question without cascading into a newly unlocked same-panel question',async()=>{
+  const pack=packs.get('rain-lab');pack.nodes.push({id:'read_again',topic:'records',requires:{records_seen:true},question:{id:'q_read_again',text:'再看下一条记录。',kind:'open'},completion:{type:'ui',panel:'logs'},sets:{records_seen_again:true}});
+  const customPacks={list:()=>[pack],get:id=>id===pack.id?pack:null};
+  const r=setup({packs:customPacks,reduced:false,request:async()=>plan(['请看日志。'],[{afterLine:0,operations:[{type:'panel.open',panel:'logs'}]}])});
+  await prepareRainQuestion(r);await r.say('打开日志');await r.ids['motion-toggle'].emit('click');
+  assert.equal(r.app.snapshot().state.facts.records_seen,true);assert.equal(r.app.snapshot().state.facts.records_seen_again,undefined);
+  await r.ids['tab-logs'].emit('click');assert.equal(r.app.snapshot().state.facts.records_seen_again,true);
+});
+test('pagehide settles accepted data without crediting an unseen panel until pageshow',async()=>{
+  const r=setup({reduced:false,request:async()=>plan(['先听你说。','名字已经记下，请看日志。'],[{afterLine:1,operations:[{type:'story.answer',questionId:'q_name',value:'夜航'},{type:'panel.open',panel:'logs'}]}],'naming')});
+  await prepareRainQuestion(r,false);await r.say('叫它夜航，打开日志');await r.event('pagehide');
+  assert.equal(r.app.snapshot().state.facts.rain_named,true);assert.equal(r.app.snapshot().state.facts.records_seen,undefined);assert.equal(r.app.snapshot().activePanel,'logs');assert(!r.app.snapshot().revealing);
+  const refreshed=setup({store:r.store});assert.equal(refreshed.app.snapshot().state.facts.records_seen,undefined);
+  await r.event('pageshow');assert.equal(r.app.snapshot().state.facts.records_seen,true);assert.equal(r.ids['panel-logs'].hidden,false);
+});
+test('pagehide preserves an eligible panel actually visited before the page became hidden',async()=>{
+  let finish;const r=setup({request:()=>new Promise(resolve=>finish=resolve)});await prepareRainQuestion(r);const sending=r.app.submit('稍后再说');
+  await r.ids['tab-logs'].emit('click');await r.ids['tab-memory'].emit('click');await r.event('pagehide');finish(plan(['迟到。']));await sending;
+  assert.equal(r.app.snapshot().state.facts.records_seen,true);const restored=runtime.restore(r.store.get(r.app.snapshot().storageKey),packs.get('rain-lab'));assert(restored.ok);assert.equal(restored.state.facts.records_seen,true);
+});
+test('background-tab replies credit only the panel actually shown when the document becomes visible',async()=>{
+  for(const finalPanel of ['logs','memory']){
+    const r=setup({reduced:false,request:async()=>plan(['先看日志。','再看这一页。'],[{afterLine:0,operations:[{type:'panel.open',panel:'logs'}]},{afterLine:1,operations:[{type:'panel.open',panel:finalPanel}]}])});
+    await prepareRainQuestion(r);await r.say('慢慢说');r.document.visibilityState='hidden';await r.event('visibilitychange');await r.timers.flush();
+    assert.equal(r.app.snapshot().state.facts.records_seen,undefined);
+    const restored=runtime.restore(r.store.get(r.app.snapshot().storageKey),packs.get('rain-lab'));assert(restored.ok);assert.equal(restored.state.facts.records_seen,undefined);
+    r.document.visibilityState='visible';await r.event('visibilitychange');assert.equal(r.app.snapshot().state.facts.records_seen,finalPanel==='logs'?true:undefined);
+  }
+});
+test('queued visits remain bounded during rapid navigation and cannot overwrite a protected save',async()=>{
+  const key='her-world.framework.v4:rain-lab:1.0.0',original='protected invalid bytes',store=new Map([[key,original]]);
+  let finish;const r=setup({store,request:()=>new Promise(resolve=>finish=resolve)});await prepareRainQuestion(r);const before=r.app.snapshot().state;
+  const sending=r.app.submit('再聊聊');for(let index=0;index<80;index++)await r.ids['tab-'+['logs','memory','focus','world'][index%4]].emit('click');
+  assert.equal(r.app.snapshot().state,before);await r.ids['cancel-pending'].emit('click');finish(plan(['迟到。']));await sending;
+  assert.equal(r.app.snapshot().state.events.length-before.events.length,1);assert.equal(r.app.snapshot().state.facts.records_seen,true);assert.equal(store.get(key),original);assert.match(r.ids['save-status'].textContent,/原存档已保护/);
+});
+test('pack switching saves an actual pending-time visit only in the original pack and a late reply stays inert',async()=>{
+  let finish;const r=setup({request:()=>new Promise(resolve=>finish=resolve)});await prepareRainQuestion(r);const rainKey=r.app.snapshot().storageKey;
+  const sending=r.app.submit('我们聊聊');await r.ids['tab-logs'].emit('click');r.ids['pack-select'].value='lantern-lab';await r.ids['pack-select'].emit('change');
+  const next=r.app.snapshot().state;finish(plan(['迟到的回应。'],[{afterLine:0,operations:[addMemory]}]));await sending;assert.equal(r.app.snapshot().state,next);assert.equal(next.facts.records_seen,undefined);assert.equal(next.memories.length,0);
+  const restored=runtime.restore(r.store.get(rainKey),packs.get('rain-lab'));assert(restored.ok);assert.equal(restored.state.facts.records_seen,true);
+  r.ids['pack-select'].value='rain-lab';await r.ids['pack-select'].emit('change');assert.equal(r.app.snapshot().state.facts.records_seen,true);assert(!r.ids.transcript.textContent.includes('迟到'));
+});
+test('confirmed reset clears queued visits and a cancelled proposed panel never becomes an observation',async()=>{
+  for(const action of ['cancel','reset']){
+    let finish;const r=setup({request:()=>new Promise(resolve=>finish=resolve)});await prepareRainQuestion(r);const sending=r.app.submit('打开日志');
+    if(action==='reset'){await r.ids['tab-logs'].emit('click');await r.ids['reset-button'].emit('click');await r.ids['confirm-reset'].emit('click');}
+    else await r.ids['cancel-pending'].emit('click');
+    finish(plan(['请看日志。'],[{afterLine:0,operations:[{type:'panel.open',panel:'logs'}]}]));await sending;
+    assert.equal(r.app.snapshot().state.facts.records_seen,undefined);assert.equal(r.app.snapshot().activePanel,'world');assert(!r.ids.transcript.textContent.includes('请看日志'));
+  }
+});
 test('invalid plan leaves dialogue, world, memory and storage unchanged and only reports a safe failure',async()=>{
   const secret='do not expose provider response';const r=setup({request:async()=>({schema:'wrong',lines:[secret],beats:[],topic:null})});await r.online();const before=r.app.snapshot().state;await r.say('造纸船');assert.equal(r.app.snapshot().state,before);assert(!r.ids['request-error'].hidden);assert(!r.ids.transcript.textContent.includes(secret));assert(!r.ids['developer-content'].textContent.includes(secret));assert.equal(r.store.size,0);
 });
@@ -161,10 +263,27 @@ test('password is cleared on submit/dismiss, absent from saves and diagnostics, 
   const r=setup();await r.online();assert.equal(r.ids['api-key'].value,'');assert.equal(r.model.calls(),0);await r.say('你好');assert(![...r.store.values()].join('').includes('TEST_ONLY_PASSWORD'));assert(!r.ids['developer-content'].textContent.includes('TEST_ONLY_PASSWORD'));r.ids['api-key'].value='ABANDONED_PASSWORD';r.ids['connect-dialog'].close();assert.equal(r.ids['api-key'].value,'');await r.event('pagehide');assert(!r.model.connected());assert.equal(r.app.snapshot().mode,null);
 });
 test('pack switch cancels stale work and keeps separate saves; keyboard navigation and actual panel observation work',async()=>{
-  const r=setup();await r.offline();await r.say('/新建 长椅');const oldKey=r.app.snapshot().storageKey;r.ids['pack-select'].value='lantern-lab';await r.ids['pack-select'].emit('change');assert.equal(r.app.snapshot().state.pack.id,'lantern-lab');assert.equal(r.app.snapshot().visible.world.objects.length,0);assert(r.store.has(oldKey));await r.ids['tab-world'].emit('keydown',{key:'ArrowRight'});assert.equal(r.app.snapshot().activePanel,'memory');assert(r.ids['tab-memory'].focused);assert.equal(r.app.snapshot().state.events.at(-1).panel,'memory');
+  const r=setup();await r.offline();await r.say('/新建 长椅');const oldKey=r.app.snapshot().storageKey;r.ids['pack-select'].value='lantern-lab';await r.ids['pack-select'].emit('change');assert.equal(r.app.snapshot().state.pack.id,'lantern-lab');assert.equal(r.app.snapshot().visible.world.objects.length,0);assert(r.store.has(oldKey));await r.ids['tab-world'].emit('keydown',{key:'ArrowRight'});assert.equal(r.app.snapshot().activePanel,'memory');assert(r.ids['tab-memory'].focused);assert.equal(r.app.snapshot().state.events.length,0);assert.equal(r.store.has(r.app.snapshot().storageKey),false);
 });
 test('reduced motion settles reveal once without duplicate events',async()=>{
   const r=setup({reduced:false,request:async()=>plan(['第一句。','第二句。'],[{afterLine:1,operations:[addObject]}])});await r.online();await r.say('纸船');r.media.fn({matches:true});assert(!r.app.snapshot().revealing);assert.equal(r.ids['object-count'].textContent,'01');const text=r.ids.transcript.textContent;await r.timers.flush();assert.equal(r.ids.transcript.textContent,text);assert.equal(r.app.snapshot().state.events.filter(x=>x.type==='turn').length,1);
+});
+test('settling a reply applies its remaining panel request and announces the final visible sentence',async()=>{
+  for(const action of ['motion','reduced']){
+    const r=setup({reduced:false,request:async()=>plan(['第一句。','请看运行日志。'],[{afterLine:1,operations:[{type:'panel.open',panel:'logs'}]}])});
+    await r.online();await r.say('打开日志');
+    if(action==='motion')await r.ids['motion-toggle'].emit('click');else r.media.fn({matches:true});
+    assert.equal(r.app.snapshot().activePanel,'logs');assert.equal(r.ids['panel-logs'].hidden,false);assert.equal(r.ids['reveal-announcement'].textContent,'请看运行日志。');
+    const state=r.app.snapshot().state;await r.timers.flush();assert.equal(r.app.snapshot().state,state);assert.equal(state.events.filter(event=>event.type==='turn').length,1);
+  }
+});
+test('manual navigation during typing wins when motion changes settle a later panel request',async()=>{
+  for(const action of ['motion','reduced']){
+    const r=setup({reduced:false,request:async()=>plan(['第一句。','请看运行日志。'],[{afterLine:1,operations:[{type:'panel.open',panel:'logs'}]}])});
+    await r.online();await r.say('打开日志');await r.ids['tab-memory'].emit('click');
+    if(action==='motion')await r.ids['motion-toggle'].emit('click');else r.media.fn({matches:true});
+    await r.timers.flush();assert.equal(r.app.snapshot().activePanel,'memory');assert.equal(r.ids['panel-memory'].hidden,false);assert.equal(r.ids['panel-logs'].hidden,true);
+  }
 });
 test('unchanged world does not redraw on a no-op conversation or tab navigation',async()=>{
   const r=setup();await r.offline();const count=r.draws.length;await r.say('你好');assert.equal(r.draws.length,count);await r.ids['tab-memory'].emit('click');assert.equal(r.draws.length,count);

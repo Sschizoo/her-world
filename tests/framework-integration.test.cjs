@@ -40,7 +40,12 @@ test('offline adapters use the real registry through two unrelated content packs
     state = turn(state, '如果雨停下会怎么样？').state;
     assert.equal(state.world.weather.intensity, before);
     state = turn(state, '/回答 我想坐在这里，听雨滴轻轻敲在玻璃上').state;
-    assert.equal(state.story.completed.length, 1);
+    assert.deepEqual(state.story.completed, id === 'lantern-lab' ? ['purpose', 'make'] : ['describe']);
+    if (id === 'lantern-lab') {
+      assert.equal(state.world.objects.length, 1, 'the earlier controlled creation is reused');
+      assert(E.context(state).pendingQuestions.some(question => question.id === 'q_inspect'), 'actual UI discovery is still required');
+      assert(!state.story.completed.includes('inspect'));
+    }
     const restored = E.restore(E.serialize(state), packs.get(id));
     assert.equal(restored.ok, true);
     assert.deepEqual(E.view(restored.state), E.view(state));

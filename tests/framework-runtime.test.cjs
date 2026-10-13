@@ -181,6 +181,33 @@ test('UI completion only follows actual observation, and model cannot forge one'
   assert.equal(R.view(state).pendingQuestions[0].id, 'q_visitor');
 });
 
+test('delayed panel observations preserve the displayed question subset through save and cursor replay', () => {
+  let state = answer(rain(), 'q_rain', '细细的', 'rain');
+  state = answer(state, 'q_name', '夜信', 'naming');
+  const earlyVisit = R.observe(state, { type: 'panel.viewed', panel: 'logs', questionIds: [] });
+  assert.equal(earlyVisit.facts.records_seen, undefined);
+  assert.deepEqual(earlyVisit.events.at(-1).questionIds, []);
+  const restored = R.restore(R.serialize(earlyVisit), PACKS.get('rain-lab'));assert(restored.ok);
+  assert.equal(restored.state.facts.records_seen, undefined);
+  assert.equal(R.view(restored.state, { event: restored.state.events.length - 1, line: 0 }).facts.records_seen, undefined);
+  const actualVisit = R.observe(earlyVisit, { type: 'panel.viewed', panel: 'logs', questionIds: ['q_read'] });
+  assert.equal(actualVisit.facts.records_seen, true);
+  const complete = R.restore(R.serialize(actualVisit), PACKS.get('rain-lab'));assert(complete.ok);assert.deepEqual(complete.state, actualVisit);
+});
+
+test('panel observation question subsets are bounded, unique, known and matched to the viewed panel', () => {
+  const state = rain();
+  for (const questionIds of [null, 'q_read', ['missing'], ['q_rain'], ['q_read', 'q_read'], [undefined], new Array(1), Array(25).fill('q_read')]) {
+    assert.throws(() => R.observe(state, { type: 'panel.viewed', panel: 'logs', questionIds }), /OBSERVATION_INVALID/);
+  }
+  assert.throws(() => R.observe(state, { type: 'panel.viewed', panel: 'memory', questionIds: ['q_read'] }), /OBSERVATION_INVALID/);
+  const laterQuestion = R.observe(state, { type: 'panel.viewed', panel: 'logs', questionIds: ['q_read'] });
+  assert.equal(laterQuestion.facts.records_seen, undefined);
+  const saved = clone(R.serialize(laterQuestion));saved.events[0].questionIds = ['q_visitor'];
+  assert.equal(R.restore(saved, PACKS.get('rain-lab')).error.code, 'OBSERVATION_INVALID');
+  assert.equal(result(state, '打开日志', [{ type: 'panel.open', panel: 'logs', questionIds: ['q_read'] }]).ok, false);
+});
+
 test('consent is checked only for the relevant consent question and cannot be cherry-picked', () => {
   let state = answer(rain(), 'q_rain', '任意创意描述', 'rain');
   state = answer(state, 'q_name', '新的名字', 'naming');
@@ -295,7 +322,7 @@ test('context capacity rejects expansions atomically and current removals remain
     const next = result(state, input, [operation]);
     if (next.ok) state = next.state;
     else { assert.equal(next.error.code, 'CONTEXT_CAPACITY'); assert.equal(JSON.stringify(R.serialize(state)), before); rejected = true; }
-    assert.ok(CAPS.requestContextBytes(R.context(state)) <= R.constants.MAX_CONTEXT_BYTES);
+    assert.ok(R.contextBudgetBytes(R.context(state)) <= R.constants.MAX_CONTEXT_BYTES);
   };
   for (let i = 0; i < 14; i++) attempt({ type: 'memory.upsert', id: 'note_' + i, title: '界'.repeat(60), body: '界'.repeat(240) });
   for (let i = 0; i < 8; i++) attempt({ type: 'world.create', object: object('界'.repeat(40)) });
@@ -304,7 +331,7 @@ test('context capacity rejects expansions atomically and current removals remain
   const restored = R.restore(R.serialize(state), pack); assert.equal(restored.ok, true);
   const removed = turn(state, '移除一条笔记腾出空间', [{ type: 'memory.remove', id: 'note_0' }]);
   assert.equal(removed.memories.length, state.memories.length - 1);
-  assert.ok(CAPS.requestContextBytes(R.context(removed)) <= R.constants.MAX_CONTEXT_BYTES);
+  assert.ok(R.contextBudgetBytes(R.context(removed)) <= R.constants.MAX_CONTEXT_BYTES);
 });
 
 test('removing and relearning a memory ID starts a new source and generation', () => {
@@ -330,9 +357,13 @@ test('consent recognizes a current direct answer but rejects quoted or historica
 const oldBinding = packId => ({ id: packId, version: '1.0.0', rulesVersion: '1', digest: { 'rain-lab': '402db16c', 'lantern-lab': '8dd7d018' }[packId] });
 const asOldSave = state => {
   const saved = { ...clone(R.serialize(state)), pack: oldBinding(state.pack.id) };
-  for (const event of saved.events) if (event.type === 'turn') {
-    delete event.rulesVersion;
-    for (const beat of event.plan.beats) for (const op of beat.operations) { delete op.placementPolicy; delete op.allowOverlap; }
+  for (const event of saved.events) {
+    delete event.completionVersion;
+    if (event.type === 'turn') {
+      delete event.rulesVersion;
+      delete event.consentVersion;
+      for (const beat of event.plan.beats) for (const op of beat.operations) { delete op.placementPolicy; delete op.allowOverlap; }
+    }
   }
   return saved;
 };
@@ -394,7 +425,7 @@ test('known rules1 saves migrate explicitly to rules4 with all state, sources an
     const saved = asOldSave(state), original = JSON.stringify(saved);
     const restored = R.restore(saved, PACKS.get(packId));
     assert.equal(restored.ok, true, JSON.stringify(restored.error));
-    assert.deepEqual(restored.migration, { type: 'memory-provenance-v4', fromRulesVersion: '1', toRulesVersion: '4', fromPackDigest: oldBinding(packId).digest, toPackDigest: R.serialize(state).pack.digest });
+    assert.deepEqual(restored.migration, { type: packId === 'lantern-lab' ? 'current-object-completion-v2' : 'memory-provenance-v4', fromRulesVersion: '1', toRulesVersion: '4', fromPackDigest: oldBinding(packId).digest, toPackDigest: R.serialize(state).pack.digest });
     const historical = clone(R.view(state));
     historical.memories = historical.memories.map(({ id, title, body, source, currentRevision, recallStatus, recallHandle }) => ({ id, title, body, recallStatus, recallHandle, source: { eventId: source.eventId, text: source.text }, currentRevision: { eventId: currentRevision.eventId, text: currentRevision.text, number: currentRevision.number } }));
     assert.deepEqual(R.view(restored.state), historical);
@@ -548,7 +579,7 @@ test('backslash-rich legal state cannot commit an unsendable nested JSON context
     if (next.ok) state = next.state;
     else { assert.equal(next.error.code, 'CONTEXT_CAPACITY'); assert.equal(JSON.stringify(R.serialize(state)), before); rejected++; }
     const context = R.context(state);
-    assert.ok(CAPS.requestContextBytes(context) <= R.constants.MAX_CONTEXT_BYTES);
+    assert.ok(R.contextBudgetBytes(context) <= R.constants.MAX_CONTEXT_BYTES);
     assert.ok(Buffer.byteLength(JSON.stringify(Model.buildRequest(context, input))) <= 128 * 1024);
     assert.deepEqual(context.world.objects.map(({ source, ...geometry }) => geometry), state.world.objects.map(({ source, ...geometry }) => geometry));
     if (!state.recall.tombstones.length) assert.deepEqual(context.memories.map((note, index) => ({ ...note, id: state.memories[index].id })), state.memories);

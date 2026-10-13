@@ -386,7 +386,9 @@ test('actual runtime contexts for both content packs build bounded, distinct pro
     const built = Model.buildRequest(current, '你好');
     assert(Buffer.byteLength(JSON.stringify(built)) < 131072);
     assert(built.messages[0].content.includes(pack.guidance));
-    assert.equal(JSON.parse(built.messages[1].content).context.capabilities.length, pack.capabilities.length);
+    assert.equal(JSON.parse(built.messages[1].content).context.capabilities, undefined);
+    const definition=JSON.parse(built.messages[0].content.split('\n本轮内容与能力定义：\n')[1]);
+    assert.equal(definition.capabilities.length, pack.capabilities.length);
     return built;
   });
   assert.equal(requests.length, 2);
@@ -561,7 +563,7 @@ test('nested JSON escaping is budgeted before accepting state and removal remain
     const input = character.repeat(200), lines = Array(4).fill(character.repeat(500));
     const verify = (compareRecall = true) => {
       const current = Framework.context(state);
-      assert(Caps.requestContextBytes(current) <= 112 * 1024);
+      assert(Framework.contextBudgetBytes(current) <= 112 * 1024);
       const built = Model.buildRequest(current, input);
       assert(Buffer.byteLength(JSON.stringify(built)) <= 128 * 1024);
       assert.deepEqual(current.facts, state.facts);
@@ -633,13 +635,12 @@ test('112 KiB encoded contexts retain a proven request reserve for maximum neste
     'x'.repeat(200), '"'.repeat(200), '\\'.repeat(200), '🌧'.repeat(200),
     '\ud800'.repeat(200), '\udfff'.repeat(200), 'x' + '\t'.repeat(199), 'x' + '\n'.repeat(199)
   ];
-  let fixedOverhead;
   for (const pack of Packs.list()) {
     const current = Framework.context(Framework.create(pack));
-    const encodedContext = Caps.requestContextBytes(current);
+    const encodedContext = Framework.contextBudgetBytes(current);
     const overhead = requestBytes(current, 'x') - encodedContext - 1;
-    if (fixedOverhead === undefined) fixedOverhead = overhead;
-    else assert.equal(overhead, fixedOverhead);
+    // Logical recall accounting remains frozen; deduplicated wire size has a
+    // per-definition saving and need not have one constant subtraction.
     // One accepted Unicode scalar needs at most four UTF-8 bytes. A lone
     // surrogate is also accepted by the adapter and needs six JSON escape
     // characters plus one enclosing-string escape: seven bytes, the maximum.
@@ -651,8 +652,8 @@ test('112 KiB encoded contexts retain a proven request reserve for maximum neste
     // stresses transport independently of any particular admitted pack shape.
     const full = plain(current);
     full.recentTranscript = [{ eventId: 'event_budget', role: 'user', text: '' }];
-    full.recentTranscript[0].text = 'x'.repeat(contextBudget - Caps.requestContextBytes(full));
-    assert.equal(Caps.requestContextBytes(full), contextBudget);
+    full.recentTranscript[0].text = 'x'.repeat(contextBudget - Framework.contextBudgetBytes(full));
+    assert.equal(Framework.contextBudgetBytes(full), contextBudget);
     assert.equal(requestBytes(full, '\ud800'.repeat(200)), contextBudget + overhead + maximumInputBytes);
     assert(requestBytes(full, '\ud800'.repeat(200)) <= transportBudget);
   }

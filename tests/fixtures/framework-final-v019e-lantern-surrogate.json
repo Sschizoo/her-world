@@ -1,0 +1,122 @@
+{
+  "kind": "independent OpenAI model substitute; not GLM or network evidence",
+  "date": "2026-10-08",
+  "release": "framework-v0.1.9-final-attribution-candidate",
+  "uiEvidence": "world-panel visit is a local runtime/UI-event simulation, not browser evidence",
+  "pack": "lantern-lab",
+  "rulesVersion": "4",
+  "modelProtocol": "her-world-turn-v4",
+  "records": [
+    {
+      "input": "先下一点小雨吧。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"weather\",\"support\":{\"quote\":\"先下一点小雨吧。\"}}],\"lines\":[{\"text\":\"窗外下起了小雨。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"kind\":\"rain\",\"intensity\":1,\"paused\":false}}]}],\"topic\":null}",
+      "sha256": "c3113e7ec5579da8a63adca7598d0e086935f3e0050d1e0d958f2068a26dcee4",
+      "requestSha256": "9cf3b1536274ad89bf0527978a79d887836701e1e5c4156aaeccf37c95381455",
+      "requestFileSha256": "c007443d066553c7909b2b24430b8743fa1fee7e58d640663638fd7fe341ae0c",
+      "capturedAt": "2026-10-08T02:28:29.841Z",
+      "responderReceipt": {
+        "requestFileSha256": "c007443d066553c7909b2b24430b8743fa1fee7e58d640663638fd7fe341ae0c",
+        "responseSha256": "c3113e7ec5579da8a63adca7598d0e086935f3e0050d1e0d958f2068a26dcee4"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "我喜欢雨落在叶子上的声音，这对我很重要。用途我还没想好。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"我记下了：你喜欢雨落在叶子上的声音，这对你很重要。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_rain_on_leaves\",\"title\":\"喜欢雨落在叶子上的声音\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我喜欢雨落在叶子上的声音，这对我很重要。\"}}]},{\"text\":\"用途可以慢慢想，先不急着决定。\",\"mode\":\"discussion\",\"operations\":[]}],\"topic\":null}",
+      "sha256": "8cf86b708baf853c8b6347a91320bd7c7340974d4a710c6153e507eae7f4ff4c",
+      "requestSha256": "cde60f7241654fc29e00ce32b79746f079027c5e7c3a0974d2343e85b80bde95",
+      "requestFileSha256": "b6e2c6f74ec5a1a6d23f385ffc458dfe175a7152c88b2062747546a9047595d6",
+      "capturedAt": "2026-10-08T02:30:57.434Z",
+      "responderReceipt": {
+        "requestFileSha256": "b6e2c6f74ec5a1a6d23f385ffc458dfe175a7152c88b2062747546a9047595d6",
+        "responseSha256": "8cf86b708baf853c8b6347a91320bd7c7340974d4a710c6153e507eae7f4ff4c"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "我喜欢稍密一点的雨，请把眼前的雨调密一档。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"weather\",\"support\":{\"quote\":\"请把眼前的雨调密一档。\"}}],\"lines\":[{\"text\":\"眼前的雨调密了一档。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"weather.set\",\"changes\":{\"intensity\":2}}]},{\"text\":\"我也记下了，你喜欢稍密一点的雨。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_rain_density\",\"title\":\"喜欢稍密一点的雨\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我喜欢稍密一点的雨\"}}]}],\"topic\":null}",
+      "sha256": "e252a416bc0eab722645e291534478c6add725c060c02ac70e135e89ee84ebc8",
+      "requestSha256": "84cb770134a841da8696ca03e31322d91c742fa7beea5464f8e1fc79b94a74bc",
+      "requestFileSha256": "0c047c9c9612de1079bb7d219e6ae82c60de443c8a8295fbaf36075121054017",
+      "capturedAt": "2026-10-08T02:35:04.276Z",
+      "responderReceipt": {
+        "requestFileSha256": "0c047c9c9612de1079bb7d219e6ae82c60de443c8a8295fbaf36075121054017",
+        "responseSha256": "e252a416bc0eab722645e291534478c6add725c060c02ac70e135e89ee84ebc8"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "如果我说我喜欢暴雨，你会怎么理解？我其实不喜欢暴雨，也不要改现在的天气。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"我会把“如果我说我喜欢暴雨”理解为假设，不当作你的真实偏好。\",\"mode\":\"discussion\",\"operations\":[]},{\"text\":\"我记下的是你其实不喜欢暴雨，眼前的天气保持原样。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_storm_preference\",\"title\":\"不喜欢暴雨\",\"kind\":\"preference\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"我其实不喜欢暴雨\"}}]}],\"topic\":null}",
+      "sha256": "974d6865ebb206c9733e98c42d371c2882f4123200abd58fec3098914c64b9a6",
+      "requestSha256": "ae4c8e6df4569f6cd8b905857232ea4181e9267a839bd32286ca847f89358053",
+      "requestFileSha256": "d3ef8a99d640a40df40f0c045d3421f50f0dcd9236a810a1cb7bd62256e6f431",
+      "capturedAt": "2026-10-08T02:40:20.895Z",
+      "responderReceipt": {
+        "requestFileSha256": "d3ef8a99d640a40df40f0c045d3421f50f0dcd9236a810a1cb7bd62256e6f431",
+        "responseSha256": "974d6865ebb206c9733e98c42d371c2882f4123200abd58fec3098914c64b9a6"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "现在窗下添一把双人长椅，再在椅子右边放一盏小灯，底边对齐，中间隔四格。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[{\"domain\":\"scene\",\"support\":{\"quote\":\"现在窗下添一把双人长椅，再在椅子右边放一盏小灯，底边对齐，中间隔四格。\"}}],\"lines\":[{\"text\":\"双人长椅放在窗下了。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"双人长椅\",\"glyphs\":\"+------+------+\\n|      |      |\\n|=============|\\n|             |\",\"scale\":1},\"placement\":{\"anchor\":\"window_below\",\"gap\":2}}]},{\"text\":\"小灯放在长椅右边，底边对齐，中间隔着四格。\",\"mode\":\"apply_now\",\"operations\":[{\"type\":\"world.create\",\"object\":{\"label\":\"小灯\",\"glyphs\":\"/---\\\\\\n| * |\\n  |  \\n _|_ \",\"scale\":1},\"placement\":{\"anchor\":\"right_of\",\"target\":\"obj_1\",\"gap\":4,\"align\":\"bottom\"}}]}],\"topic\":null}",
+      "sha256": "4dc91452392c67591f83290fcd15a0ed619ae0f48f1df4dce52d9de01b76a3d8",
+      "requestSha256": "ff4199f89ce8aa959a018ea6ee44d6419bec7e1b078be73d9382aebc64a0ebc2",
+      "requestFileSha256": "49d3dd9b83488d6d457dbd73182f90bafd87b7ef6a6f5b32c5c0ac78fc6f2df6",
+      "capturedAt": "2026-10-08T02:41:31.398Z",
+      "responderReceipt": {
+        "requestFileSha256": "49d3dd9b83488d6d457dbd73182f90bafd87b7ef6a6f5b32c5c0ac78fc6f2df6",
+        "responseSha256": "4dc91452392c67591f83290fcd15a0ed619ae0f48f1df4dce52d9de01b76a3d8"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "afterPanelObservation": {
+        "type": "panel.viewed",
+        "panel": "world",
+        "questionIds": [
+          "q_inspect"
+        ]
+      },
+      "input": "用途想好了，这里就用来安静阅读，就用已经有的长椅吧。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，这里就用来安静阅读，用已经有的长椅。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_purpose\",\"value\":\"这里用来安静阅读，就用已经有的长椅。\"}]},{\"text\":\"我也记下了这个用途。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"memory.upsert\",\"id\":\"note_reading_purpose\",\"title\":\"窗边的用途\",\"kind\":\"note\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"用途想好了，这里就用来安静阅读，就用已经有的长椅吧。\"}}]}],\"topic\":null}",
+      "sha256": "9be3174c7042e5a5708ac66eaa36874adb5f7d7fc35ad55e3c571e2c342ae298",
+      "requestSha256": "f149a9a43a18b19e1bd62e1c6ba68f9ceda00e8c6c0fd7e3740a7cba33193541",
+      "requestFileSha256": "6146c94da1af1da6f6b88d6e3814c5290d0c9d68a41c6cb7c2a52f3d6612cf74",
+      "capturedAt": "2026-10-08T02:42:50.645Z",
+      "responderReceipt": {
+        "requestFileSha256": "6146c94da1af1da6f6b88d6e3814c5290d0c9d68a41c6cb7c2a52f3d6612cf74",
+        "responseSha256": "9be3174c7042e5a5708ac66eaa36874adb5f7d7fc35ad55e3c571e2c342ae298"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "我想先留在这里。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，那就先留在这里，慢慢享受窗边的阅读时光。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_route\",\"value\":\"stay\"}]}],\"topic\":null}",
+      "sha256": "b0342b584f793eb2263937ba6344848ebf777be6094702d1fdbe9603f494a2a6",
+      "requestSha256": "ac9da2902323b43cbb4f1f6aa14fbeda94592d30a7181ef7f16e82965817553e",
+      "requestFileSha256": "eb646dc2a7510f41372cd0e6b215f4ebc4637be46107edff33f47bb8bebcd07b",
+      "capturedAt": "2026-10-08T02:43:44.699Z",
+      "responderReceipt": {
+        "requestFileSha256": "eb646dc2a7510f41372cd0e6b215f4ebc4637be46107edff33f47bb8bebcd07b",
+        "responseSha256": "b0342b584f793eb2263937ba6344848ebf777be6094702d1fdbe9603f494a2a6"
+      },
+      "requestUnchanged": true
+    },
+    {
+      "input": "留住那把长椅吧，它让我愿意慢下来。",
+      "raw": "{\"schema\":\"her-world-turn-v4\",\"requestedChanges\":[],\"lines\":[{\"text\":\"好，就留着窗下这把长椅。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"story.answer\",\"questionId\":\"q_stay\",\"value\":\"留住那把长椅，它让我愿意慢下来。\"}]},{\"text\":\"我记下了，你说它让你愿意慢下来。\",\"mode\":\"discussion\",\"operations\":[{\"type\":\"world.annotate\",\"target\":\"obj_1\",\"field\":\"meaning\",\"value\":\"它让我愿意慢下来。\"},{\"type\":\"memory.upsert\",\"id\":\"note_bench_meaning\",\"title\":\"长椅让你愿意慢下来\",\"kind\":\"note\",\"perspective\":\"player_report\",\"support\":{\"quote\":\"留住那把长椅吧，它让我愿意慢下来。\"}}]}],\"topic\":null}",
+      "sha256": "98a95051166ef625290ecfff7efb9327cc123dbef0b35ce17c4c44665209d47c",
+      "requestSha256": "55c3b3d5baee0bec8842fff9393d2daf88c0bc48f630c0aa25f74430b696c6c7",
+      "requestFileSha256": "ba001d397fcc2467dd56920bea2c7bafcec6c9b6ba90514a6fb08b432f88c9e2",
+      "capturedAt": "2026-10-08T02:44:33.513Z",
+      "responderReceipt": {
+        "requestFileSha256": "ba001d397fcc2467dd56920bea2c7bafcec6c9b6ba90514a6fb08b432f88c9e2",
+        "responseSha256": "98a95051166ef625290ecfff7efb9327cc123dbef0b35ce17c4c44665209d47c"
+      },
+      "requestUnchanged": true
+    }
+  ]
+}

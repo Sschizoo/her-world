@@ -170,7 +170,7 @@ test('pinned rules1/2/3 saves preserve coordinates, original sources and histori
   for (const id of ['rain-lab', 'lantern-lab']) for (const version of ['1', '2', '3']) {
     const save = historicalSave(id, version), original = clone(save), restored = R.restore(save, PACKS.get(id));
     assert.equal(restored.ok, true, JSON.stringify(restored.error));
-    assert.deepEqual(save, original); assert.equal(restored.migration.type, 'memory-provenance-v4'); assert.equal(restored.migration.fromRulesVersion, version); assert.equal(restored.migration.toRulesVersion, '4');
+    assert.deepEqual(save, original); assert.equal(restored.migration.type, id === 'lantern-lab' ? 'current-object-completion-v2' : 'memory-provenance-v4'); assert.equal(restored.migration.fromRulesVersion, version); assert.equal(restored.migration.toRulesVersion, '4');
     assert.equal(restored.state.memories[0].source.text, '旧时的请求'); assert.equal(restored.state.memories[0].currentRevision.number, 2); assert.equal(restored.state.memories[0].generation, undefined);
     assert.deepEqual(restored.state.world.objects[0], { id: 'obj_1', ...shape, source: { createdBy: '旧时的请求', lastChangedBy: '旧时的请求', createdEventId: 'event_1', eventId: 'event_1' } });
     assert.deepEqual(restored.state.events.map(event => event.plan), original.events.map(event => event.plan));
@@ -210,7 +210,7 @@ test('bounded note capacity stays atomic and a deletion makes room without erasi
   state = turn(state, '忘记第一条', [remove('n0')]);
   state = turn(state, '第十五条', [report('overflow', '第十五条')]);
   assert.equal(state.memories.length, R.constants.MAX_MEMORIES); assert.equal(state.recall.tombstones.length, 1);
-  assert.ok(CAPS.requestContextBytes(R.context(state)) <= R.constants.MAX_CONTEXT_BYTES);
+  assert.ok(R.contextBudgetBytes(R.context(state)) <= R.constants.MAX_CONTEXT_BYTES);
   roundTrip(state);
 });
 
@@ -241,7 +241,7 @@ test('only the final byte-budgeted retrieval projection contributes direct depen
   const exclusivelyTrimmed = trimmed.filter(id => !expected.includes(id));
   assert.ok(exclusivelyTrimmed.length > 0, 'fixture must omit at least one distinct provenance node');
   assert.ok(exclusivelyTrimmed.every(id => !record.dependencies.includes(id)));
-  assert.ok(CAPS.requestContextBytes(R.context(next)) <= R.constants.MAX_CONTEXT_BYTES);
+  assert.ok(R.contextBudgetBytes(R.context(next)) <= R.constants.MAX_CONTEXT_BYTES);
   roundTrip(next);
 });
 
@@ -322,7 +322,7 @@ test('valid compact packs with over 512 sourced facts remain usable on the next 
   assert.equal(R.validatePack(p).ok, true);
   let state = turn(R.create(p), '开始', [{ type: 'log.note', text: '开始' }]);
   assert.equal(Object.keys(state.facts).length, 640);
-  assert.ok(CAPS.requestContextBytes(R.context(state)) < R.constants.MAX_CONTEXT_BYTES);
+  assert.ok(R.contextBudgetBytes(R.context(state)) < R.constants.MAX_CONTEXT_BYTES);
   state = turn(state, '继续');
   assert.equal(state.revision, 2);
   roundTrip(state);
@@ -405,7 +405,7 @@ test('source-free inventory makes fourteen occupied slots manageable without ret
   state = turn(state, '现在平静下来', [{ type: 'character.update', changes: { mood: '平静' } }]);
   const mood = state.recall.records[state.recall.bindings[M.recordIds.character('mood')]];
   assert.ok(mood.dependencies.every(id => !blockedRecords.has(id)), 'management inventory must not expose suppressed content as model dependencies');
-  assert.ok(CAPS.requestContextBytes(R.context(state)) <= R.constants.MAX_CONTEXT_BYTES);
+  assert.ok(R.contextBudgetBytes(R.context(state)) <= R.constants.MAX_CONTEXT_BYTES);
   roundTrip(state);
 });
 
@@ -421,8 +421,8 @@ test('a near-limit pinned rules3 save restores without dropping facts, objects o
   assert.equal(restored.ok, true, JSON.stringify(restored.error));
   const state = restored.state, ctx = R.context(state);
   assert.equal(state.memories.length, 14); assert.equal(state.world.objects.length, 2);
-  assert.ok(CAPS.requestContextBytes(ctx) > 80 * 1024, 'fixture must exceed the former rules4 allowance');
-  assert.ok(CAPS.requestContextBytes(ctx) <= R.constants.MAX_CONTEXT_BYTES);
+  assert.ok(R.contextBudgetBytes(ctx) > 80 * 1024, 'fixture must exceed the former rules4 allowance');
+  assert.ok(R.contextBudgetBytes(ctx) <= R.constants.MAX_CONTEXT_BYTES);
   assert.deepEqual(state.events, saved.events);
   assert.ok(state.memories.every(memory => memory.source.text === input && memory.currentRevision.text === input && memory.body === slash.repeat(240)));
   assert.deepEqual(state.world.objects.map(object => ({ x: object.x, y: object.y, source: object.source.createdBy })), [{ x: 0, y: 0, source: input }, { x: 24, y: 0, source: input }]);
