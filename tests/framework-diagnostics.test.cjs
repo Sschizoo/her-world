@@ -7,6 +7,7 @@ const R = require('../framework/runtime.js');
 const PACKS = require('../framework/packs.js');
 const VALIDATOR = require('../framework/pack-validator.js');
 const UI = require('../framework/app.js');
+const M = require('../framework/model.js');
 const clone = value => JSON.parse(JSON.stringify(value));
 const secret = 'sk-TEST_ONLY_NEVER_ECHO_987654321';
 const panel = () => ({ type: 'panel.open', panel: 'world' });
@@ -222,6 +223,84 @@ test('app accepts row location only with a matching fixed JSON row diagnostic', 
   }
 });
 
+async function modelLines(schema, lines, topic = null) {
+  const raw = { schema, ...(schema === 'her-world-turn-v4' ? { requestedChanges: [] } : {}), lines, topic };
+  let calls = 0;
+  const model = M.create({ fetch: async () => {
+    calls++;
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(raw) }, finish_reason: 'stop' }] }), { status: 200 });
+  } });
+  assert.equal(model.connect('MOCK_ONLY_LINES_DIAGNOSTIC_KEY'), true);
+  try { return await model.request({ context: R.context(fresh()), input: '你好。' }); }
+  finally { assert.equal(calls, 1); assert.equal(model.calls(), 1); model.disconnect(); }
+}
+const sentenceRow = schema => ({ text: secret, ...(schema === 'her-world-turn-v4' ? { mode: 'discussion' } : {}), operations: [] });
+for (const schema of ['her-world-turn-v3', 'her-world-turn-v4']) {
+  for (const [shape, linesReason, makeLines] of [
+    ['non-array', 'LINES_ARRAY_REQUIRED', () => ({ [secret]: secret })],
+    ['empty', 'LINES_EMPTY', () => []],
+    ['over limit', 'LINES_LIMIT', () => Array.from({ length: 5 }, () => sentenceRow(schema))]
+  ]) test(schema + ' ' + shape + ' lines retains the primary error and exposes only a fixed reason', async () => {
+    const lines = makeLines(), before = JSON.stringify(lines);
+    const diagnostic = { stage: 'JSON', code: 'TURN_LINES_INVALID', path: 'content', linesReason };
+    let failure;
+    await assert.rejects(modelLines(schema, lines, secret), error => {
+      failure = error;
+      assert(error instanceof M.SafeError);
+      assert.equal(error.code, 'format'); assert.equal(error.httpStatus, 200);
+      assert.deepEqual(error.diagnostic, diagnostic);
+      assert.equal(JSON.stringify(error).includes(secret), false); assert.equal(error.message.includes(secret), false);
+      return true;
+    });
+    assert.equal(JSON.stringify(lines), before);
+    const r = ui(async () => { throw failure; });
+    assert.deepEqual(await r.send(), { code: 'format', httpStatus: 200, stage: 'JSON', detail: 'TURN_LINES_INVALID', path: 'content', linesReason });
+    assert.match(r.ids['developer-content'].textContent, new RegExp(linesReason));
+    for (const id of ['developer-content', 'request-error-text', 'transcript']) assert.equal(r.ids[id].textContent.includes(secret), false);
+  });
+}
+
+test('line-shape diagnostics retain the one-to-four-row acceptance boundary for both sentence protocols', async () => {
+  for (const schema of ['her-world-turn-v3', 'her-world-turn-v4']) {
+    for (const lines of [null, false, 0, secret, {}]) await assert.rejects(modelLines(schema, lines), error => {
+      assert.deepEqual(error.diagnostic, { stage: 'JSON', code: 'TURN_LINES_INVALID', path: 'content', linesReason: 'LINES_ARRAY_REQUIRED' }); return true;
+    });
+    for (let count = 0; count <= 6; count++) {
+      const lines = Array.from({ length: count }, () => sentenceRow(schema));
+      if (count >= 1 && count <= 4) assert.deepEqual(await modelLines(schema, lines), { schema: 'her-world-turn-v2', lines: Array(count).fill(secret), beats: [], topic: null });
+      else await assert.rejects(modelLines(schema, lines), error => {
+        assert.deepEqual(error.diagnostic, { stage: 'JSON', code: 'TURN_LINES_INVALID', path: 'content', linesReason: count === 0 ? 'LINES_EMPTY' : 'LINES_LIMIT' }); return true;
+      });
+    }
+    await assert.rejects(modelLines(schema, [secret]), error => {
+      assert.deepEqual(error.diagnostic, { stage: 'JSON', code: 'TURN_ROW_FIELDS', path: 'content', rowIndex: 0 }); return true;
+    });
+  }
+});
+
+test('model and app only allow fixed line-shape reasons on the matching JSON diagnostic', async () => {
+  const base = { stage: 'JSON', code: 'TURN_LINES_INVALID', path: 'content', linesReason: 'LINES_EMPTY' };
+  for (const change of [
+    { linesReason: secret }, { linesReason: 'constructor' }, { linesReason: '' }, { linesReason: 0 },
+    { linesReason: ['LINES_EMPTY'] }, { linesReason: { toString() { throw Error(secret); } } },
+    { stage: 'FINAL_CONTENT' }, { path: 'root' }, { code: 'TURN_ROW_TEXT' }, { code: 'ROOT_INVALID' }
+  ]) {
+    const diagnostic = { ...base, ...change, text: secret, lines: [secret], [secret]: secret };
+    const safe = new M.SafeError('format', 200, diagnostic);
+    assert.equal(safe.diagnostic.linesReason, undefined);
+    assert.equal(JSON.stringify(safe).includes(secret), false); assert.equal(safe.message.includes(secret), false);
+    const r = ui(async () => { throw { code: 'format', httpStatus: 200, diagnostic, message: secret }; });
+    assert.equal((await r.send()).linesReason, undefined);
+    for (const id of ['developer-content', 'request-error-text', 'transcript']) assert.equal(r.ids[id].textContent.includes(secret), false);
+  }
+  let reads = 0;
+  const accessor = { ...base };
+  Object.defineProperty(accessor, 'linesReason', { enumerable: true, get() { reads++; throw Error(secret); } });
+  assert.equal(new M.SafeError('format', 200, accessor).diagnostic.linesReason, undefined);
+  const guarded = ui(async () => { throw { code: 'format', diagnostic: accessor }; });
+  assert.equal((await guarded.send()).linesReason, undefined); assert.equal(reads, 0);
+});
+
 test('report-source diagnostics expose only fixed categories and bounded row positions', async () => {
   for(const code of ['REPORT_SUPPORT_REQUIRED','REPORT_SUPPORT_INVALID','REPORT_SUPPORT_AMBIGUOUS']){
     const r=ui(async()=>{throw {code:'format',diagnostic:{stage:'JSON',code,path:'content',rowIndex:1,quote:secret},message:secret};});
@@ -251,4 +330,24 @@ test('typed world intent diagnostics remain fixed metadata and never echo suppor
     assert.deepEqual(await r.send(),{code:'format',stage:'JSON',detail:code,path:detail.path,...(row?{rowIndex:1}:{})});
     assert(!r.ids['developer-content'].textContent.includes(secret));
   }
+});
+
+test('memory schema diagnostics expose fixed enums only for structurally rejected memory operations', async () => {
+  const detail = { stage: 'RUNTIME', reason: 'OPERATION_REJECTED', path: 'beats[0].operations[0]', beatIndex: 0, operationIndex: 0, operationType: 'memory.upsert', memoryReason: 'REQUIRED_FIELD_MISSING', memoryField: 'body' };
+  const r = ui(async () => { throw { code: 'invalid', ruleCode: 'OPERATION_INVALID', diagnostic: { ...detail, [secret]: secret, body: secret, id: secret, support: { quote: secret } }, message: secret }; });
+  assert.deepEqual(await r.send(), { code: 'invalid', rule: 'OPERATION_INVALID', ...detail });
+  assert.match(r.ids['developer-content'].textContent, /REQUIRED_FIELD_MISSING/);
+  for (const id of ['developer-content', 'request-error-text', 'transcript']) assert(!r.ids[id].textContent.includes(secret));
+  for (const change of [{ memoryReason: secret }, { memoryField: secret }, { operationType: 'world.remove' }]) {
+    const forged = ui(async () => { throw { code: 'invalid', ruleCode: 'OPERATION_INVALID', diagnostic: { ...detail, ...change } }; });
+    const result = await forged.send(); assert.equal(result.memoryField, undefined);
+    if (change.memoryReason || change.operationType) assert.equal(result.memoryReason, undefined);
+    assert(!JSON.stringify(result).includes(secret));
+  }
+  const unrelated = ui(async () => { throw { code: 'invalid', ruleCode: 'MEMORY_CLAIM_INVALID', diagnostic: detail }; });
+  const value = await unrelated.send(); assert.equal(value.memoryReason, undefined); assert.equal(value.memoryField, undefined);
+  let reads = 0;
+  const accessor = { ...detail }; Object.defineProperty(accessor, 'memoryReason', { enumerable: true, get() { reads++; throw new Error(secret); } });
+  const guarded = ui(async () => { throw { code: 'invalid', ruleCode: 'OPERATION_INVALID', diagnostic: accessor }; });
+  assert.equal((await guarded.send()).memoryReason, undefined); assert.equal(reads, 0);
 });

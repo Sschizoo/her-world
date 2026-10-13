@@ -175,7 +175,7 @@ test('every capability subset fits the unchanged wire bound with maximally escap
   worst.facts.boundary = 'x'.repeat(R.constants.MAX_CONTEXT_BYTES - R.contextBudgetBytes(worst));
   assert.equal(R.contextBudgetBytes(worst), R.constants.MAX_CONTEXT_BYTES);
   assert.equal(wire(worst, '\ud800'.repeat(200)), maximum);
-  assert.equal(maximum, 128739); // Includes the final source-classification prompt; the 128 KiB cap is unchanged.
+  assert.equal(maximum, 130497); // Current source-classification, visitor-reference and relative-placement prompt; the 128 KiB cap is unchanged.
   const over = clone(worst); over.facts.boundary += 'x'.repeat(128 * 1024 - maximum + 1);
   assert.throws(() => M.buildRequest(over, '\ud800'.repeat(200)), error => error.diagnostic?.code === 'REQUEST_TOO_LARGE');
 });

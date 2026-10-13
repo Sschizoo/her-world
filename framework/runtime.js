@@ -639,6 +639,7 @@
               diagnostic = { stage: 'RUNTIME', reason: 'OPERATION_REJECTED', path: 'beats[' + beatIndex + '].operations[' + operationIndex + ']', beatIndex, operationIndex };
               if (typeof op?.type === 'string' && CAPS.ids.includes(op.type)) diagnostic.operationType = op.type;
               Object.assign(diagnostic, geometryDiagnostic(error, op, next));
+              if (error.code === 'OPERATION_INVALID') Object.assign(diagnostic, CAPS.memoryDiagnostic(op, rulesVersion));
               if (error.code === 'EVIDENCE_INVALID') {
                 diagnostic.reason = typeof op?.evidence === 'string' && input.includes(op.evidence) ? 'EVIDENCE_INPUT_EXCERPT' : 'EVIDENCE_INPUT_MISMATCH';
                 diagnostic.path += '.evidence';

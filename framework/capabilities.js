@@ -112,6 +112,56 @@
     const selected = registryFor(rulesVersion);
     return Boolean(selected && plain(operation) && Object.prototype.hasOwnProperty.call(selected, operation.type) && matches(operation, selected[operation.type].schema));
   }
+  // Diagnostic-only: callers use this after the unchanged validation gate.
+  // Never return supplied keys, values, text, offsets, IDs or source metadata.
+  // Read data properties without invoking model/caller-provided accessors.
+  function memoryDiagnostic(operation, rulesVersion = '4') {
+    const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+    const data = (object, key) => {
+      const property = Object.getOwnPropertyDescriptor(object, key);
+      return property && own(property, 'value') ? property.value : undefined;
+    };
+    const detail = (memoryReason, memoryField) => ({ memoryReason, ...(memoryField ? { memoryField } : {}) });
+    const fieldFailure = (value, schema, field) => {
+      if (schema.type === 'string') {
+        if (typeof value !== 'string') return detail('TYPE_INVALID', field);
+        if ([...value].length < (schema.minLength || 0) || [...value].length > (schema.maxLength || Infinity)) return detail('STRING_LENGTH_INVALID', field);
+        if (schema.enum && !schema.enum.includes(value)) return detail('ENUM_INVALID', field);
+        if (schema.pattern && !new RegExp(schema.pattern, 'u').test(value)) return detail('ID_FORMAT_INVALID', field);
+      } else if (schema.type === 'integer') {
+        if (!Number.isInteger(value)) return detail('TYPE_INVALID', field);
+        if (value < schema.minimum || value > schema.maximum) return detail('NUMBER_RANGE_INVALID', field);
+      }
+      return null;
+    };
+    try {
+      if (!plain(operation)) return {};
+      const type = data(operation, 'type');
+      if (!['memory.upsert', 'memory.remove'].includes(type)) return {};
+      const schema = registryFor(rulesVersion)?.[type].schema;
+      if (!schema) return {};
+      for (const field of ['id', 'title', 'body']) if (schema.required.includes(field) && !own(operation, field)) return detail('REQUIRED_FIELD_MISSING', field);
+      if (Object.keys(operation).some(field => !own(schema.properties, field))) return detail('UNKNOWN_FIELD');
+      for (const field of ['id', 'title', 'body', 'kind', 'perspective', 'evidence']) {
+        if (!own(operation, field) || !own(schema.properties, field)) continue;
+        const failure = fieldFailure(data(operation, field), schema.properties[field], field);
+        if (failure) return failure;
+      }
+      if (own(operation, 'support') && own(schema.properties, 'support')) {
+        const support = data(operation, 'support'), supportSchema = schema.properties.support;
+        if (!plain(support)) return detail('TYPE_INVALID', 'support');
+        if (!own(support, 'quote')) return detail('REQUIRED_FIELD_MISSING', 'support.quote');
+        if (Object.keys(support).some(field => !own(supportSchema.properties, field))) return detail('UNKNOWN_FIELD', 'support');
+        for (const [field, label] of [['quote', 'support.quote'], ['start', 'support.start'], ['end', 'support.end']]) {
+          if (!own(support, field)) continue;
+          const failure = fieldFailure(data(support, field), supportSchema.properties[field], label);
+          if (failure) return failure;
+        }
+        if (own(support, 'start') !== own(support, 'end')) return detail('SUPPORT_OFFSETS_UNPAIRED', 'support');
+      }
+      return {};
+    } catch (_) { return {}; }
+  }
   function sceneReferences(world, enabled, entities) {
     const objects = world.objects.map(item => item.id), landmarks = Object.keys(world.landmarks);
     const free = Math.max(0, world.capacity - objects.length);
@@ -207,5 +257,5 @@
     return [...encoded].reduce((total, character) => { const point = character.codePointAt(0); return total + (point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4); }, 0);
   }
 
-  return freeze({ SCHEMA: 'her-world-turn-v2', RULES_VERSION: '4', MAX_OPERATIONS, weatherKinds, ids: Object.keys(registry), panels, descriptors, validate, modelDefinition, requestContextBytes });
+  return freeze({ SCHEMA: 'her-world-turn-v2', RULES_VERSION: '4', MAX_OPERATIONS, weatherKinds, ids: Object.keys(registry), panels, descriptors, validate, memoryDiagnostic, modelDefinition, requestContextBytes });
 });

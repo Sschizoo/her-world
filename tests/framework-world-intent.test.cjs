@@ -28,13 +28,14 @@ async function adapt(raw, input, state = fresh(), inspect) {
   try { return await adapter.request({ context: Runtime.context(state), input }); }
   finally { assert.equal(calls, 1, 'intent classification must use the original single model call'); adapter.disconnect(); }
 }
-async function rejected(raw, input, code, rowIndex, state) {
+async function rejected(raw, input, code, rowIndex, state, linesReason) {
   await assert.rejects(adapt(raw, input, state), error => {
     assert.equal(error.code, 'format');
     assert.equal(error.httpStatus, 200);
     assert.equal(error.diagnostic.code, code);
     assert.equal(error.diagnostic.rowIndex, rowIndex);
-    assert.deepEqual(Object.keys(error.diagnostic).sort(), (rowIndex === undefined ? ['stage', 'code', 'path'] : ['stage', 'code', 'path', 'rowIndex']).sort());
+    assert.equal(error.diagnostic.linesReason, linesReason);
+    assert.deepEqual(Object.keys(error.diagnostic).sort(), ['stage', 'code', 'path', ...(rowIndex === undefined ? [] : ['rowIndex']), ...(linesReason === undefined ? [] : ['linesReason'])].sort());
     assert.equal(error.diagnostic.stage, 'JSON');
     assert(!error.message.includes(key));
     assert(!error.message.includes(input));
@@ -209,7 +210,7 @@ test('v4 row timing, cardinality, Unicode text and total operation bounds remain
   await rejected(v4([missing]), input, 'TURN_ROW_FIELDS', 0);
   await rejected(v4([{ ...row(), afterLine: 0 }]), input, 'TURN_ROW_FIELDS', 0);
   await rejected(v4([row([], 'discussion', '🌧'.repeat(501))]), input, 'TURN_ROW_TEXT', 0);
-  for (const length of [0, 5]) await rejected(v4(Array.from({ length }, () => row())), input, 'TURN_LINES_INVALID');
+  for (const length of [0, 5]) await rejected(v4(Array.from({ length }, () => row())), input, 'TURN_LINES_INVALID', undefined, undefined, length === 0 ? 'LINES_EMPTY' : 'LINES_LIMIT');
   const note = { type: 'log.note', text: '安静地听着。' };
   const max = await adapt(v4([row(Array.from({ length: 12 }, () => note), 'discussion', '🌧'.repeat(500))]), input);
   assert.equal(max.beats[0].operations.length, 12);

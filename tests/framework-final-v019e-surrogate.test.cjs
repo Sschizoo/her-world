@@ -1,8 +1,9 @@
 'use strict';
-/* Final v0.1.9 attribution-prompt captures: the first independent substitute
- * responses, generation-time request hashes and responder receipts are frozen.
- * Unlike historical compatibility fixtures, every request here must match the
- * current production request exactly. Transport is mocked and the real app runs
+/* Historical final v0.1.9 attribution-prompt captures: first independent
+ * substitute responses, generation-time request hashes and responder receipts
+ * are frozen. Current visitor-reference and relative-placement clarifications
+ * postdate these captures, so these are compatibility replays, not evidence of
+ * generation against today's prompt. Transport is mocked and the real app runs
  * in a DOM harness; these tests are not browser or GLM/provider evidence. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -34,12 +35,15 @@ const dimensions = object => ({
 });
 const operations = record => JSON.parse(record.raw).lines.flatMap(line => line.operations);
 
-function assertCapture(record, request) {
+function assertHistoricalCapture(record, request) {
   assert.equal(record.requestUnchanged, true);
   assert(!Number.isNaN(Date.parse(record.capturedAt)));
   assert.equal(sha(record.raw), record.sha256, 'first raw response remains byte-identical');
-  assert.equal(sha(JSON.stringify(request)), record.requestSha256, 'current production request body equals the generation-time request');
-  assert.equal(sha(JSON.stringify(request, null, 2)), record.requestFileSha256, 'current production request file equals the independently received file');
+  // Pinned whole-fixture hashes below preserve the generation-time hashes;
+  // never rewrite those captures to make an old response appear current.
+  assert.match(record.requestSha256, /^[a-f0-9]{64}$/, 'historical generation-time request body hash');
+  assert.match(record.requestFileSha256, /^[a-f0-9]{64}$/, 'historical generation-time request file hash');
+  assert.notEqual(sha(JSON.stringify(request)), record.requestSha256, 'current replay request is not a generation-time attestation');
   assert.deepEqual(record.responderReceipt, {
     requestFileSha256: record.requestFileSha256,
     responseSha256: record.sha256
@@ -90,7 +94,6 @@ function transport(records) {
     const record = records[bodies.length];
     assert(record, 'no additional model request');
     bodies.push(options.body);
-    assert.equal(sha(options.body), record.requestSha256, 'actual adapter wire body is attested');
     return new Response(JSON.stringify({ choices: [{ message: { content: record.raw }, finish_reason: 'stop' }] }), { status: 200 });
   } });
   return { model, bodies };
@@ -106,7 +109,7 @@ function replay(collection) {
     try {
       for (const [index, record] of source.records.entries()) {
         const before = state, context = R.context(before), request = M.buildRequest(context, record.input);
-        assertCapture(record, request);
+        assertHistoricalCapture(record, request);
         const canonical = await wire.model.request({ context, input: record.input });
         assert.equal(wire.bodies[index], JSON.stringify(request));
         assert.equal(canonical.schema, 'her-world-turn-v2');
@@ -144,7 +147,7 @@ function replay(collection) {
 }
 
 for (const collection of [lantern, rain]) {
-  test(`${collection.count} final v019e ${collection.pack} captures match current requests, independent receipts and every saved sentence`, async () => {
+  test(`${collection.count} historical final v019e ${collection.pack} captures preserve receipts and replay every saved sentence`, async () => {
     assert.equal(sha(collection.bytes), collection.digest, 'immutable complete fixture file');
     assert.equal(collection.source.records.length, collection.count);
     assert.equal(collection.source.pack, collection.pack);
@@ -159,7 +162,7 @@ for (const collection of [lantern, rain]) {
   });
 }
 
-test('final independent responses distinguish action, true preference, compound preference and hypothetical negative preference', async () => {
+test('historical final independent responses retain action, true preference, compound and hypothetical-negative distinctions', async () => {
   const turns = await replay(lantern), at = index => turns[index].state;
   assert.deepEqual(at(0).memories, [], 'a current request does not become a permanent preference');
   assert.deepEqual(operations(lantern.source.records[0]).map(op => op.type), ['weather.set']);
@@ -192,7 +195,7 @@ test('final independent responses distinguish action, true preference, compound 
   assert(!at(3).memories.some(memory => memory.body === '我喜欢暴雨' || memory.body.includes('如果我说')));
 });
 
-test('final creation precedes purpose and completes from existing objects without duplicate creation or early inspection credit', async () => {
+test('historical final creation still precedes purpose without duplicate objects or early inspection credit', async () => {
   const turns = await replay(lantern), made = turns[4], answered = turns[5];
   assert.deepEqual(made.result.frames.map(frame => frame.world.objects.length), [1, 2]);
   assert.deepEqual(made.state.story.completed, []);
@@ -220,7 +223,7 @@ test('final creation precedes purpose and completes from existing objects withou
   assert.deepEqual(turns[7].state.world.objects, made.state.world.objects);
 });
 
-test('final rain captures separate description and weather, require the logs event, preserve declined identity and align unequal-height objects', async () => {
+test('historical final rain captures retain weather boundaries, logs discovery, declined reference and unequal-height alignment', async () => {
   const turns = await replay(rain), at = index => turns[index].state;
   assert.deepEqual(turns[0].result.frames.map(frame => frame.memories.length), [1, 1]);
   assert.deepEqual(turns[0].result.frames.map(frame => frame.world.weather.intensity), [0, 1]);
@@ -247,7 +250,7 @@ test('final rain captures separate description and weather, require the logs eve
   assert.equal(operations(rain.source.records[3])[1].placement.align, 'bottom');
 });
 
-test('the two final independent routes complete all nine selected-branch nodes', async () => {
+test('the two historical final independent routes still complete all nine selected-branch nodes', async () => {
   const lanternTurns = await replay(lantern), rainTurns = await replay(rain);
   const completed = [
     ...lanternTurns.at(-1).state.story.completed.map(id => `lantern-lab:${id}`),
@@ -276,7 +279,7 @@ function assertRendered(r, frame) {
 }
 
 for (const collection of [lantern, rain]) {
-  test(`the actual app replays all final ${collection.pack} requests, attribution cards, sentence boundaries and required panel clicks`, async t => {
+  test(`the actual app replays historical final ${collection.pack} responses through current requests, attribution cards and sentence boundaries`, async t => {
     const turns = await replay(collection), wire = transport(collection.source.records);
     const r = setup({ model: wire.model, reduced: false, search: '?pack=' + collection.pack });
     t.after(() => r.app.destroy());

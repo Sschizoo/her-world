@@ -12,6 +12,13 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const PANELS = ['world', 'memory', 'focus', 'logs'];
+  const WEATHER_LABELS = Object.freeze({ rain: '雨', snow: '雪', mist: '雾', clear: '晴空' });
+  const ONLINE_STATUS = Object.freeze({
+    unverified: Object.freeze({ button: '在线待验证 · 本页临时设置', label: 'UNVERIFIED / AI', note: '访问密码已临时设置，尚未验证服务。首次发送时验证；每次发送会请求模型。' }),
+    responded: Object.freeze({ button: 'AI 已回应 · 本页临时连接', label: 'RESPONSE RECEIVED / AI', note: '每次发送会请求模型 · 只有校验通过的变化会被保留' }),
+    auth_rejected: Object.freeze({ button: '认证或权限被拒 · 检查连接', label: 'AUTH REJECTED / AI', note: '上次请求遭认证或权限拒绝。请检查转发服务与上游配置；不能仅凭此判断密码有误。' }),
+    failed: Object.freeze({ button: '在线请求未完成 · 未自动重试', label: 'REQUEST FAILED / AI', note: '上次请求未完成。不会自动重试；每次发送会再次请求模型。' })
+  });
   const CREDENTIAL_BLOCKED = '这份进度含有当前或先前识别到的连接密码，无法保存。原有记录没有被改写。请先更换密码，并妥善处理已有记录。';
   const FAILURES = Object.freeze({ disconnected: '连接已断开，请重新选择连接方式。', busy: '上一条回应尚未完成。', limit: '本页请求次数已达到上限。', timeout: '等待回应超时。', network: '这次连接没有完成。', response_read: '回应在传输时中断。', auth: '转发服务或上游返回了认证或权限错误，不能仅凭此判断密码是否有误。', quota: '转发服务或模型额度暂不可用。', upstream: '模型服务暂时不可用。', format: '回应格式不符合约定。', truncated: '回应没有完整返回。', empty: '模型没有返回可用的回应。', cancelled: '这次回应已取消。', invalid: '回应中的变化未通过本地规则校验。' });
   const RUNTIME_CODES = new Set(["ANSWER_BOUNDARY", "ANSWER_UNAVAILABLE", "BEATS_INVALID", "CAPABILITY_DISABLED", "CHOICE_INVALID", "CONSENT_REQUIRED", "CONTEXT_CAPACITY", "CURSOR_INVALID", "EVENT_CAPACITY", "EVENT_INVALID", "EVIDENCE_INVALID", "GEOMETRY_INVALID", "IMPORT_ANNOTATION", "IMPORT_FACTS", "IMPORT_INVALID", "IMPORT_MEMORY", "IMPORT_OBJECT", "IMPORT_ORIGIN", "IMPORT_TRANSCRIPT", "IMPORT_WEATHER", "IMPORT_WORLD", "INPUT_INVALID", "LINES_INVALID", "MEMORY_CAPACITY", "OBSERVATION_INVALID", "OPERATION_CAPACITY", "OPERATION_EMPTY", "OPERATION_INVALID", "PACK_INVALID", "PACK_MISMATCH", "PLACEMENT_INVALID", "PLACEMENT_TARGET", "PLAN_INVALID", "PROTOCOL_TEXT", "QUESTION_UNAVAILABLE", "RELATIONSHIP_BOUND", "REPLAY_INVALID", "SAVE_INVALID", "STALE_PROPOSAL", "STATE_INVALID", "TARGET_MISSING", "TEXT_INVALID", "TOPIC_INVALID", "WORLD_CAPACITY"]);
@@ -53,6 +60,12 @@
     }
     // Rebuild the display object; never copy model/provider metadata wholesale.
     if (typeof detail.path !== 'string' || detail.path !== path) return null;
+    if (['memory.upsert','memory.remove'].includes(result.operationType) && rule === 'OPERATION_INVALID') {
+      if (['REQUIRED_FIELD_MISSING','UNKNOWN_FIELD','TYPE_INVALID','STRING_LENGTH_INVALID','ENUM_INVALID','ID_FORMAT_INVALID','NUMBER_RANGE_INVALID','SUPPORT_OFFSETS_UNPAIRED'].includes(detail.memoryReason)) {
+        result.memoryReason = detail.memoryReason;
+        if (['id','title','body','kind','perspective','evidence','support','support.quote','support.start','support.end'].includes(detail.memoryField)) result.memoryField = detail.memoryField;
+      }
+    }
     if (['world.create','world.update'].includes(result.operationType) && ['OPERATION_INVALID','TARGET_MISSING','PLACEMENT_INVALID','PLACEMENT_TARGET','PLACEMENT_CAPACITY','GEOMETRY_INVALID','WORLD_CAPACITY'].includes(rule)) {
       if (['SCHEMA_INVALID','OBJECT_TARGET_MISSING','OBJECT_LABEL_USED','REFERENCE_TARGET_MISSING','REFERENCE_LABEL_USED','LANDMARK_MISSING','SELF_TARGET','FOOTPRINT_INVALID','LANDMARK_FOOTPRINT','OUT_OF_BOUNDS','POSITION_OCCUPIED','NO_FREE_POSITION','SEARCH_BUDGET','SEARCH_CHOICE','WORLD_CAPACITY'].includes(detail.geometryReason)) result.geometryReason = detail.geometryReason;
       if (['sky','ground','keep_center','keep_base','window_left','window_right','window_below','above','below','left_of','right_of'].includes(detail.placementAnchor)) result.placementAnchor = detail.placementAnchor;
@@ -89,7 +102,7 @@
     if (!available.length) throw new Error('packs_missing');
     const desired = query && query.get('pack');
     let pack = packs.get(desired) || packs.get(available[0].id), state, visible;
-    let mode = null, activePanel = 'world', navigation = 0, generation = 0, pending = null, revealing = null;
+    let mode = null, onlineStatus = 'unverified', activePanel = 'world', navigation = 0, generation = 0, pending = null, revealing = null;
     let lastFailure = null, currentBeat = null, saveProblem = false, toastTimer = null, destroyed = false, pageHidden = false, unobservedPanel = false, saveProtected = false, legacyCandidate = null, migrationBackupFailed = false, migrationBackedUp = false;
     const media = win.matchMedia ? win.matchMedia('(prefers-reduced-motion: reduce)') : null;
     let reduced = !!(media && media.matches), immediate = reduced;
@@ -127,6 +140,7 @@
     function protectBuffers(phase) {
       if (phase === 'connected') checkedStates = new WeakSet();
       if (phase === 'before-clear' || phase === 'connected') {
+        onlineStatus = 'unverified';
         generation++;
         if (pending && pending.controller) pending.controller.abort();
         pending = null;
@@ -349,13 +363,14 @@
       const world = view.world || {}, objects = list(world.objects), weather = world.weather || {};
       cached('world', world, () => {
         text('object-count', String(objects.length).padStart(2, '0'));
-        const weatherName = weather.name || (weather.kind === 'rain' ? '雨' : weather.kind === 'snow' ? '雪' : weather.kind === 'mist' ? '雾' : '晴空');
+        const weatherKind = WEATHER_LABELS[weather.kind] || '未知天气';
+        const weatherName = weather.name ? '名称：' + weather.name : '';
         const weatherState = weather.paused ? '暂停' : Number(weather.intensity) > 0 ? '强度 ' + weather.intensity : '安静';
-        text('weather-status', weatherName + ' / ' + weatherState);
-        text('world-status', objects.length + ' objects · ' + weatherState);
+        text('weather-status', weatherKind + ' / ' + weatherState + (weatherName ? ' · ' + weatherName : ''));
+        text('world-status', objects.length + ' objects · ' + weatherKind + ' · ' + weatherState);
         text('world-caption', weather.name || (objects.length ? objects[objects.length - 1].label : '一处可以慢慢填满的空白'));
         text('world-code', 'world.objects = ' + objects.length + ';');
-        text('world-summary', '天气：' + weatherName + ' · ' + weatherState + '　物件 ' + objects.length + ' / ' + (world.capacity || '—') + (source(weather.source) ? '　来源：' + source(weather.source) : ''));
+        text('world-summary', '天气：' + weatherKind + ' · ' + weatherState + (weatherName ? '　' + weatherName : '') + '　物件 ' + objects.length + ' / ' + (world.capacity || '—') + (source(weather.source) ? '　来源：' + source(weather.source) : ''));
         const container = $('objects-list'); container.replaceChildren();
         objects.forEach(object => {
           const annotation = (world.annotations || {})[object.id] || {};
@@ -426,7 +441,12 @@
     }
     function renderInvitation(view) {
       const questions = list(view.pendingQuestions), current = questions.find(q => q.id === view.activeQuestionId) || questions.find(q => q.topic === (view.story || {}).topic && !q.deferred) || questions.find(q => !q.deferred) || questions[0];
-      cached('question', current || null, () => { $('story-invitation').hidden = !current; text('invitation-question', current ? current.text + (current.deferred ? '（已暂放）' : '') : ''); });
+      cached('question', current || null, () => {
+        $('story-invitation').hidden = !current;
+        text('invitation-question', current ? current.text + (current.deferred ? '（已暂放）' : '') : '');
+        $('invitation-save-note').hidden = !current || current.kind !== 'consent';
+        text('invitation-save-note', '来访者引用是故事中的选择，不是本地保存开关。对话和选择仍按本地存档规则保存；拒绝或暂缓本身不会删除已有记忆与历史。');
+      });
       cached('hints', { mode, pack: pack.id, question: current && current.id, weather: view.world && view.world.weather, objects: list(view.world && view.world.objects).map(o => ({ id: o.id, label: o.label })) }, () => {
         const hints = [];
         if (Array.isArray(pack.hints)) hints.push(...pack.hints.map(h => typeof h === 'string' ? h : h.text).filter(Boolean));
@@ -461,6 +481,7 @@
     function renderView(view) { visible = view; renderWorld(view); renderMemory(view); renderLogs(view); renderFocus(view); renderInvitation(view); renderDeveloper(); }
     function controls() {
       const busy = !!(pending || revealing || pendingCommit);
+      const online = ONLINE_STATUS[onlineStatus];
       $('free-send').disabled = busy || saveConflict; $('free-input').disabled = busy;
       $('pack-select').disabled = saveConflict || hasUnsavedState();
       list($('hint-list').children).forEach(button => { button.disabled = busy; });
@@ -472,9 +493,9 @@
       $('start-button').hidden = !!mode;
       $('disconnect-button').hidden = !model.connected();
       $('retry-button').disabled = retryInput === null || !model.connected(); $('fallback-button').disabled = retryInput === null;
-      text('connection-button', mode === 'online' ? 'AI 已连接 · 本页临时连接' : mode === 'offline' ? '离线规则试玩 · 有限测试表达' : '未连接 · 选择试玩模式');
-      text('connection-label', pendingCommit ? 'WAITING FOR LOCAL SAVE' : pending ? 'WAITING FOR RESPONSE' : revealing ? 'SHE IS SPEAKING' : mode === 'online' ? 'CONNECTED / AI' : mode === 'offline' ? 'OFFLINE / RULES' : 'WAITING FOR YOU');
-      text('input-note', pendingCommit ? '回应已校验，正在等待本地保存。可以取消；取消后回应不会提交，输入仍在。' : pending ? '正在等待回应，尚未改变世界。可以取消。' : revealing ? '变化会跟随对应的那一句出现，按空格可显示本句。' : mode === 'offline' ? '离线规则只理解有限表达 · 提示只填入，不会发送' : mode === 'online' ? '每次发送会请求模型 · 只有校验通过的变化会被保留' : '尚未选择连接方式 · 可以先写下想说的话');
+      text('connection-button', mode === 'online' ? online.button : mode === 'offline' ? '离线规则试玩 · 有限测试表达' : '未连接 · 选择试玩模式');
+      text('connection-label', pendingCommit ? 'WAITING FOR LOCAL SAVE' : pending ? 'WAITING FOR RESPONSE' : revealing ? 'SHE IS SPEAKING' : mode === 'online' ? online.label : mode === 'offline' ? 'OFFLINE / RULES' : 'WAITING FOR YOU');
+      text('input-note', pendingCommit ? '回应已校验，正在等待本地保存。可以取消；取消后回应不会提交，输入仍在。' : pending ? '正在等待回应，尚未改变世界。可以取消。' : revealing ? '变化会跟随对应的那一句出现，按空格可显示本句。' : mode === 'offline' ? '离线规则只理解有限表达 · 提示只填入，不会发送' : mode === 'online' ? online.note : '尚未选择连接方式 · 可以先写下想说的话');
       const motionOff = immediate || reduced;
       $('motion-toggle').setAttribute('aria-pressed', String(motionOff)); $('motion-toggle').disabled = reduced;
       $('motion-toggle').setAttribute('title', reduced ? '系统已开启减少动态效果' : motionOff ? '恢复逐句文字和场景动画' : '暂停场景动画并立即显示文字');
@@ -567,7 +588,7 @@
       if (Number.isInteger(status) && status >= 100 && status <= 599) lastFailure.httpStatus = status;
       if (code === 'invalid' && RUNTIME_CODES.has(rule)) lastFailure.rule = rule;
       const suppliedDetail = data(error, 'diagnostic'), detail = {};
-      for (const name of ['stage','code','path','rowIndex','reason','beatIndex','operationIndex','operationType','geometryReason','placementAnchor','placementPolicy','footprintCols','footprintRows','occupiedCount']) {
+      for (const name of ['stage','code','path','rowIndex','linesReason','reason','beatIndex','operationIndex','operationType','memoryReason','memoryField','geometryReason','placementAnchor','placementPolicy','footprintCols','footprintRows','occupiedCount']) {
         const value = data(suppliedDetail, name);
         if (typeof value === 'string' || typeof value === 'number' && Number.isFinite(value)) detail[name] = value;
       }
@@ -577,6 +598,7 @@
         else if (detail.stage === 'HTTP' && detail.path === 'response' && Object.prototype.hasOwnProperty.call(PROXY_DIAGNOSTICS, detail.code) && PROXY_DIAGNOSTICS[detail.code] === lastFailure.httpStatus) lastFailure.detail = detail.code;
         if (DIAGNOSTIC_PATHS.has(detail.path)) lastFailure.path = detail.path;
         if (detail.stage === 'JSON' && detail.path === 'content' && ['TURN_ROW_FIELDS', 'TURN_ROW_TEXT', 'TURN_ROW_MODE', 'TURN_ROW_OPERATIONS', 'TURN_OPERATION_LIMIT', 'REPORT_SUPPORT_REQUIRED', 'REPORT_SUPPORT_INVALID', 'REPORT_SUPPORT_AMBIGUOUS', 'WORLD_INTENT_REQUIRED', 'WORLD_INTENT_DISCUSSION'].includes(detail.code) && Number.isInteger(detail.rowIndex) && detail.rowIndex >= 0 && detail.rowIndex <= 3) lastFailure.rowIndex = detail.rowIndex;
+        if (detail.stage === 'JSON' && detail.path === 'content' && detail.code === 'TURN_LINES_INVALID' && ['LINES_ARRAY_REQUIRED', 'LINES_EMPTY', 'LINES_LIMIT'].includes(detail.linesReason)) lastFailure.linesReason = detail.linesReason;
       }
       const runtimeDetail = runtimeDiagnostic(detail, lastFailure.rule);
       if (runtimeDetail) Object.assign(lastFailure, runtimeDetail);
@@ -676,7 +698,7 @@
       $('request-error').hidden = true; lastFailure = null; clearRetry();
       const token = ++generation, requestNavigation = navigation;
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const base = state; let proposal;
+      const base = state; let proposal, receivedResponse = false;
       try { proposal = runtime.propose(base, { text: input }); }
       catch (_) { toast('这句话暂时无法提交，请检查长度后重试。'); return false; }
       pending = { token, input, controller }; controls(); renderTranscript();
@@ -685,6 +707,9 @@
         const context = runtime.context(base);
         const plan = mode === 'online' ? await model.request({ context, input, signal: controller && controller.signal }) : await offline.respond(context, input);
         if (!pending || token !== generation || state !== base || !checkStoredBase()) return false;
+        // A locally accepted password is only configuration. Record a service
+        // response only for this still-current request, before local game rules.
+        if (mode === 'online') { receivedResponse = true; onlineStatus = 'responded'; }
         const result = mode === 'online' ? runtime.commitModel(base, proposal, plan) : runtime.commit(base, proposal, plan);
         if (!result.ok) throw { code: 'invalid', ruleCode: result.error && result.error.code, diagnostic: result.error && result.error.diagnostic };
         const accepted = await commitCandidate(result.state, () => { pending = null; lastFailure = null; $('free-input').value = ''; beginReveal(result, requestNavigation); });
@@ -693,6 +718,9 @@
       } catch (error) {
         if (!pending || token !== generation || !checkStoredBase()) return false;
         pending = null; renderTranscript(); text('request-error-text', safeFailure(error) + ' 本次对话和世界没有保存或改变。');
+        if (mode === 'online' && !receivedResponse && lastFailure.code !== 'cancelled') {
+          onlineStatus = lastFailure.code === 'auth' && [401, 403].includes(lastFailure.httpStatus) && lastFailure.stage === 'HTTP' ? 'auth_rejected' : 'failed';
+        }
         const rejectedCredential = model.containsCredential(input) || lastFailure.stage === 'LOCAL_CONTEXT' && lastFailure.detail === 'OUTPUT_UNSAFE';
         if (rejectedCredential) { protectBuffers('input'); clearRetry(); } else retryInput = input;
         $('request-error').hidden = false; observePanel(); controls(); return false;
